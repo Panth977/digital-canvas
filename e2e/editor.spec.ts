@@ -81,6 +81,7 @@ test('text: add, edit in place, style, auto height', async ({ page }) => {
   const [t2] = await elements(page);
   expect(t2!.style.fontSize).toBe(80);
   expect(t2!.h).toBeGreaterThan(t1!.h);
+  expect(t2!.w / t1!.w).toBeCloseTo(80 / t1!.style.fontSize, 2); // box scales with the font
 });
 
 test('empty text is removed when editing ends', async ({ page }) => {

@@ -136,7 +136,9 @@ export class EditorState {
     this.update((e) => {
       if (e.type !== 'text') return {};
       const next = { ...e, style: { ...e.style, ...style } };
-      return { style: next.style, h: this.renderer.textHeight(next) };
+      // A new font size scales the box too, so line breaks stay where they were.
+      if (style.fontSize && e.style.fontSize > 0) next.w = e.w * (style.fontSize / e.style.fontSize);
+      return { style: next.style, w: next.w, h: this.renderer.textHeight(next) };
     }, key);
   }
 
