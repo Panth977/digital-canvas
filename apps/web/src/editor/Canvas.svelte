@@ -414,7 +414,7 @@
       else ed.addImageAsset(d.id, at);
       return;
     }
-    for (const f of e.dataTransfer?.files ?? []) await ed.addImageFile(f, at);
+    for (const f of e.dataTransfer?.files ?? []) await ed.addMediaFile(f, at);
   }
 
   // ---- keyboard: space to pan ----

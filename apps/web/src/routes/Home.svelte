@@ -35,8 +35,9 @@
     void refresh();
   });
 
-  async function create(opts: { width: number; height: number; unit: Unit; print?: boolean; title?: string }) {
-    const doc = createDoc(opts);
+  async function create(opts: { width: number; height: number; unit: Unit; print?: boolean; title?: string; video?: boolean }) {
+    let doc = createDoc(opts);
+    if (opts.video) doc = { ...doc, pages: doc.pages.map((p) => ({ ...p, duration: 5 })) };
     await library.store.save({ doc, assets: new Map() });
     router.go({ name: 'editor', id: doc.id });
   }
@@ -143,7 +144,7 @@
     <div class="presets">
       {#each shown as p (p.id)}
         {@const b = previewBox(p)}
-        <button class="preset" data-testid="preset-{p.id}" onclick={() => create({ width: p.width, height: p.height, unit: p.unit, print: p.print, title: p.name })}>
+        <button class="preset" data-testid="preset-{p.id}" onclick={() => create({ width: p.width, height: p.height, unit: p.unit, print: p.print, title: p.name, video: p.video })}>
           <div class="pv"><div class="pv-page" style="width:{b.w}px;height:{b.h}px"></div></div>
           <b>{p.name}</b>
           <span>{sizeLabel(p)}</span>

@@ -131,7 +131,24 @@ export interface ImageElement extends ElementBase {
   crop?: { x: number; y: number; w: number; h: number };
 }
 
-export type Element = ShapeElement | TextElement | ImageElement;
+/** A video clip on the page. Plays while its page is on screen (from the page's start). */
+export interface VideoElement extends ElementBase {
+  type: 'video';
+  /** Key into `Doc.assets` (video/mp4, video/webm…). */
+  asset: string;
+  radius: number;
+  crop?: { x: number; y: number; w: number; h: number };
+  /** Part of the clip to use, in seconds of the file. Absent = the whole clip. */
+  trimStart?: number;
+  trimEnd?: number;
+  /** Start again when the clip ends before the page does. */
+  loop?: boolean;
+  muted?: boolean;
+  /** 0..1 (default 1). */
+  volume?: number;
+}
+
+export type Element = ShapeElement | TextElement | ImageElement | VideoElement;
 export type ElementType = Element['type'];
 
 export interface Page {
@@ -140,6 +157,24 @@ export interface Page {
   background: Fill;
   hidden?: boolean;
   elements: Element[];
+  /** Seconds this page shows in a video or presentation (default 5). */
+  duration?: number;
+}
+
+/** A sound on the design's timeline (music, voice-over). */
+export interface AudioClip {
+  id: string;
+  /** Key into `Doc.assets` (audio/mpeg, audio/mp4, audio/wav…, or a video file's sound). */
+  asset: string;
+  /** Where it starts on the timeline, seconds. */
+  start: number;
+  /** Where in the file it starts, seconds. */
+  offset: number;
+  /** How long it plays, seconds. */
+  duration: number;
+  /** 0..1 (default 1). */
+  volume?: number;
+  name?: string;
 }
 
 export interface AssetMeta {
@@ -150,6 +185,8 @@ export interface AssetMeta {
   height?: number;
   /** Original file name, for the uploads panel. */
   name?: string;
+  /** Length of audio and video files, seconds. */
+  duration?: number;
 }
 
 /** A font face shipped inside the file, so the design looks the same anywhere. */
@@ -184,6 +221,8 @@ export interface Doc {
   assets: Record<string, AssetMeta>;
   /** Fonts the design uses that are not built into the app. */
   fonts?: EmbeddedFont[];
+  /** Sounds on the timeline. */
+  audio?: AudioClip[];
   createdAt: string;
   updatedAt: string;
 }

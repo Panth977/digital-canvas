@@ -1,13 +1,15 @@
 import {
-  History, newId, addElements, addPage, arrange, commonStyle, duplicateElements, duplicatePage, findElement, image, movePage,
+  History, newId, addAudio, addElements, pageDuration, removeAudio, totalDuration, updateAudio, video, addPage, arrange, commonStyle, duplicateElements, duplicatePage, findElement, image, movePage,
   normalizeRuns, pruneAssets, pruneFonts, removeElements, removePage, setTitle, shape, styleRange, text, updateElements, updatePage,
-  type Arrange, type Doc, type Element, type ElementPatch, type EmbeddedFont, type Page, type ShapeKind, type TextElement, type TextRun, type TextStyle,
+  type Arrange, type AudioClip, type Doc, type Element, type ElementPatch, type EmbeddedFont, type Page, type ShapeKind, type TextElement, type TextRun, type TextStyle,
 } from '@digital-canvas/scene';
 import { Renderer } from '@digital-canvas/render';
 import { assetId, type ProjectFile, type ProjectStore } from '@digital-canvas/storage';
 import type { Engine } from './engine.ts';
 import { isImage } from './files.ts';
 import { addCssFace, fetchFamily, type CatalogFont, type FontFile } from './fonts.ts';
+import { isAudioFile, isVideoFile, mediaMime, probeAudio, probeVideo } from './media.ts';
+import { Player } from './player.svelte.ts';
 
 export type SaveState = 'saved' | 'saving' | 'unsaved' | 'error';
 
@@ -42,6 +44,8 @@ export class EditorState {
   fontLoading = $state<string | null>(null);
 
   readonly renderer: Renderer;
+  /** Plays the design as a video (pages, clips, sounds). */
+  readonly player: Player;
   readonly assets: Map<string, Uint8Array>;
   private history: History<Doc>;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -50,6 +54,7 @@ export class EditorState {
 
   constructor(readonly engine: Engine, readonly store: ProjectStore, file: ProjectFile) {
     this.renderer = new Renderer(engine.ck, engine.fonts);
+    this.player = new Player(this);
     this.assets = new Map(file.assets);
     for (const f of file.doc.fonts ?? []) {
       const bytes = this.assets.get(f.asset);
@@ -309,6 +314,90 @@ export class EditorState {
     return id;
   }
 
+  /** Add a dropped or uploaded file: image, video or sound. Returns false when it isn't one we can use. */
+  async addMediaFile(file: File, at?: { x: number; y: number }): Promise<boolean> {
+    if (isImage(file)) return this.addImageFile(file, at);
+    if (isVideoFile(file)) return this.addVideoFile(file, at);
+    if (isAudioFile(file)) return this.addAudioFile(file);
+    return false;
+  }
+
+  async addVideoFile(file: File, at?: { x: number; y: number }): Promise<boolean> {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const mime = mediaMime(file);
+    let info;
+    try {
+      info = await probeVideo(bytes, mime);
+    } catch {
+      return false;
+    }
+    const id = await assetId(bytes, mime);
+    this.assets.set(id, bytes);
+    this.assets.set(`${id}.poster`, info.poster);
+    this.renderer.setImage(`${id}.poster`, info.poster);
+    let doc: Doc = {
+      ...this.doc,
+      assets: {
+        ...this.doc.assets,
+        [id]: { mime, width: info.width, height: info.height, duration: info.duration, name: file.name },
+        [`${id}.poster`]: { mime: 'image/png', width: info.width, height: info.height, name: `${file.name} (poster)` },
+      },
+    };
+    // The page lasts at least as long as the clip (like Canva).
+    const page = this.page;
+    if (page.duration === undefined || page.duration < info.duration) {
+      doc = updatePage(doc, page.id, { duration: Math.round(Math.max(info.duration, page.duration ?? 0) * 10) / 10 || pageDuration(page) });
+    }
+    const box = this.placeBox(info.width, info.height, at);
+    const el = video(id, box);
+    this.commit(addElements(doc, this.pageId, [el]));
+    this.seal();
+    this.select([el.id], this.pageId);
+    void this.player.seek(this.player.time);
+    return true;
+  }
+
+  async addAudioFile(file: File): Promise<boolean> {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const mime = mediaMime(file);
+    let duration: number;
+    try {
+      duration = await probeAudio(bytes, mime);
+    } catch {
+      return false;
+    }
+    const id = await assetId(bytes, mime);
+    this.assets.set(id, bytes);
+    let doc: Doc = { ...this.doc, assets: { ...this.doc.assets, [id]: { mime, duration, name: file.name } } };
+    // A design with sound is a video: give pages their (default) durations.
+    if (!doc.pages.some((p) => p.duration !== undefined)) doc = { ...doc, pages: doc.pages.map((p) => ({ ...p, duration: pageDuration(p) })) };
+    const r = addAudio(doc, { asset: id, start: 0, offset: 0, duration: Math.min(duration, Math.max(totalDuration(doc), 0.1)) || duration, name: file.name.replace(/\.[^.]+$/, '') });
+    this.commit(r.doc);
+    this.seal();
+    return true;
+  }
+
+  updateAudio(id: string, patch: Partial<Omit<AudioClip, 'id'>>, key: string | null = null): void {
+    this.commit(updateAudio(this.doc, id, patch), key);
+  }
+
+  removeAudio(id: string): void {
+    this.commit(removeAudio(this.doc, id));
+    this.seal();
+  }
+
+  addVideoAsset(id: string, at?: { x: number; y: number }): void {
+    const meta = this.doc.assets[id];
+    if (!meta) return;
+    this.add(video(id, this.placeBox(meta.width ?? 640, meta.height ?? 360, at)));
+  }
+
+  private placeBox(w: number, h: number, at?: { x: number; y: number }) {
+    const box = this.place(w, h);
+    if (at) Object.assign(box, { x: at.x - box.w / 2, y: at.y - box.h / 2 });
+    return box;
+  }
+
   async addImageFile(file: File, at?: { x: number; y: number }): Promise<boolean> {
     if (!isImage(file)) return false;
     const id = await this.addAsset(new Uint8Array(await file.arrayBuffer()), file.type, file.name);
@@ -496,6 +585,7 @@ export class EditorState {
   }
 
   dispose(): void {
+    this.player.dispose();
     if (this.saveTimer) clearTimeout(this.saveTimer);
     this.renderer.dispose();
   }
