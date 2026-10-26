@@ -1,0 +1,8 @@
+{
+  "name": "@digital-canvas/storage",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "Apache-2.0",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": { "@digital-canvas/scene": "*", "fflate": "^0.8.2" }
+}

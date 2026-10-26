@@ -1,0 +1,58 @@
+@font-face { font-family: 'Inter'; font-weight: 400; font-style: normal; src: url('/fonts/Inter-Regular.ttf') format('truetype'); font-display: swap; }
+@font-face { font-family: 'Inter'; font-weight: 700; font-style: normal; src: url('/fonts/Inter-Bold.ttf') format('truetype'); font-display: swap; }
+@font-face { font-family: 'Inter'; font-weight: 400; font-style: italic; src: url('/fonts/Inter-Italic.ttf') format('truetype'); font-display: swap; }
+@font-face { font-family: 'Inter'; font-weight: 700; font-style: italic; src: url('/fonts/Inter-BoldItalic.ttf') format('truetype'); font-display: swap; }
+
+:root {
+  --accent: #7c5cff;
+  --accent-2: #00c4cc;
+  --accent-soft: #efeaff;
+  --ink: #0f1115;
+  --ink-2: #3b4250;
+  --muted: #6b7280;
+  --line: #e4e6eb;
+  --panel: #ffffff;
+  --rail: #16171c;
+  --rail-ink: #c9cbd3;
+  --stage: #e9eaef;
+  --danger: #e5484d;
+  --ok: #30a46c;
+  --radius: 10px;
+  --shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 8px 24px rgba(16, 24, 40, .08);
+  font-family: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 14px;
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+* { box-sizing: border-box; }
+html, body, #app { margin: 0; height: 100%; }
+body { background: #f6f7fb; overflow: hidden; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 34px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line);
+  background: #fff; font-weight: 600; white-space: nowrap;
+}
+.btn:hover { background: #f4f5f8; }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn.primary { background: linear-gradient(135deg, var(--accent), #9b7bff); border-color: transparent; color: #fff; }
+.btn.primary:hover { filter: brightness(1.06); }
+.btn.ghost { border-color: transparent; background: transparent; }
+.btn.ghost:hover { background: rgba(0, 0, 0, .06); }
+.btn.icon { width: 34px; padding: 0; }
+.btn.danger { color: var(--danger); }
+.btn.on { background: var(--accent-soft); border-color: #d8ccff; color: var(--accent); }
+
+.field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); font-weight: 600; }
+.input {
+  height: 32px; padding: 0 8px; border: 1px solid var(--line); border-radius: 7px; background: #fff; min-width: 0; width: 100%;
+}
+.input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+
+.svgi { width: 18px; height: 18px; display: block; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+.scroll-y { overflow-y: auto; scrollbar-width: thin; }

@@ -1,0 +1,8 @@
+{
+  "name": "@digital-canvas/render",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "Apache-2.0",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": { "@digital-canvas/scene": "*", "canvaskit-wasm": "^0.42.0" }
+}

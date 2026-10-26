@@ -1,0 +1,58 @@
+<script lang="ts" module>
+  /** Hand-drawn 24×24 stroke icons. */
+  export const ICONS = {
+    home: 'M3 11l9-8 9 8M5 9.5V21h5v-6h4v6h5V9.5',
+    undo: 'M9 14L4 9l5-5M4 9h11a5 5 0 010 10h-3',
+    redo: 'M15 14l5-5-5-5M20 9H9a5 5 0 000 10h3',
+    download: 'M12 3v12m0 0l-5-5m5 5l5-5M4 21h16',
+    shapes: 'M3 3h8v8H3zM17 3a4 4 0 110 8 4 4 0 010-8zM7 13l4.5 8h-9zM13 13h8v8h-8z',
+    text: 'M5 6V4h14v2M12 4v16M9 20h6',
+    upload: 'M12 16V4m0 0L7 9m5-5l5 5M4 20h16',
+    layers: 'M12 3l9 5-9 5-9-5 9-5zM3 13l9 5 9-5M3 17l9 5 9-5',
+    trash: 'M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14',
+    copy: 'M8 8h12v12H8zM4 16V4h12',
+    plus: 'M12 5v14M5 12h14',
+    up: 'M6 15l6-6 6 6',
+    down: 'M6 9l6 6 6-6',
+    lock: 'M6 11h12v10H6zM8 11V7a4 4 0 018 0v4',
+    unlock: 'M6 11h12v10H6zM8 11V7a4 4 0 017.5-2',
+    eye: 'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12zM12 9a3 3 0 110 6 3 3 0 010-6z',
+    eyeoff: 'M3 3l18 18M10.6 5.1A10 10 0 0112 5c6 0 10 7 10 7a17 17 0 01-3.2 3.9M6.6 6.6A17 17 0 002 12s4 7 10 7a9.6 9.6 0 004.3-1',
+    front: 'M8 8h12v12H8zM4 4h10v3M4 4v10h3',
+    back: 'M4 4h12v12H4zM20 8v12H8',
+    flipx: 'M12 3v18M8 7l-5 5 5 5V7zM16 7l5 5-5 5V7z',
+    flipy: 'M3 12h18M7 8l5-5 5 5H7zM7 16l5 5 5-5H7z',
+    alignl: 'M4 3v18M8 7h12v4H8zM8 14h7v4H8z',
+    alignc: 'M12 3v18M6 7h12v4H6zM8.5 14h7v4h-7z',
+    alignr: 'M20 3v18M4 7h12v4H4zM9 14h7v4H9z',
+    alignt: 'M3 4h18M7 8h4v12H7zM14 8h4v7h-4z',
+    alignm: 'M3 12h18M7 6h4v12H7zM14 8.5h4v7h-4z',
+    alignb: 'M3 20h18M7 4h4v12H7zM14 9h4v7h-4z',
+    bold: 'M7 4h6a4 4 0 010 8H7zM7 12h7a4 4 0 010 8H7z',
+    italic: 'M14 4h-4M14 20h-4M14 4l-4 16',
+    underline: 'M7 4v7a5 5 0 0010 0V4M5 21h14',
+    strike: 'M4 12h16M16 7a4 3 0 00-4-2c-2.5 0-4 1.3-4 3M8 17a4 3 0 004 2c2.5 0 4-1.3 4-3',
+    tl: 'M4 6h16M4 10h10M4 14h16M4 18h10',
+    tc: 'M4 6h16M7 10h10M4 14h16M7 18h10',
+    tr: 'M4 6h16M10 10h10M4 14h16M10 18h10',
+    tj: 'M4 6h16M4 10h16M4 14h16M4 18h16',
+    caps: 'M3 18l4-12 4 12M4.5 14h5M14 18l3.5-12L21 18M15 14h5',
+    fit: 'M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5',
+    folder: 'M3 6a1 1 0 011-1h5l2 2h9a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1z',
+    browser: 'M3 5h18v14H3zM3 9h18',
+    drive: 'M8 3h8l6 11-4 7H6l-4-7zM8 3l6 11h8M2 14h12l-4 7',
+    check: 'M5 12l5 5L20 7',
+    cloud: 'M7 18a5 5 0 01-.6-10A6 6 0 0118 9a4.5 4.5 0 01-1 9z',
+    alert: 'M12 9v4M12 17h.01M10.3 3.9L2 18a2 2 0 001.7 3h16.6A2 2 0 0022 18L13.7 3.9a2 2 0 00-3.4 0z',
+    close: 'M6 6l12 12M18 6L6 18',
+    more: 'M5 12h.01M12 12h.01M19 12h.01',
+    image: 'M3 5h18v14H3zM3 16l5-5 4 4 3-3 6 6M15.5 8.5h.01',
+  } as const;
+  export type IconName = keyof typeof ICONS;
+</script>
+
+<script lang="ts">
+  let { name, size = 18 }: { name: IconName; size?: number } = $props();
+</script>
+
+<svg class="svgi" viewBox="0 0 24 24" width={size} height={size} style="width:{size}px;height:{size}px" aria-hidden="true"><path d={ICONS[name]} /></svg>

@@ -1,0 +1,19 @@
+{
+  "name": "digital-canvas",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "workspaces": ["packages/*", "apps/*"],
+  "scripts": {
+    "dev": "npm run dev -w @digital-canvas/web",
+    "build": "npm run build -w @digital-canvas/web",
+    "check": "tsc -p packages/scene && tsc -p packages/render && tsc -p packages/storage && npm run check -w @digital-canvas/web",
+    "test": "vitest run",
+    "e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}
