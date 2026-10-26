@@ -44,7 +44,11 @@ export class EditorState {
   constructor(readonly engine: Engine, readonly store: ProjectStore, file: ProjectFile) {
     this.renderer = new Renderer(engine.ck, engine.fonts);
     this.assets = new Map(file.assets);
-    for (const [id, bytes] of this.assets) this.renderer.setImage(id, bytes);
+    for (const f of file.doc.fonts ?? []) {
+      const bytes = this.assets.get(f.asset);
+      if (bytes) engine.fonts.addOnce(f.family, f.asset, bytes);
+    }
+    for (const [id, bytes] of this.assets) if (file.doc.assets[id]?.mime.startsWith('image/')) this.renderer.setImage(id, bytes);
     this.doc = file.doc;
     this.history = new History(file.doc);
     this.pageId = file.doc.pages[0]!.id;
@@ -136,16 +140,19 @@ export class EditorState {
     this.update((e) => {
       if (e.type !== 'text') return {};
       const next = { ...e, style: { ...e.style, ...style } };
+      // A style set on the whole box replaces the same setting on its runs.
+      if (e.runs) next.runs = e.runs.map((r) => ({ ...r, style: r.style && Object.fromEntries(Object.entries(r.style).filter(([k]) => !(k in style))) }));
       // A new font size scales the box too, so line breaks stay where they were.
       if (style.fontSize && e.style.fontSize > 0) next.w = e.w * (style.fontSize / e.style.fontSize);
-      return { style: next.style, w: next.w, h: this.renderer.textHeight(next) };
+      return { style: next.style, w: next.w, runs: next.runs, h: this.renderer.textHeight(next) };
     }, key);
   }
 
   setText(id: string, value: string): void {
     this.commit(updateElements(this.doc, [id], (e) => {
       if (e.type !== 'text') return {};
-      return { text: value, h: this.renderer.textHeight({ ...e, text: value }) };
+      // Typing replaces the text; mixed styles collapse to the box's style (per-run editing comes with the rich text editor).
+      return { text: value, runs: undefined, h: this.renderer.textHeight({ ...e, text: value, runs: undefined }) };
     }), `text:${id}`);
   }
 

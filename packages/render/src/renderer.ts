@@ -21,6 +21,15 @@ export class FontLibrary {
     this.provider = ck.TypefaceFontProvider.Make();
   }
 
+  private seen = new Set<string>();
+
+  /** Register a face once (keyed by `key`, e.g. its asset id) — safe to call for every opened file. */
+  addOnce(family: string, key: string, bytes: ArrayBuffer | Uint8Array): void {
+    if (this.seen.has(key)) return;
+    this.seen.add(key);
+    this.add(family, bytes);
+  }
+
   add(family: string, bytes: ArrayBuffer | Uint8Array): void {
     this.provider.registerFont(bytes, family);
     this.families.add(family);
@@ -101,27 +110,35 @@ export class Renderer {
 
   private paragraph(el: TextElement): Paragraph {
     const s = el.style;
-    const sig = `${this.fonts.version}|${el.w}|${el.text}|${JSON.stringify(s)}`;
+    const sig = `${this.fonts.version}|${el.w}|${el.text}|${JSON.stringify(s)}|${el.runs ? JSON.stringify(el.runs) : ''}`;
     const hit = this.paragraphs.get(el.id);
     if (hit && hit.sig === sig) return hit.p;
     hit?.p.delete();
     const ck = this.ck;
     const align = { left: ck.TextAlign.Left, center: ck.TextAlign.Center, right: ck.TextAlign.Right, justify: ck.TextAlign.Justify }[s.align];
-    const textStyle = new ck.TextStyle({
-      color: color(ck, s.color),
-      fontFamilies: [s.fontFamily, 'Inter'],
-      fontSize: s.fontSize,
-      fontStyle: { weight: s.bold ? ck.FontWeight.Bold : ck.FontWeight.Normal, slant: s.italic ? ck.FontSlant.Italic : ck.FontSlant.Upright },
-      decoration: (s.underline ? ck.UnderlineDecoration : 0) | (s.strike ? ck.LineThroughDecoration : 0),
+    const toTextStyle = (st: typeof s) => new ck.TextStyle({
+      color: color(ck, st.color),
+      fontFamilies: [st.fontFamily, 'Noto Sans', 'Inter'], // Noto Sans when embedded: Canva's fallback (e.g. ₹)
+      fontSize: st.fontSize,
+      fontStyle: { weight: st.bold ? ck.FontWeight.Bold : ck.FontWeight.Normal, slant: st.italic ? ck.FontSlant.Italic : ck.FontSlant.Upright },
+      decoration: (st.underline ? ck.UnderlineDecoration : 0) | (st.strike ? ck.LineThroughDecoration : 0),
       decorationThickness: 1,
-      heightMultiplier: s.lineHeight,
+      heightMultiplier: st.lineHeight,
       // Spread extra line spacing above and below each line, like CSS (and the in-place text editor).
       halfLeading: true,
-      letterSpacing: s.letterSpacing,
+      letterSpacing: st.letterSpacing,
     });
+    const textStyle = toTextStyle(s);
     const style = new ck.ParagraphStyle({ textStyle, textAlign: align });
     const builder = ck.ParagraphBuilder.MakeFromFontProvider(style, this.fonts.provider);
-    builder.addText(s.uppercase ? el.text.toUpperCase() : el.text);
+    if (el.runs?.length) {
+      for (const run of el.runs) {
+        const st = { ...s, ...run.style };
+        builder.pushStyle(toTextStyle(st));
+        builder.addText(st.uppercase ? run.text.toUpperCase() : run.text);
+        builder.pop();
+      }
+    } else builder.addText(s.uppercase ? el.text.toUpperCase() : el.text);
     const p = builder.build();
     builder.delete();
     p.layout(Math.max(1, el.w));

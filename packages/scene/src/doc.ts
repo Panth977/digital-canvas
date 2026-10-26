@@ -219,10 +219,11 @@ export function setTitle(doc: Doc, title: string): Doc {
   return touch(doc, { title });
 }
 
-/** Elements that point at assets the doc no longer lists are kept; assets no element uses are dropped. */
+/** Assets no image element or embedded font uses are dropped. */
 export function pruneAssets(doc: Doc): Doc {
   const used = new Set<string>();
   for (const p of doc.pages) for (const e of p.elements) if (e.type === 'image') used.add(e.asset);
+  for (const f of doc.fonts ?? []) used.add(f.asset);
   const assets = Object.fromEntries(Object.entries(doc.assets).filter(([k]) => used.has(k)));
   return Object.keys(assets).length === Object.keys(doc.assets).length ? doc : { ...doc, assets };
 }

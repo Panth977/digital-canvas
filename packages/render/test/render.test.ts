@@ -100,3 +100,24 @@ describe('exportPdf', () => {
     expect(height).toBeCloseTo(841.9, 0);
   });
 });
+
+describe('text runs and embedded fonts', () => {
+  it('draws runs with their own colour', () => {
+    const t = { ...text('Red Blue', { x: 0, y: 0, w: 300, h: 60 }, { fontSize: 40, color: '#ff0000' }), runs: [{ text: 'Red ' }, { text: 'Blue', style: { color: '#0000ff' } }] };
+    let doc = createDoc({ width: 300, height: 60 });
+    doc = addElements(doc, doc.pages[0]!.id, [{ ...t, h: renderer.textHeight(t) }]);
+    const p = pixels(renderer.exportPage(doc, doc.pages[0]!));
+    let red = 0, blue = 0;
+    for (let y = 0; y < 60; y++) for (let x = 0; x < 300; x++) { const c = p.at(x, y); if (c[0]! > 200 && c[2]! < 80) red++; if (c[2]! > 200 && c[0]! < 80) blue++; }
+    expect(red).toBeGreaterThan(50);
+    expect(blue).toBeGreaterThan(50);
+  });
+  it('a font registered once by key is not registered again', () => {
+    const fonts = new FontLibrary(ck);
+    const bytes = readFileSync(new URL('Inter-Bold.ttf', fontDir));
+    fonts.addOnce('X', 'k1', bytes);
+    fonts.addOnce('X', 'k1', bytes);
+    expect(fonts.version).toBe(1);
+    fonts.dispose();
+  });
+});

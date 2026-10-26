@@ -17,7 +17,8 @@ import { createRequire } from 'node:module';
 import type { CanvasKit, Image } from 'canvaskit-wasm';
 import { FontLibrary, Renderer } from '@digital-canvas/render';
 import { join } from 'node:path';
-import { FORMAT, VERSION, newId, DEFAULT_TEXT_STYLE, type Doc, type Element, type Page, type TextAlign } from '@digital-canvas/scene';
+import { FORMAT, VERSION, newId, DEFAULT_TEXT_STYLE, type Doc, type Element, type Page, type TextAlign, type TextElement, type TextStyle } from '@digital-canvas/scene';
+import { googleFontFull } from './google-fonts.ts';
 import { pack } from '@digital-canvas/storage';
 
 interface CanvaEl {
@@ -42,6 +43,8 @@ interface CanvaPage {
 }
 
 const argv = process.argv.slice(2);
+const fontsAt = argv.indexOf('--fonts');
+const fontsFile = fontsAt >= 0 ? argv.splice(fontsAt, 2)[1] : undefined;
 const cropsAt = argv.indexOf('--crops');
 const cropsDir = cropsAt >= 0 ? argv.splice(cropsAt, 2)[1] : undefined;
 const [pagesArg, assetsDir, out, title = 'Imported from Canva'] = argv;
@@ -67,6 +70,19 @@ const FONT_LOOK: Record<string, { uppercase?: boolean; bold?: boolean; italic?: 
 };
 
 const ALIGN: Record<string, TextAlign> = { start: 'left', left: 'left', center: 'center', end: 'right', right: 'right', justify: 'justify' };
+
+/**
+ * Canva fontRef → the real font (names come from Canva's PDF export; faces from Google Fonts or a
+ * local file, e.g. subsets merged out of that PDF). Key "_fallback" lists fonts tried for glyphs
+ * the main font lacks (Canva falls back to Noto Sans, e.g. for ₹).
+ */
+interface FontFace { weight: number; italic?: boolean; google?: string; file?: string }
+/** dx/dy (em): where Canva puts this font's text relative to ours (measured by tools/text-offsets.ts). */
+interface MappedFont { family: string; faces: FontFace[]; uppercase?: boolean; dx?: number; dy?: number }
+const fontMap: Record<string, MappedFont> = fontsFile ? JSON.parse(readFileSync(fontsFile, 'utf8')) : {};
+const fallbacks = (fontMap._fallback as unknown as MappedFont[] | undefined) ?? [];
+delete fontMap._fallback;
+const embedded: NonNullable<Doc['fonts']> = [];
 
 let ck: CanvasKit | null = null;
 let measure: Renderer | null = null;
@@ -194,6 +210,31 @@ function cropShot(x: number, y: number, w: number, h: number, myOrder = -1): Uin
   return bytes;
 }
 
+/** Map each source colour to its replacement, keeping each pixel's shading relative to its source. */
+function recolour(png: Uint8Array, map: Record<string, string>): Uint8Array {
+  const img = ck!.MakeImageFromEncoded(png)!;
+  const W = img.width(), H = img.height();
+  const info = { width: W, height: H, colorType: ck!.ColorType.RGBA_8888, alphaType: ck!.AlphaType.Unpremul, colorSpace: ck!.ColorSpace.SRGB };
+  const px = img.readPixels(0, 0, info) as Uint8Array;
+  img.delete();
+  const pairs = Object.entries(map).map(([a, b]) => [hexRgb(a), hexRgb(b)] as const);
+  for (let i = 0; i < W * H; i++) {
+    if (!px[i * 4 + 3]) continue;
+    let best = -1, bd = Infinity;
+    pairs.forEach(([src], k) => {
+      const d = Math.hypot(px[i * 4]! - src[0]!, px[i * 4 + 1]! - src[1]!, px[i * 4 + 2]! - src[2]!);
+      if (d < bd) { bd = d; best = k; }
+    });
+    if (best < 0 || bd > 90) continue;
+    const [src, dst] = pairs[best]!;
+    for (let c = 0; c < 3; c++) px[i * 4 + c] = Math.max(0, Math.min(255, dst[c]! + (px[i * 4 + c]! - src[c]!)));
+  }
+  const out = ck!.MakeImage(info, px, W * 4)!;
+  const bytes = out.encodeToBytes(ck!.ImageFormat.PNG, 100)!;
+  out.delete();
+  return bytes;
+}
+
 function convert(el: CanvaEl): Element[] {
   const myOrder = el.type === 'group' ? -1 : leafOrder++;
   const base = { id: newId('e_'), x: el.left, y: el.top, w: el.width, h: el.height, rotation: el.rotation ?? 0, opacity: el.opacity ?? 1 };
@@ -225,63 +266,77 @@ function convert(el: CanvaEl): Element[] {
   }
   if (el.type === 'rect' && el.fill?.media) {
     const m = el.fill.media;
-    if (m.recoloring) gap('image recolouring ignored');
     const file = join(assetsDir!, `${m.mediaId}.png`);
-    if (existsSync(file) && !assets.has(m.mediaId)) {
-      const bytes = new Uint8Array(readFileSync(file));
-      assets.set(m.mediaId, bytes);
-      assetMeta[m.mediaId] = { mime: 'image/png', ...pngSize(bytes), name: m.mediaId };
+    let assetKey = m.mediaId;
+    if (existsSync(file)) {
+      let bytes = new Uint8Array(readFileSync(file));
+      if (m.recoloring && Object.keys(m.recoloring).length) {
+        // Canva recolours graphics (source colour → new colour): do the same to the pixels.
+        assetKey = `${m.mediaId}-${Object.values(m.recoloring).join('').replace(/#/g, '')}`;
+        bytes = recolour(bytes, m.recoloring);
+        gap('recoloured graphics');
+      }
+      if (!assets.has(assetKey)) {
+        assets.set(assetKey, bytes);
+        assetMeta[assetKey] = { mime: 'image/png', ...pngSize(bytes), name: m.mediaId };
+      }
     }
     if (!existsSync(file)) gap('images Canva would not hand over (placeholder)');
     const b = m.imageBox;
     const crop = { x: -b.left / b.width, y: -b.top / b.height, w: el.width / b.width, h: el.height / b.height };
     const exact = Math.abs(crop.x) < 1e-3 && Math.abs(crop.y) < 1e-3 && Math.abs(crop.w - 1) < 1e-3 && Math.abs(crop.h - 1) < 1e-3;
-    return [{ ...base, type: 'image', asset: m.mediaId, radius: 0, ...(exact ? { crop: { x: 0, y: 0, w: 1, h: 1 } } : { crop }), flipX: el.fill.flipX || undefined, flipY: el.fill.flipY || undefined }];
+    return [{ ...base, type: 'image', asset: assetKey, radius: 0, ...(exact ? { crop: { x: 0, y: 0, w: 1, h: 1 } } : { crop }), flipX: el.fill.flipX || undefined, flipY: el.fill.flipY || undefined }];
   }
   if (el.type === 'text' && el.textRegions?.length) {
-    const runs = el.textRegions;
-    // Mixed sizes in one box (e.g. a small "PURE" over a big title): the largest run sets the style.
-    const f = runs.reduce((a, r) => (r.formatting.fontSize > a.formatting.fontSize ? r : a)).formatting;
-    if (runs.some((r) => r.formatting.decoration !== f.decoration || r.formatting.fontWeight !== f.fontWeight)) gap('mixed styles inside one text box (largest run wins)');
-    gap(`font ${f.fontRef.split(',')[0]} → Inter`);
-    const el2 = {
-      ...base,
-      type: 'text' as const,
-      text: runs.map((r) => r.characters).join(''),
-      style: {
+    const regions = el.textRegions;
+    // The largest run sets the box's base style; every run keeps its own differences.
+    const f = regions.reduce((a, r) => (r.formatting.fontSize > a.formatting.fontSize ? r : a)).formatting;
+    const styleOf = (fm: typeof f): TextStyle => {
+      const ref = fm.fontRef.split(',')[0]!;
+      const mapped = fontMap[ref];
+      if (!mapped) gap(`font ${ref} not identified → Inter`);
+      return {
         ...DEFAULT_TEXT_STYLE,
-        fontFamily: 'Inter',
-        fontSize: f.fontSize,
-        bold: f.fontWeight === 'bold',
-        italic: f.fontStyle === 'italic',
-        underline: f.decoration === 'underline',
-        strike: f.strikethrough === 'strikethrough',
-        color: f.color,
-        align: ALIGN[f.textAlign] ?? 'left',
-        lineHeight: f.lineHeight,
-        letterSpacing: f.letterSpacing * f.fontSize,
-        uppercase: false,
-        ...FONT_LOOK[f.fontRef.split(',')[0]!],
-      },
+        fontFamily: mapped ? mapped.family : 'Inter',
+        fontSize: fm.fontSize,
+        // A mapped family usually has one face (Canva's "bold" is then that face); pick bold or
+        // italic only when the family really ships such a face.
+        bold: mapped ? fm.fontWeight === 'bold' && mapped.faces.some((f) => f.weight >= 600) && mapped.faces.some((f) => f.weight < 600) : fm.fontWeight === 'bold',
+        italic: mapped ? fm.fontStyle === 'italic' && mapped.faces.some((f) => f.italic) : fm.fontStyle === 'italic',
+        underline: fm.decoration === 'underline',
+        strike: fm.strikethrough === 'strikethrough',
+        color: fm.color,
+        align: ALIGN[fm.textAlign] ?? 'left',
+        lineHeight: fm.lineHeight,
+        letterSpacing: fm.letterSpacing * fm.fontSize,
+        uppercase: mapped?.uppercase ?? false,
+        ...(mapped ? {} : FONT_LOOK[ref]),
+      };
     };
-    // Inter is wider than most of Canva's fonts: a one-line label that would now wrap is
-    // shrunk until it fits its original box, so the layout holds.
-    if (measure && !el2.text.includes('\n') && el.height < el2.style.fontSize * Math.max(1, el2.style.lineHeight) * 1.6) {
-      const natural = measure.textWidth(el2);
-      if (natural > el.width) {
-        const k = (el.width / natural) * 0.99;
-        el2.style = { ...el2.style, fontSize: el2.style.fontSize * k, letterSpacing: el2.style.letterSpacing * k };
-        gap('one-line text shrunk to fit (font substitution)');
-      }
-    }
-    // If the substituted font needs more lines than Canva used (wider glyphs, merged runs), shrink until it fits.
-    if (measure) {
-      const lh = el2.style.lineHeight > 0 ? el2.style.lineHeight : 1.2;
+    const style = styleOf(f);
+    const diff = (st: TextStyle): Partial<TextStyle> => Object.fromEntries(Object.entries(st).filter(([k, v]) => style[k as keyof TextStyle] !== v)) as Partial<TextStyle>;
+    const runs = regions.map((r) => ({ text: r.characters, style: diff(styleOf(r.formatting)) }));
+    const mixed = runs.some((r) => Object.keys(r.style).length);
+    const cal = fontMap[f.fontRef.split(',')[0]!];
+    const el2: TextElement = {
+      ...base,
+      // Canva's text sits a font-specific distance from where ours would (its own line metrics).
+      x: base.x + (cal?.dx ?? 0) * f.fontSize,
+      y: base.y + (cal?.dy ?? 0) * f.fontSize,
+      type: 'text',
+      text: regions.map((r) => r.characters).join(''),
+      style,
+      ...(mixed ? { runs: runs.map((r) => (Object.keys(r.style).length ? r : { text: r.text })) } : {}),
+    };
+    if (mixed) gap('text boxes with mixed styles (kept as runs)');
+    // A substituted font (Inter) can run wider than Canva's: keep the original line count.
+    if (measure && !fontMap[f.fontRef.split(',')[0]!]) {
+      const lh = style.lineHeight > 0 ? style.lineHeight : 1.2;
       const canvaLines = Math.max(1, Math.ceil(el.height / (f.fontSize * lh) - 0.15));
       const lines = () => Math.round(measure!.textHeight(el2) / (el2.style.fontSize * lh));
-      for (let i = 0; i < 8 && lines() > canvaLines; i++) {
+      for (let i = 0; i < 8 && (lines() > canvaLines || (canvaLines === 1 && measure.textWidth(el2) > el.width)); i++) {
         el2.style = { ...el2.style, fontSize: el2.style.fontSize * 0.93, letterSpacing: el2.style.letterSpacing * 0.93 };
-        if (i === 0) gap('text shrunk to keep Canva\'s line count (font substitution)');
+        if (i === 0) gap('text shrunk to fit (font substitution)');
       }
     }
     return [el2];
@@ -298,6 +353,19 @@ const first = canvaPages[0]!;
   const fonts = new FontLibrary(ck);
   await fonts.loadBundled(new URL('../apps/web/public/fonts/', import.meta.url).href, async (u) => readFileSync(new URL(u)).buffer as ArrayBuffer);
   measure = new Renderer(ck, fonts);
+  // Embed every face the map names (Google faces with all subsets, so ₹ and accents render).
+  for (const m of [...Object.values(fontMap), ...fallbacks]) {
+    for (const face of m.faces) {
+      const key = `${m.family}-${face.weight}${face.italic ? 'i' : ''}`;
+      if (embedded.some((e) => `${e.family}-${e.weight}${e.italic ? 'i' : ''}` === key)) continue;
+      const bytes = face.file ? new Uint8Array(readFileSync(face.file)) : await googleFontFull(face.google ?? m.family, face.weight, !!face.italic);
+      const id = `font-${key.replace(/\W+/g, '-').toLowerCase()}.ttf`;
+      assets.set(id, bytes);
+      assetMeta[id] = { mime: 'font/ttf', name: `${m.family} ${face.weight}${face.italic ? ' italic' : ''}` };
+      embedded.push({ family: m.family, asset: id, weight: face.weight, italic: !!face.italic });
+      fonts.add(m.family, bytes);
+    }
+  }
 }
 const pages: Page[] = canvaPages.map((cp, i) => {
   const shotFile = cropsDir ? join(cropsDir, `page${i + 1}.png`) : '';
@@ -346,7 +414,7 @@ const now = new Date().toISOString();
 const doc: Doc = {
   format: FORMAT, version: VERSION, id: newId('d_'), title, unit: 'px',
   width: first.dimensions.width, height: first.dimensions.height, bleed: 0,
-  pages, assets: assetMeta, createdAt: now, updatedAt: now,
+  pages, assets: assetMeta, ...(embedded.length ? { fonts: embedded } : {}), createdAt: now, updatedAt: now,
 };
 writeFileSync(out, pack({ doc, assets }));
 console.log(`wrote ${out}: ${pages.length} page(s), ${pages.reduce((n, p) => n + p.elements.length, 0)} elements, ${assets.size} images`);

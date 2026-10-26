@@ -76,10 +76,19 @@ export interface TextStyle {
   uppercase: boolean;
 }
 
+/** A stretch of text with its own look (e.g. one underlined word). Overrides the element's style. */
+export interface TextRun {
+  text: string;
+  style?: Partial<TextStyle>;
+}
+
 export interface TextElement extends ElementBase {
   type: 'text';
+  /** The whole text. With `runs`, it equals the runs' texts joined. */
   text: string;
   style: TextStyle;
+  /** Mixed styles inside one box. Absent = the whole text uses `style`. */
+  runs?: TextRun[];
 }
 
 export interface ImageElement extends ElementBase {
@@ -116,6 +125,15 @@ export interface AssetMeta {
   name?: string;
 }
 
+/** A font face shipped inside the file, so the design looks the same anywhere. */
+export interface EmbeddedFont {
+  family: string;
+  /** Key into `Doc.assets` (mime font/ttf or font/otf). */
+  asset: string;
+  weight?: number;
+  italic?: boolean;
+}
+
 export interface Doc {
   format: typeof FORMAT;
   version: typeof VERSION;
@@ -129,6 +147,8 @@ export interface Doc {
   bleed: number;
   pages: Page[];
   assets: Record<string, AssetMeta>;
+  /** Fonts the design uses that are not built into the app. */
+  fonts?: EmbeddedFont[];
   createdAt: string;
   updatedAt: string;
 }

@@ -147,3 +147,10 @@ describe('parseDoc', () => {
     expect(() => parseDoc({ ...d, pages: [] })).toThrow(/no pages/);
   });
 });
+
+describe('embedded fonts', () => {
+  it('pruneAssets keeps font assets', () => {
+    const d0 = { ...createDoc({ width: 100, height: 100 }), assets: { f: { mime: 'font/ttf' }, x: { mime: 'image/png' } }, fonts: [{ family: 'F', asset: 'f' }] };
+    expect(Object.keys(pruneAssets(d0).assets)).toEqual(['f']);
+  });
+});
