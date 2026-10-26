@@ -1,11 +1,11 @@
 <script lang="ts">
   import { PRESETS, createDoc, formatLength, type Preset, type Unit } from '@digital-canvas/scene';
-  import type { ProjectMeta } from '@digital-canvas/storage';
+  import { unpack, type ProjectMeta } from '@digital-canvas/storage';
   import Icon from '../lib/Icon.svelte';
   import { library } from '../lib/library.svelte.ts';
   import { account } from '../lib/account.svelte.ts';
   import { router } from '../lib/router.svelte.ts';
-  import { objectUrl, timeAgo } from '../lib/files.ts';
+  import { objectUrl, pickFiles, timeAgo } from '../lib/files.ts';
 
   let projects = $state<ProjectMeta[]>([]);
   let loading = $state(true);
@@ -39,6 +39,19 @@
     const doc = createDoc(opts);
     await library.store.save({ doc, assets: new Map() });
     router.go({ name: 'editor', id: doc.id });
+  }
+
+  /** Bring a .dcanvas file from this computer into the current store (Drive when signed in). */
+  async function openFile() {
+    const [file] = await pickFiles('.dcanvas,application/vnd.digital-canvas+zip', false);
+    if (!file) return;
+    try {
+      const project = unpack(new Uint8Array(await file.arrayBuffer()));
+      await library.store.save(project);
+      router.go({ name: 'editor', id: project.doc.id });
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    }
   }
 
   async function remove(p: ProjectMeta) {
@@ -154,7 +167,10 @@
   </section>
 
   <section>
-    <div class="row-head"><h2>Your designs</h2></div>
+    <div class="row-head">
+      <h2>Your designs</h2>
+      <button class="btn" onclick={openFile} data-testid="open-file"><Icon name="upload" size={16} /> Open a .dcanvas file</button>
+    </div>
     {#if loading}
       <p class="muted">Loading…</p>
     {:else if error}

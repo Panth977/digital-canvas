@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { doc, drag, elements, handle, newDesign, pngBytes, selectionCenter, waitSaved } from './helpers.ts';
+import { doc, doc as doc_, drag, elements, handle, newDesign, pngBytes, selectionCenter, waitSaved } from './helpers.ts';
 
 test('home lists presets and creates a design', async ({ page }) => {
   await newDesign(page, 'business-card');
@@ -152,6 +152,50 @@ test('download PNG at 2x', async ({ page }) => {
   expect(buf.subarray(1, 4).toString()).toBe('PNG');
   expect(buf.readUInt32BE(16)).toBe(1000); // width
   expect(buf.readUInt32BE(20)).toBe(1000);
+});
+
+test('download JPG', async ({ page }) => {
+  await newDesign(page, 'logo');
+  await page.getByTestId('shape-ellipse').click();
+  await page.getByTestId('download').click();
+  await page.locator('.dl select').first().selectOption('jpeg');
+  const dl = page.waitForEvent('download');
+  await page.getByTestId('do-download').click();
+  const file = await dl;
+  expect(file.suggestedFilename()).toBe('Logo.jpg');
+  const buf = (await import('node:fs')).readFileSync((await file.path())!);
+  expect([buf[0], buf[1], buf[2]]).toEqual([0xff, 0xd8, 0xff]);
+});
+
+test('download PDF of all pages', async ({ page }) => {
+  await newDesign(page, 'a4');
+  await page.getByTestId('shape-star').click();
+  await page.getByTestId('add-page').click();
+  await page.getByTestId('download').click();
+  await page.getByTestId('dl-format').selectOption('pdf');
+  await page.locator('.dl select').nth(1).selectOption('150');
+  const dl = page.waitForEvent('download');
+  await page.getByTestId('do-download').click();
+  const file = await dl;
+  expect(file.suggestedFilename()).toBe('A4 document.pdf');
+  const { PDFDocument } = await import('pdf-lib');
+  const pdf = await PDFDocument.load((await import('node:fs')).readFileSync((await file.path())!));
+  expect(pdf.getPageCount()).toBe(2);
+  expect(pdf.getPage(0).getSize().width).toBeCloseTo(595.3, 0);
+});
+
+test('open a .dcanvas file from the computer', async ({ page }) => {
+  await page.goto('/');
+  const { createDoc, addElements, shape } = await import('../packages/scene/src/index.ts');
+  const { pack } = await import('../packages/storage/src/index.ts');
+  let doc = createDoc({ width: 500, height: 500, title: 'From disk' });
+  doc = addElements(doc, doc.pages[0]!.id, [shape('star', { x: 10, y: 10, w: 100, h: 100 })]);
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByTestId('open-file').click();
+  await (await chooser).setFiles({ name: 'From disk.dcanvas', mimeType: 'application/vnd.digital-canvas+zip', buffer: Buffer.from(pack({ doc, assets: new Map() })) });
+  await page.waitForFunction(() => !!(window as any).__dc);
+  await expect(page.getByTestId('title')).toHaveValue('From disk');
+  expect((await doc_(page)).pages[0].elements).toHaveLength(1);
 });
 
 test('canvas actually paints the design (WebGL)', async ({ page }) => {

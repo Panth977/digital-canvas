@@ -6,6 +6,7 @@
   import { router } from '../lib/router.svelte.ts';
   import { download, isImage } from '../lib/files.ts';
   import Icon from '../lib/Icon.svelte';
+  import { exportPdf } from '@digital-canvas/render';
   import Canvas from './Canvas.svelte';
   import SidePanel from './SidePanel.svelte';
   import Properties from './Properties.svelte';
@@ -18,7 +19,7 @@
   let fitRequest = $state(0);
   let canvas = $state<Canvas>();
   let showDownload = $state(false);
-  let dl = $state({ format: 'png' as 'png' | 'jpeg', scale: 1, transparent: false, pages: 'current' as 'current' | 'all' });
+  let dl = $state({ format: 'png' as 'png' | 'jpeg' | 'pdf', dpi: 300, scale: 1, transparent: false, pages: 'current' as 'current' | 'all' });
 
   onMount(() => {
     let cancelled = false;
@@ -95,15 +96,29 @@
     } else ed.paste();
   }
 
-  function doDownload(): void {
+  let busy = $state(false);
+
+  async function doDownload(): Promise<void> {
     if (!ed) return;
     const pages = dl.pages === 'all' ? ed.doc.pages : [ed.page];
-    const ext = dl.format === 'png' ? 'png' : 'jpg';
+    if (dl.format === 'pdf') {
+      busy = true;
+      try {
+        const bytes = await exportPdf(ed.renderer, ed.doc, { dpi: dl.dpi, pages: pages.map((p) => p.id) });
+        download(bytes, `${ed.doc.title}.pdf`, 'application/pdf');
+      } finally {
+        busy = false;
+      }
+      showDownload = false;
+      return;
+    }
+    const format = dl.format;
+    const ext = format === 'png' ? 'png' : 'jpg';
     pages.forEach((p) => {
       const i = ed!.doc.pages.indexOf(p);
-      const bytes = ed!.exportPage(p.id, dl.format, dl.scale, dl.transparent);
+      const bytes = ed!.exportPage(p.id, format, dl.scale, dl.transparent);
       const name = ed!.doc.pages.length > 1 ? `${ed!.doc.title} - page ${i + 1}.${ext}` : `${ed!.doc.title}.${ext}`;
-      download(bytes, name, dl.format === 'png' ? 'image/png' : 'image/jpeg');
+      download(bytes, name, format === 'png' ? 'image/png' : 'image/jpeg');
     });
     showDownload = false;
   }
@@ -144,20 +159,26 @@
             <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
             <div class="dl" onclick={(e) => e.stopPropagation()}>
               <label class="field">File type
-                <select class="input" bind:value={dl.format}><option value="png">PNG</option><option value="jpeg">JPG</option></select>
+                <select class="input" bind:value={dl.format} data-testid="dl-format" onchange={() => { if (dl.format === 'pdf') dl.pages = 'all'; }}><option value="png">PNG</option><option value="jpeg">JPG</option><option value="pdf">PDF</option></select>
               </label>
-              <label class="field">Size × {dl.scale}
-                <input type="range" min="0.5" max="4" step="0.5" bind:value={dl.scale} />
-              </label>
-              <span class="dims">{Math.round(ed.doc.width * dl.scale)} × {Math.round(ed.doc.height * dl.scale)} px</span>
+              {#if dl.format === 'pdf'}
+                <label class="field">Quality
+                  <select class="input" bind:value={dl.dpi}><option value={150}>Standard (150 dpi)</option><option value={300}>Print (300 dpi)</option></select>
+                </label>
+              {:else}
+                <label class="field">Size × {dl.scale}
+                  <input type="range" min="0.5" max="4" step="0.5" bind:value={dl.scale} />
+                </label>
+                <span class="dims">{Math.round(ed.doc.width * dl.scale)} × {Math.round(ed.doc.height * dl.scale)} px</span>
+              {/if}
               {#if dl.format === 'png'}
                 <label class="check"><input type="checkbox" bind:checked={dl.transparent} /> Transparent background</label>
               {/if}
               <label class="field">Pages
                 <select class="input" bind:value={dl.pages}><option value="current">Current page ({ed.pageIndex + 1})</option><option value="all">All pages ({ed.doc.pages.length})</option></select>
               </label>
-              <button class="btn primary" onclick={doDownload} data-testid="do-download">Download</button>
-              <p class="note">PDF and SVG export arrive in milestone 6.</p>
+              <button class="btn primary" onclick={doDownload} disabled={busy} data-testid="do-download">{busy ? 'Preparing…' : 'Download'}</button>
+              <p class="note">PDF pages are images at the chosen quality; vector PDF and SVG arrive in milestone 6.</p>
             </div>
           {/if}
         </div>

@@ -1,5 +1,5 @@
-import CanvasKitInit from 'canvaskit-wasm/bin/canvaskit.js';
-import wasmUrl from 'canvaskit-wasm/bin/canvaskit.wasm?url';
+import CanvasKitInit from 'canvaskit-wasm/bin/full/canvaskit.js';
+import wasmUrl from 'canvaskit-wasm/bin/full/canvaskit.wasm?url';
 import type { CanvasKit } from 'canvaskit-wasm';
 import { FontLibrary } from '@digital-canvas/render';
 

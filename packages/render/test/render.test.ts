@@ -11,7 +11,7 @@ let ck: CanvasKit;
 let renderer: Renderer;
 
 beforeAll(async () => {
-  const init = require('canvaskit-wasm/bin/canvaskit.js');
+  const init = require('canvaskit-wasm/bin/full/canvaskit.js');
   ck = await init();
   const fonts = new FontLibrary(ck);
   await fonts.loadBundled(fontDir.href, async (url) => readFileSync(new URL(url)).buffer as ArrayBuffer);
@@ -82,5 +82,21 @@ describe('Renderer', () => {
     expect(p.at(10, 25)[0]).toBeGreaterThan(200);
     expect(p.at(90, 25)[1]).toBeGreaterThan(200);
     expect(p.at(50, 75)).toEqual([217, 219, 224, 255]);
+  });
+});
+
+describe('exportPdf', () => {
+  it('writes one PDF page per design page at physical size', async () => {
+    const { exportPdf } = await import('../src/index.ts');
+    const { PDFDocument } = await import('pdf-lib');
+    let doc = createDoc({ width: 210, height: 297, unit: 'mm' });
+    doc = addElements(doc, doc.pages[0]!.id, [shape('rect', { x: 10, y: 10, w: 100, h: 100 })]);
+    doc = { ...doc, pages: [...doc.pages, { ...doc.pages[0]!, id: 'p2' }] };
+    const bytes = await exportPdf(renderer, doc, { dpi: 72 });
+    const pdf = await PDFDocument.load(bytes);
+    expect(pdf.getPageCount()).toBe(2);
+    const { width, height } = pdf.getPage(0).getSize();
+    expect(width).toBeCloseTo(595.3, 0); // A4 in points
+    expect(height).toBeCloseTo(841.9, 0);
   });
 });
