@@ -437,10 +437,49 @@ function dilate(m: Uint8Array, W: number, H: number, r: number): Uint8Array {
 function makePlate(cp: CanvaPage): void {
   textById = new Map();
   if (!plateMode || !pageShot || !ck || !measure) return;
-  for (const e of leafTexts(cp.elements)) textById.set(e.id, convertText(e));
-  if (!textById.size) return;
+  const leaves = leafTexts(cp.elements);
+  if (!leaves.length) return;
   const W = pageShot.width(), H = pageShot.height(), s = shotScale;
   const info = { width: W, height: H, colorType: ck.ColorType.RGBA_8888, alphaType: ck.AlphaType.Unpremul, colorSpace: ck.ColorSpace.SRGB };
+  const px = pageShot.readPixels(0, 0, info) as Uint8Array;
+  /** Share of an element's ink that lands on Canva pixels of its colour (how well it lines up). */
+  const fit = (t: TextElement): number => {
+    const pad = t.style.fontSize * 0.3;
+    const bx = Math.max(0, Math.floor((t.x - pad) * s)), by = Math.max(0, Math.floor((t.y - pad) * s));
+    const bw = Math.min(W - bx, Math.ceil((t.w + 2 * pad) * s)), bh = Math.min(H - by, Math.ceil((t.h + 2 * pad) * s));
+    if (bw <= 0 || bh <= 0) return 0;
+    const surf = ck!.MakeSurface(bw, bh)!;
+    const c = surf.getCanvas();
+    c.clear(ck!.TRANSPARENT);
+    c.scale(s, s);
+    c.translate(-bx / s, -by / s);
+    measure!.drawElement(c, { ...t, opacity: 1 });
+    const img = surf.makeImageSnapshot();
+    const a = img.readPixels(0, 0, { ...info, width: bw, height: bh }) as Uint8Array;
+    img.delete();
+    surf.delete();
+    const col = hexRgb(t.style.color);
+    let ink = 0, hit = 0;
+    for (let j = 0; j < bh; j += 2) for (let i = 0; i < bw; i += 2) {
+      if (a[(j * bw + i) * 4 + 3]! < 128) continue;
+      ink++;
+      const q = ((by + j) * W + bx + i) * 4;
+      if (Math.hypot(px[q]! - col[0]!, px[q + 1]! - col[1]!, px[q + 2]! - col[2]!) < 70) hit++;
+    }
+    return ink ? hit / ink : 0;
+  };
+  for (const e of leaves) {
+    let t = convertText(e);
+    // Canva's ALL CAPS is a per-box setting the API doesn't report: keep whichever matches its render.
+    if (/[a-z]/.test(t.text)) {
+      const flip = (u: boolean): TextElement => ({ ...t, style: { ...t.style, uppercase: u }, runs: t.runs?.map((r) => (r.style ? { ...r, style: { ...r.style, uppercase: undefined } } : r)) });
+      const lower = flip(false), upper = flip(true);
+      const fl = fit(lower), fu = fit(upper);
+      t = fu > fl + 0.05 ? upper : lower;
+      if (t.runs) t.runs = t.runs.map((r) => (r.style && Object.values(r.style).every((v) => v === undefined) ? { text: r.text } : r));
+    }
+    textById.set(e.id, t);
+  }
   const surface = ck.MakeSurface(W, H)!;
   const c = surface.getCanvas();
   c.clear(ck.TRANSPARENT);
@@ -453,8 +492,25 @@ function makePlate(cp: CanvaPage): void {
   surface.delete();
   const m = new Uint8Array(W * H);
   for (let i = 0; i < W * H; i++) m[i] = ours[i * 4 + 3]! > 6 ? 1 : 0;
-  const mask = dilate(m, W, H, Math.max(2, Math.round(4 * s)));
-  const px = pageShot.readPixels(0, 0, info) as Uint8Array;
+  // Also Canva's own glyphs: pixels of a text's colour inside its (rotated) box.
+  for (const e of leaves) {
+    const cols = (e.textRegions ?? []).map((r) => hexRgb(r.formatting.color));
+    const fs = Math.max(...(e.textRegions ?? []).map((r) => r.formatting.fontSize));
+    const pad = fs * 0.15;
+    const r = ((e.rotation ?? 0) * Math.PI) / 180, cos = Math.cos(r), sin = Math.sin(r);
+    const cx = e.left + e.width / 2, cy = e.top + e.height / 2, hw = e.width / 2 + pad, hh = e.height / 2 + pad;
+    const ext = Math.hypot(hw, hh);
+    const x0 = Math.max(0, Math.floor((cx - ext) * s)), x1 = Math.min(W, Math.ceil((cx + ext) * s));
+    const y0 = Math.max(0, Math.floor((cy - ext) * s)), y1 = Math.min(H, Math.ceil((cy + ext) * s));
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+      const dx = x / s - cx, dy = y / s - cy;
+      const u = dx * cos + dy * sin, v = -dx * sin + dy * cos;
+      if (Math.abs(u) > hw || Math.abs(v) > hh) continue;
+      const q = (y * W + x) * 4;
+      if (cols.some((col) => Math.hypot(px[q]! - col[0]!, px[q + 1]! - col[1]!, px[q + 2]! - col[2]!) < 60)) m[y * W + x] = 1;
+    }
+  }
+  const mask = dilate(m, W, H, Math.max(2, Math.round(3 * s)));
   inpaint(px, W, H, mask);
   const plate = ck.MakeImage(info, px, W * 4)!;
   pageShot.delete();

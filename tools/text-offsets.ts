@@ -41,18 +41,33 @@ doc.pages.forEach((page, pi) => {
     cv.scale(s, s); cv.translate(pad - t.x, pad - t.y); r.drawElement(cv, t);
     const img = surf.makeImageSnapshot(); const ours = img.readPixels(0, 0, info(W, H)) as Uint8Array; img.delete(); surf.delete();
     const R = Math.round(t.style.fontSize * 0.4 * s);
-    let best = { dx: 0, dy: 0, sc: -1 };
-    for (let dy = -R; dy <= R; dy += 1) for (let dx = -R; dx <= R; dx += 2) {
-      let hit = 0, n = 0;
-      for (let j = 0; j < H; j += 2) for (let i = 0; i < W; i += 2) {
-        if (ours[(j * W + i) * 4 + 3]! < 128) continue;
-        n++;
-        const X = x0 + i + dx, Y = y0 + j + dy;
+    // ink pixels of our rendering, thinned to a few thousand
+    const ink: number[] = [];
+    for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) if (ours[(j * W + i) * 4 + 3]! >= 128) ink.push(i, j);
+    const step = Math.max(1, Math.round(ink.length / 2 / 3000));
+    const pts: number[] = [];
+    for (let k2 = 0; k2 < ink.length; k2 += 2 * step) pts.push(ink[k2]!, ink[k2 + 1]!);
+    const score = (dx: number, dy: number) => {
+      let hit = 0;
+      for (let k2 = 0; k2 < pts.length; k2 += 2) {
+        const X = x0 + pts[k2]! + dx, Y = y0 + pts[k2 + 1]! + dy;
         if (X < 0 || Y < 0 || X >= W0 || Y >= H0) continue;
         const q = (Y * W0 + X) * 4;
         if (Math.hypot(ref[q]! - c[0]!, ref[q + 1]! - c[1]!, ref[q + 2]! - c[2]!) < 60) hit++;
       }
-      if (n && hit / n > best.sc) best = { dx, dy, sc: hit / n };
+      return pts.length ? hit / (pts.length / 2) : 0;
+    };
+    // coarse grid, then refine around the best
+    let best = { dx: 0, dy: 0, sc: -1 };
+    const coarse = Math.max(1, Math.round(R / 30));
+    for (let dy = -R; dy <= R; dy += coarse) for (let dx = -R; dx <= R; dx += coarse) {
+      const sc = score(dx, dy);
+      if (sc > best.sc) best = { dx, dy, sc };
+    }
+    const c0 = { ...best };
+    for (let dy = c0.dy - coarse; dy <= c0.dy + coarse; dy++) for (let dx = c0.dx - coarse; dx <= c0.dx + coarse; dx++) {
+      const sc = score(dx, dy);
+      if (sc > best.sc) best = { dx, dy, sc };
     }
     const key = refs[k] ?? '?';
     if (best.sc > 0.5) { const l = byRef.get(key) ?? []; l.push({ dx: best.dx / s / t.style.fontSize, dy: best.dy / s / t.style.fontSize }); byRef.set(key, l); }
