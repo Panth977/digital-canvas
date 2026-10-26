@@ -7,3 +7,5 @@ playwright-report/
 .env
 .env.*
 .DS_Store
+.icebase/
+apps/web/public/_test/

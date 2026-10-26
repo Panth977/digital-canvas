@@ -14,7 +14,10 @@
     "@digital-canvas/render": "*",
     "@digital-canvas/scene": "*",
     "@digital-canvas/storage": "*",
-    "canvaskit-wasm": "^0.42.0"
+    "canvaskit-wasm": "^0.42.0",
+    "@digital-canvas/backend": "*",
+    "@panth977/icebase": "npm:@jsr/panth977__icebase@0.4.7",
+    "firebase": "^13.1.0"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^6.2.0",

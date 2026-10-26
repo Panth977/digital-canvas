@@ -115,6 +115,8 @@ export class Renderer {
       decoration: (s.underline ? ck.UnderlineDecoration : 0) | (s.strike ? ck.LineThroughDecoration : 0),
       decorationThickness: 1,
       heightMultiplier: s.lineHeight,
+      // Spread extra line spacing above and below each line, like CSS (and the in-place text editor).
+      halfLeading: true,
       letterSpacing: s.letterSpacing,
     });
     const style = new ck.ParagraphStyle({ textStyle, textAlign: align });

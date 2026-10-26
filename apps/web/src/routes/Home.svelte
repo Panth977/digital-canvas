@@ -3,6 +3,7 @@
   import type { ProjectMeta } from '@digital-canvas/storage';
   import Icon from '../lib/Icon.svelte';
   import { library } from '../lib/library.svelte.ts';
+  import { account } from '../lib/account.svelte.ts';
   import { router } from '../lib/router.svelte.ts';
   import { objectUrl, timeAgo } from '../lib/files.ts';
 
@@ -64,24 +65,46 @@
       <span>Digital Canvas</span>
     </div>
     <div class="where">
-      <span class="label">Saving to</span>
-      <span class="chip" data-testid="store-label">
-        <Icon name={library.store.kind === 'folder' ? 'folder' : 'browser'} size={16} />
-        {library.store.label}
-      </span>
-      {#if library.folderSupported}
-        <button class="btn" onclick={() => library.pickFolder().catch(() => {})}>
-          <Icon name="folder" size={16} /> {library.store.kind === 'folder' ? 'Change folder' : 'Use a folder'}
+      {#if account.user}
+        <span class="chip" data-testid="store-label"><Icon name="drive" size={16} /> Saving to Google Drive</span>
+        <span class="me" title={account.user.email}>
+          {#if account.user.photo}<img src={account.user.photo} alt="" referrerpolicy="no-referrer" />{:else}<span class="init">{account.user.name.slice(0, 1)}</span>{/if}
+          <span>{account.user.name}</span>
+        </span>
+        <button class="btn ghost" onclick={() => account.signOut()} data-testid="sign-out">Sign out</button>
+      {:else}
+        <span class="label">Saving to</span>
+        <span class="chip" data-testid="store-label">
+          <Icon name={library.store.kind === 'folder' ? 'folder' : 'browser'} size={16} />
+          {library.store.label}
+        </span>
+        {#if library.folderSupported}
+          <button class="btn" onclick={() => library.pickFolder().catch(() => {})}>
+            <Icon name="folder" size={16} /> {library.store.kind === 'folder' ? 'Change folder' : 'Use a folder'}
+          </button>
+        {/if}
+        {#if library.store.kind === 'folder'}
+          <button class="btn ghost" onclick={() => library.useBrowser()}>Use this browser</button>
+        {/if}
+        <button class="btn google" disabled={account.busy} onclick={() => account.signIn()} data-testid="sign-in">
+          <svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.6 5.4 2.7 13.3l7.9 6.1C12.5 13.6 17.8 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 2.9-2.2 5.4-4.7 7.1l7.6 5.9c4.4-4.1 6.9-10.1 6.9-17.5z"/><path fill="#FBBC05" d="M10.6 28.6c-.5-1.4-.8-2.9-.8-4.6s.3-3.2.8-4.6l-7.9-6.1C1 16.6 0 20.2 0 24s1 7.4 2.7 10.7l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.6-5.9c-2.1 1.4-4.9 2.3-8.3 2.3-6.2 0-11.5-4.1-13.4-9.9l-7.9 6.1C6.6 42.6 14.6 48 24 48z"/></svg>
+          {account.busy ? 'Signing in…' : 'Continue with Google'}
         </button>
       {/if}
-      {#if library.store.kind === 'folder'}
-        <button class="btn ghost" onclick={() => library.useBrowser()}>Use this browser</button>
-      {/if}
-      <span class="chip soon" title="Arrives in milestone 2"><Icon name="drive" size={16} /> Google Drive · soon</span>
     </div>
   </header>
 
-  {#if library.pendingFolder}
+  {#if account.error}
+    <div class="banner err-banner"><Icon name="alert" /> {account.error}</div>
+  {/if}
+  {#if !account.user}
+    <div class="banner info">
+      <Icon name="drive" /> Sign in with Google to keep your designs in your own Drive and open them on any device.
+      Digital Canvas only sees the files it creates.
+    </div>
+  {/if}
+
+  {#if library.pendingFolder && !account.user}
     <div class="banner">
       <Icon name="folder" />
       Your folder <b>{library.pendingFolder.label}</b> needs permission again.
@@ -145,6 +168,8 @@
             <button class="thumb" onclick={() => router.go({ name: 'editor', id: p.id })} aria-label="Open {p.title}">
               {#if p.thumbnail}
                 <img src={objectUrl(p.thumbnail)} alt="" />
+              {:else if p.thumbnailUrl}
+                <img src={p.thumbnailUrl} alt="" referrerpolicy="no-referrer" />
               {:else}
                 <Icon name="image" size={28} />
               {/if}
@@ -180,7 +205,12 @@
   .where { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .label { color: var(--muted); font-size: 13px; }
   .chip { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border-radius: 99px; background: #fff; border: 1px solid var(--line); font-weight: 600; font-size: 13px; }
-  .chip.soon { color: var(--muted); border-style: dashed; }
+  .me { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; }
+  .me img, .me .init { width: 28px; height: 28px; border-radius: 50%; }
+  .me .init { display: grid; place-items: center; background: var(--accent); color: #fff; }
+  .btn.google { background: #fff; border-color: #dadce0; }
+  .banner.info { background: #f1edff; border-color: #ddd3ff; }
+  .err-banner { background: #fff0f0; border-color: #ffd0d0; color: var(--danger); }
   .banner { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: #fff7e6; border: 1px solid #ffe2a8; border-radius: var(--radius); margin-bottom: 12px; flex-wrap: wrap; }
   .hero {
     border-radius: 18px; padding: 44px 32px; color: #fff; text-align: center; margin-bottom: 8px;

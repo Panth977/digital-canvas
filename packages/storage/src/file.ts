@@ -72,8 +72,8 @@ export async function assetId(bytes: Uint8Array, mime: string): Promise<string> 
   return `${hex}.${EXT[mime] ?? 'bin'}`;
 }
 
-/** A file name from a title: keeps letters, digits, spaces, dashes. */
+/** A file name from a title: drops the characters file systems and Drive reject. */
 export function fileName(title: string): string {
-  const base = title.replace(/[^\p{L}\p{N} _-]+/gu, '').trim().slice(0, 80) || 'Untitled design';
+  const base = title.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '').trim().slice(0, 80) || 'Untitled design';
   return base + EXTENSION;
 }

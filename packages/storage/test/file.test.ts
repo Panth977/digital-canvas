@@ -22,7 +22,7 @@ describe('.dcanvas', () => {
     expect(() => unpack(new Uint8Array([1, 2, 3]))).toThrow(FileFormatError);
   });
   it('makes safe file names', () => {
-    expect(fileName('Café menu: v2/final')).toBe('Café menu v2final.dcanvas');
+    expect(fileName('Café menu: v2/final (A4)')).toBe('Café menu v2final (A4).dcanvas');
     expect(fileName('***')).toBe('Untitled design.dcanvas');
   });
   it('memory store lists by recency', async () => {

@@ -7,6 +7,8 @@ export interface ProjectMeta {
   width: number;
   height: number;
   thumbnail?: Uint8Array;
+  /** A thumbnail the store serves itself (Drive). */
+  thumbnailUrl?: string;
 }
 
 /**
