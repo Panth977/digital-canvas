@@ -20,7 +20,7 @@ const fonts = new FontLibrary(ck);
 await fonts.loadBundled(new URL('../apps/web/public/fonts/', import.meta.url).href, async (u) => readFileSync(new URL(u)).buffer as ArrayBuffer);
 const r = new Renderer(ck, fonts);
 const { doc, assets } = unpack(new Uint8Array(readFileSync(file)));
-for (const f of doc.fonts ?? []) { const b = assets.get(f.asset); if (b) fonts.add(f.family, b); }
+for (const f of doc.fonts ?? []) { const b = assets.get(f.asset); if (b) fonts.add(f.family, b, f.subset); }
 for (const [id, bytes] of assets) if (doc.assets[id]?.mime.startsWith('image/')) r.setImage(id, bytes);
 if (out.endsWith('.pdf')) {
   const dpi = Number(process.argv[4] ?? 300);

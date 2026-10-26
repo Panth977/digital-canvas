@@ -1,63 +1,9 @@
-import type { Canvas, CanvasKit, Image, Paint, Paragraph, Path, TypefaceFontProvider } from 'canvaskit-wasm';
-import type { Doc, Element, Fill, ImageElement, Page, ShapeElement, ShapeKind, TextElement, Color } from '@digital-canvas/scene';
+import type { Canvas, CanvasKit, Image, Paint, Path } from 'canvaskit-wasm';
+import type { Doc, Element, Fill, ImageElement, Page, ShapeElement, ShapeKind, TextElement } from '@digital-canvas/scene';
+import { color, FontLibrary } from './fonts.ts';
+import { listIndent, TextLayouts } from './text.ts';
 
-/** Parse `#rgb`, `#rrggbb` or `#rrggbbaa` into a CanvasKit colour. */
-export function color(ck: CanvasKit, hex: Color, alpha = 1): Float32Array {
-  let h = hex.replace('#', '');
-  if (h.length === 3) h = [...h].map((c) => c + c).join('');
-  const n = (i: number) => parseInt(h.slice(i, i + 2), 16) / 255;
-  const a = h.length >= 8 ? n(6) : 1;
-  return ck.Color4f(n(0) || 0, n(2) || 0, n(4) || 0, a * alpha);
-}
-
-/** Fonts the renderer can draw with. Several faces may share a family. */
-export class FontLibrary {
-  readonly provider: TypefaceFontProvider;
-  readonly families = new Set<string>();
-  /** Bumped on every new font, so cached text layouts know to redo. */
-  version = 0;
-
-  constructor(private ck: CanvasKit) {
-    this.provider = ck.TypefaceFontProvider.Make();
-  }
-
-  private seen = new Set<string>();
-
-  /** Register a face once (keyed by `key`, e.g. its asset id) — safe to call for every opened file. */
-  addOnce(family: string, key: string, bytes: ArrayBuffer | Uint8Array): void {
-    if (this.seen.has(key)) return;
-    this.seen.add(key);
-    this.add(family, bytes);
-  }
-
-  add(family: string, bytes: ArrayBuffer | Uint8Array): void {
-    this.provider.registerFont(bytes, family);
-    this.families.add(family);
-    this.version++;
-  }
-
-  /** Load the faces that ship with the app (Inter regular/bold/italic). */
-  async loadBundled(baseUrl: string, fetcher: (url: string) => Promise<ArrayBuffer> = defaultFetch): Promise<void> {
-    const faces = ['Inter-Regular', 'Inter-Bold', 'Inter-Italic', 'Inter-BoldItalic'];
-    const bytes = await Promise.all(faces.map((f) => fetcher(`${baseUrl}${f}.ttf`)));
-    bytes.forEach((b) => this.add('Inter', b));
-  }
-
-  dispose(): void {
-    this.provider.delete();
-  }
-}
-
-async function defaultFetch(url: string): Promise<ArrayBuffer> {
-  const r = await fetch(url);
-  if (!r.ok) throw new Error(`font ${url}: HTTP ${r.status}`);
-  return r.arrayBuffer();
-}
-
-interface CachedParagraph {
-  sig: string;
-  p: Paragraph;
-}
+export { color, FontLibrary };
 
 export interface DrawOptions {
   /** Element ids to leave out (e.g. the text box being edited). */
@@ -80,10 +26,11 @@ export interface ExportOptions {
  */
 export class Renderer {
   private images = new Map<string, Image>();
-  private paragraphs = new Map<string, CachedParagraph>();
+  private text: TextLayouts;
   private paint: Paint;
 
   constructor(readonly ck: CanvasKit, readonly fonts: FontLibrary) {
+    this.text = new TextLayouts(ck, fonts);
     this.paint = new ck.Paint();
     this.paint.setAntiAlias(true);
   }
@@ -108,52 +55,121 @@ export class Renderer {
 
   // ---- text ----
 
-  private paragraph(el: TextElement): Paragraph {
-    const s = el.style;
-    const sig = `${this.fonts.version}|${el.w}|${el.text}|${JSON.stringify(s)}|${el.runs ? JSON.stringify(el.runs) : ''}`;
-    const hit = this.paragraphs.get(el.id);
-    if (hit && hit.sig === sig) return hit.p;
-    hit?.p.delete();
-    const ck = this.ck;
-    const align = { left: ck.TextAlign.Left, center: ck.TextAlign.Center, right: ck.TextAlign.Right, justify: ck.TextAlign.Justify }[s.align];
-    const toTextStyle = (st: typeof s) => new ck.TextStyle({
-      color: color(ck, st.color),
-      fontFamilies: [st.fontFamily, 'Noto Sans', 'Inter'], // Noto Sans when embedded: Canva's fallback (e.g. ₹)
-      fontSize: st.fontSize,
-      fontStyle: { weight: st.bold ? ck.FontWeight.Bold : ck.FontWeight.Normal, slant: st.italic ? ck.FontSlant.Italic : ck.FontSlant.Upright },
-      decoration: (st.underline ? ck.UnderlineDecoration : 0) | (st.strike ? ck.LineThroughDecoration : 0),
-      decorationThickness: 1,
-      heightMultiplier: st.lineHeight,
-      // Spread extra line spacing above and below each line, like CSS (and the in-place text editor).
-      halfLeading: true,
-      letterSpacing: st.letterSpacing,
-    });
-    const textStyle = toTextStyle(s);
-    const style = new ck.ParagraphStyle({ textStyle, textAlign: align });
-    const builder = ck.ParagraphBuilder.MakeFromFontProvider(style, this.fonts.provider);
-    if (el.runs?.length) {
-      for (const run of el.runs) {
-        const st = { ...s, ...run.style };
-        builder.pushStyle(toTextStyle(st));
-        builder.addText(st.uppercase ? run.text.toUpperCase() : run.text);
-        builder.pop();
-      }
-    } else builder.addText(s.uppercase ? el.text.toUpperCase() : el.text);
-    const p = builder.build();
-    builder.delete();
-    p.layout(Math.max(1, el.w));
-    this.paragraphs.set(el.id, { sig, p });
-    return p;
-  }
-
   /** Height a text box needs for its content at its current width. */
   textHeight(el: TextElement): number {
-    return Math.ceil(this.paragraph(el).getHeight());
+    return Math.ceil(this.text.layout(el).height);
   }
 
-  /** Width of the longest line, for shrink-to-fit on new text. */
+  /** Width the content needs: the longest line, or the curve's span for curved text. */
   textWidth(el: TextElement): number {
-    return Math.ceil(this.paragraph({ ...el, w: 100000 }).getMaxIntrinsicWidth());
+    if (el.curve) return Math.ceil(this.text.layout(el).width);
+    return Math.ceil(this.text.layout({ ...el, w: 100000, list: undefined }).blocks[0]!.p.getMaxIntrinsicWidth() + (el.list ? listIndent(el) : 0));
+  }
+
+  /** Box size for text: straight text keeps its width; curved text takes the arc's bounds. */
+  fitText(el: TextElement): { w: number; h: number } {
+    if (el.curve) {
+      const L = this.text.layout(el);
+      return { w: Math.ceil(L.width), h: Math.ceil(L.height) };
+    }
+    return { w: el.w, h: this.textHeight(el) };
+  }
+
+  private drawText(canvas: Canvas, el: TextElement): void {
+    const ck = this.ck, T = this.text;
+    const fs = el.style.fontSize;
+    const fx = el.effect;
+    canvas.save();
+    canvas.translate(el.x, el.y);
+    const dir = (deg: number, dist: number) => [Math.cos((deg * Math.PI) / 180) * dist, Math.sin((deg * Math.PI) / 180) * dist] as const;
+    const layer = (filter: ReturnType<typeof ck.ImageFilter.MakeBlur>, draw: () => void) => {
+      const p = new ck.Paint();
+      p.setImageFilter(filter);
+      canvas.saveLayer(p);
+      draw();
+      canvas.restore();
+      p.delete();
+      filter.delete();
+    };
+    const fill = () => T.draw(canvas, el, { kind: 'fill' });
+    switch (fx?.type) {
+      case undefined:
+        fill();
+        break;
+      case 'shadow': {
+        const [dx, dy] = dir(fx.direction, (fx.offset / 100) * fs * 0.25);
+        const sigma = (fx.blur / 100) * fs * 0.15;
+        const shadow = () => T.draw(canvas, el, { kind: 'solid', color: fx.color, alpha: 1 - fx.transparency / 100 }, dx, dy);
+        if (sigma > 0.01) layer(ck.ImageFilter.MakeBlur(sigma, sigma, ck.TileMode.Decal, null), shadow);
+        else shadow();
+        fill();
+        break;
+      }
+      case 'lift': {
+        const k = fx.intensity / 100;
+        layer(ck.ImageFilter.MakeBlur(fs * (0.03 + 0.1 * k), fs * (0.03 + 0.1 * k), ck.TileMode.Decal, null),
+          () => T.draw(canvas, el, { kind: 'solid', color: '#000000', alpha: 0.12 + 0.38 * k }, 0, fs * 0.04));
+        fill();
+        break;
+      }
+      case 'hollow':
+        T.draw(canvas, el, { kind: 'stroke', width: Math.max(0.5, (fx.thickness / 100) * fs * 0.06) });
+        break;
+      case 'splice': {
+        const [dx, dy] = dir(fx.direction, (fx.offset / 100) * fs * 0.15);
+        T.draw(canvas, el, { kind: 'solid', color: fx.color, alpha: 1 }, dx, dy);
+        T.draw(canvas, el, { kind: 'stroke', width: Math.max(0.5, (fx.thickness / 100) * fs * 0.06) });
+        break;
+      }
+      case 'outline':
+        // stroke is centred on the outline; the fill on top hides the inner half
+        T.draw(canvas, el, { kind: 'stroke', width: Math.max(1, (fx.thickness / 100) * fs * 0.16), color: fx.color });
+        fill();
+        break;
+      case 'echo': {
+        const [dx, dy] = dir(fx.direction, (fx.offset / 100) * fs * 0.1);
+        T.draw(canvas, el, { kind: 'solid', color: fx.color, alpha: 0.25 }, dx * 2, dy * 2);
+        T.draw(canvas, el, { kind: 'solid', color: fx.color, alpha: 0.5 }, dx, dy);
+        fill();
+        break;
+      }
+      case 'glitch': {
+        const [dx, dy] = dir(fx.direction, (fx.offset / 100) * fs * 0.1);
+        const [a, b] = fx.colors === 'blue-red' ? ['#00ffff', '#ff0033'] : ['#00ffff', '#ffd600'];
+        T.draw(canvas, el, { kind: 'solid', color: a, alpha: 1 }, -dx, -dy);
+        T.draw(canvas, el, { kind: 'solid', color: b, alpha: 1 }, dx, dy);
+        fill();
+        break;
+      }
+      case 'neon': {
+        const k = fx.intensity / 100;
+        const sigma = fs * (0.04 + 0.12 * k);
+        layer(ck.ImageFilter.MakeBlur(sigma, sigma, ck.TileMode.Decal, null), fill);
+        layer(ck.ImageFilter.MakeBlur(sigma / 3, sigma / 3, ck.TileMode.Decal, null), fill);
+        T.draw(canvas, el, { kind: 'fill', lighten: 0.35 + 0.4 * k });
+        break;
+      }
+      case 'background': {
+        const spread = (fx.spread / 100) * fs * 0.5;
+        const p = new ck.Paint();
+        p.setAntiAlias(true);
+        p.setColor(color(ck, fx.color));
+        // opaque boxes in a translucent layer, so overlapping line boxes don't double up
+        const alpha = new ck.Paint();
+        alpha.setAlphaf(1 - fx.transparency / 100);
+        canvas.saveLayer(alpha);
+        for (const r of T.lineRects(el)) {
+          const rr = Math.min((fx.roundness / 100) * (r.h / 2 + spread), (r.h + spread) / 2);
+          canvas.drawRRect(ck.RRectXY(ck.XYWHRect(r.x - spread, r.y - spread / 2, r.w + 2 * spread, r.h + spread), rr, rr), p);
+        }
+        canvas.restore();
+        alpha.delete();
+        p.delete();
+        fill();
+        break;
+      }
+    }
+    canvas.restore();
   }
 
   // ---- drawing ----
@@ -189,7 +205,7 @@ export class Renderer {
       p.delete();
     }
     if (el.type === 'shape') this.drawShape(canvas, el);
-    else if (el.type === 'text') canvas.drawParagraph(this.paragraph(el), el.x, el.y);
+    else if (el.type === 'text') this.drawText(canvas, el);
     else this.drawImage(canvas, el);
     if (layered) canvas.restore();
     canvas.restore();
@@ -300,13 +316,12 @@ export class Renderer {
 
   /** Forget cached layouts for elements that no longer exist. */
   gc(liveIds: ReadonlySet<string>): void {
-    for (const [id, c] of this.paragraphs) if (!liveIds.has(id)) { c.p.delete(); this.paragraphs.delete(id); }
+    this.text.gc(liveIds);
   }
 
   dispose(): void {
-    for (const c of this.paragraphs.values()) c.p.delete();
+    this.text.dispose();
     for (const img of this.images.values()) img.delete();
-    this.paragraphs.clear();
     this.images.clear();
     this.paint.delete();
   }

@@ -7,7 +7,7 @@ A free, open-source design editor — everything you can make in Canva, with you
 - **Open file format**: one `.dcanvas` file per design — a zip with `document.json` (plain, documented JSON) plus the images it uses. Easy for scripts and AI agents to read and write.
 - **No lock-in backend**: the server only signs you in and keeps your Drive connection (via [IceBase](https://github.com/Panth977/icebase)). Your designs never pass through it.
 
-> Status: **phase 1, milestone 2** — editor core + sign in with Google, designs saved in your Drive. Live: https://digital-canvas-p977.web.app (Google sign-in is in testing mode: invited test users only).
+> Status: **phase 1, milestone 3** — editor core, sign in with Google (designs saved in your Drive), text & fonts. Live: https://digital-canvas-p977.web.app (Google sign-in is in testing mode: invited test users only).
 
 ## Run it
 
@@ -62,7 +62,7 @@ All lengths are CSS pixels (96 per inch); `unit` only says how sizes are shown. 
 - [x] **M1** Scene format, CanvasKit renderer, editor core (select, move, resize, rotate, multi-select, undo, pages, layers, text editing, image upload, PNG/JPG download), browser + folder storage
 - [x] **M2** Sign in with Google (IceBase backend) + Google Drive: connect once, every device sees your designs
 - [ ] **M2.1** "Open with" from Drive, publish the OAuth app
-- [ ] **M3** Text & fonts: rich text, Google Fonts, custom font upload, text effects, curved text
+- [x] **M3** Text & fonts: rich text (style part of a box), 2,000+ Google Fonts (via Fontsource, embedded in the file), font upload, 9 text effects, curved text, lists, gradient text
 - [ ] **M4** Image tools: crop, adjust, filters, shadows, effects, background remover
 - [ ] **M5** Layout tools + ~200 presets: snapping, smart guides, rulers, bleed, groups, resize
 - [ ] **M6** Elements + export: lines, connectors, draw, frames, grids, tables, charts, QR, icons, stock photos; PDF and SVG export

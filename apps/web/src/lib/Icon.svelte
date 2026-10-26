@@ -47,6 +47,10 @@
     close: 'M6 6l12 12M18 6L6 18',
     more: 'M5 12h.01M12 12h.01M19 12h.01',
     image: 'M3 5h18v14H3zM3 16l5-5 4 4 3-3 6 6M15.5 8.5h.01',
+    listb: 'M9 6h12M9 12h12M9 18h12M4 6h.01M4 12h.01M4 18h.01',
+    listn: 'M10 6h11M10 12h11M10 18h11M4 4v4M3 4h1M3 14h2l-2 3h2M3 20h2',
+    curve: 'M3 17a10 10 0 0118 0M7 17a6 6 0 0110 0',
+    search: 'M11 4a7 7 0 110 14 7 7 0 010-14zM16 16l5 5',
   } as const;
   export type IconName = keyof typeof ICONS;
 </script>

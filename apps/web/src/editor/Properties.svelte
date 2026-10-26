@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { formatLength, type Element, type ShapeElement, type Stroke, type TextAlign, type TextElement, type ImageElement } from '@digital-canvas/scene';
+  import { defaultEffect, formatLength, TEXT_EFFECTS, type Element, type ShapeElement, type Stroke, type TextAlign, type TextEffect, type TextEffectType, type TextElement, type ImageElement } from '@digital-canvas/scene';
+  import FontPicker from './FontPicker.svelte';
   import type { EditorState } from '../lib/editor.svelte.ts';
   import Icon, { type IconName } from '../lib/Icon.svelte';
   import ColorField from './ColorField.svelte';
@@ -13,6 +14,41 @@
   const shapes = $derived(sel.filter((e): e is ShapeElement => e.type === 'shape'));
   const images = $derived(sel.filter((e): e is ImageElement => e.type === 'image'));
   const t0 = $derived(texts[0]);
+  /** Style of the selected characters while editing, else of the first text box. */
+  const ts = $derived(ed.textStyle ?? {});
+  const editingSel = $derived(!!ed.editingTextId && !!ed.textSel && ed.textSel.end > ed.textSel.start);
+
+  function setEffect(type: TextEffectType | ''): void {
+    ed.updateText({ effect: type ? defaultEffect(type) : undefined });
+    end();
+  }
+  function patchEffect(patch: Record<string, unknown>): void {
+    if (!t0?.effect) return;
+    ed.updateText({ effect: { ...t0.effect, ...patch } as TextEffect }, key('fx'));
+  }
+  const fxNum = (fx: TextEffect, k: string) => (fx as unknown as Record<string, number>)[k] ?? 0;
+  const FX_SLIDERS: Record<TextEffectType, { k: string; label: string; min: number; max: number }[]> = {
+    shadow: [{ k: 'offset', label: 'Offset', min: 0, max: 100 }, { k: 'direction', label: 'Direction', min: -180, max: 180 }, { k: 'blur', label: 'Blur', min: 0, max: 100 }, { k: 'transparency', label: 'Transparency', min: 0, max: 100 }],
+    lift: [{ k: 'intensity', label: 'Intensity', min: 0, max: 100 }],
+    hollow: [{ k: 'thickness', label: 'Thickness', min: 0, max: 100 }],
+    splice: [{ k: 'thickness', label: 'Thickness', min: 0, max: 100 }, { k: 'offset', label: 'Offset', min: 0, max: 100 }, { k: 'direction', label: 'Direction', min: -180, max: 180 }],
+    outline: [{ k: 'thickness', label: 'Thickness', min: 0, max: 100 }],
+    echo: [{ k: 'offset', label: 'Offset', min: 0, max: 100 }, { k: 'direction', label: 'Direction', min: -180, max: 180 }],
+    glitch: [{ k: 'offset', label: 'Offset', min: 0, max: 100 }, { k: 'direction', label: 'Direction', min: -180, max: 180 }],
+    neon: [{ k: 'intensity', label: 'Intensity', min: 0, max: 100 }],
+    background: [{ k: 'roundness', label: 'Roundness', min: 0, max: 100 }, { k: 'spread', label: 'Spread', min: 0, max: 100 }, { k: 'transparency', label: 'Transparency', min: 0, max: 100 }],
+  };
+
+  function setGradient(on: boolean): void {
+    ed.updateText({ gradient: on ? { type: 'linear', angle: 90, stops: [{ offset: 0, color: t0?.style.color ?? '#7c3aed' }, { offset: 1, color: '#0fb5c0' }] } : undefined });
+    end();
+  }
+  function patchGradient(i: number | null, patch: { color?: string; angle?: number }): void {
+    const g = t0?.gradient;
+    if (!g) return;
+    const stops = g.stops.map((s, j) => (j === i && patch.color ? { ...s, color: patch.color } : s));
+    ed.updateText({ gradient: { ...g, stops, angle: patch.angle ?? g.angle } }, key('grad'));
+  }
   const s0 = $derived(shapes[0]);
   const locked = $derived(sel.some((e) => e.locked));
 
@@ -45,7 +81,7 @@
   const pageBg = $derived(ed.page.background.type === 'solid' ? ed.page.background.color : '#ffffff');
 </script>
 
-<aside class="props scroll-y" data-testid="properties">
+<aside class="props scroll-y" data-testid="properties" data-text-tools>
   {#if !sel.length}
     <h3>Page {ed.pageIndex + 1}</h3>
     <ColorField label="Background" value={pageBg} testid="page-bg"
@@ -60,38 +96,87 @@
     <h3>{one ? (one.type === 'text' ? 'Text' : one.type === 'image' ? 'Image' : 'Shape') : `${sel.length} elements`}</h3>
 
     {#if t0}
-      <section>
-        <div class="field">
-          <span>Font</span>
-          <select class="input" value={t0.style.fontFamily} onchange={(e) => { ed.updateTextStyle({ fontFamily: (e.currentTarget as HTMLSelectElement).value }); end(); }}>
-            {#each [...ed.engine.fonts.families] as f}<option value={f}>{f}</option>{/each}
-          </select>
-        </div>
+      <section data-text-tools>
+        {#if editingSel}<p class="hint sel">Styling the selected text only.</p>{/if}
+        <FontPicker {ed} value={ts.fontFamily} />
         <div class="row2">
-          <NumField label="Size" value={t0.style.fontSize} min={4} max={800} step={1} testid="font-size"
+          <NumField label="Size" value={ts.fontSize ?? t0.style.fontSize} min={4} max={800} step={1} testid="font-size"
             onchange={(v) => ed.updateTextStyle({ fontSize: v }, key('fs'))} onend={end} />
-          <ColorField label="Colour" value={t0.style.color} testid="text-color"
-            onchange={(hex) => ed.updateTextStyle({ color: hex }, key('tc'))} onend={end} />
+          {#if t0.gradient && !editingSel}
+            <button class="btn" onclick={() => setGradient(false)} data-testid="gradient-off">Solid colour</button>
+          {:else}
+            <ColorField label="Colour" value={ts.color ?? '#000000'} testid="text-color"
+              onchange={(hex) => ed.updateTextStyle({ color: hex }, key('tc'))} onend={end} />
+          {/if}
         </div>
+        {#if t0.gradient && !editingSel}
+          <div class="row2">
+            <ColorField label="From" value={t0.gradient.stops[0]?.color ?? '#000000'} onchange={(hex) => patchGradient(0, { color: hex })} onend={end} />
+            <ColorField label="To" value={t0.gradient.stops[t0.gradient.stops.length - 1]?.color ?? '#000000'} onchange={(hex) => patchGradient(t0!.gradient!.stops.length - 1, { color: hex })} onend={end} />
+          </div>
+          <NumField label="Gradient angle" value={t0.gradient.angle} min={0} max={360} suffix="°" onchange={(v) => patchGradient(null, { angle: v })} onend={end} />
+        {:else if !editingSel}
+          <button class="btn link" onclick={() => setGradient(true)} data-testid="gradient-on">Use a gradient</button>
+        {/if}
         <div class="toggles">
-          <button class="btn icon" class:on={t0.style.bold} aria-label="Bold" data-testid="bold" onclick={() => { ed.updateTextStyle({ bold: !t0.style.bold }); end(); }}><Icon name="bold" /></button>
-          <button class="btn icon" class:on={t0.style.italic} aria-label="Italic" onclick={() => { ed.updateTextStyle({ italic: !t0.style.italic }); end(); }}><Icon name="italic" /></button>
-          <button class="btn icon" class:on={t0.style.underline} aria-label="Underline" onclick={() => { ed.updateTextStyle({ underline: !t0.style.underline }); end(); }}><Icon name="underline" /></button>
-          <button class="btn icon" class:on={t0.style.strike} aria-label="Strikethrough" onclick={() => { ed.updateTextStyle({ strike: !t0.style.strike }); end(); }}><Icon name="strike" /></button>
-          <button class="btn icon" class:on={t0.style.uppercase} aria-label="Uppercase" onclick={() => { ed.updateTextStyle({ uppercase: !t0.style.uppercase }); end(); }}><Icon name="caps" /></button>
+          <button class="btn icon" class:on={ts.bold} aria-label="Bold" data-testid="bold" onclick={() => { ed.updateTextStyle({ bold: !ts.bold }); end(); }}><Icon name="bold" /></button>
+          <button class="btn icon" class:on={ts.italic} aria-label="Italic" data-testid="italic" onclick={() => { ed.updateTextStyle({ italic: !ts.italic }); end(); }}><Icon name="italic" /></button>
+          <button class="btn icon" class:on={ts.underline} aria-label="Underline" onclick={() => { ed.updateTextStyle({ underline: !ts.underline }); end(); }}><Icon name="underline" /></button>
+          <button class="btn icon" class:on={ts.strike} aria-label="Strikethrough" onclick={() => { ed.updateTextStyle({ strike: !ts.strike }); end(); }}><Icon name="strike" /></button>
+          <button class="btn icon" class:on={ts.uppercase} aria-label="Uppercase" onclick={() => { ed.updateTextStyle({ uppercase: !ts.uppercase }); end(); }}><Icon name="caps" /></button>
         </div>
         <div class="toggles">
           {#each ALIGNS as { a, icon }}
             <button class="btn icon" class:on={t0.style.align === a} aria-label="Align {a}" onclick={() => { ed.updateTextStyle({ align: a }); end(); }}><Icon name={icon} /></button>
           {/each}
+          <button class="btn icon" class:on={t0.list === 'bullet'} aria-label="Bulleted list" data-testid="list-bullet" onclick={() => { ed.updateText({ list: t0!.list === 'bullet' ? undefined : 'bullet' }); end(); }}><Icon name="listb" /></button>
+          <button class="btn icon" class:on={t0.list === 'number'} aria-label="Numbered list" data-testid="list-number" onclick={() => { ed.updateText({ list: t0!.list === 'number' ? undefined : 'number' }); end(); }}><Icon name="listn" /></button>
         </div>
         <div class="row2">
-          <NumField label="Line height" value={t0.style.lineHeight} min={0.5} max={4} step={0.05}
+          <NumField label="Line height" value={ts.lineHeight ?? t0.style.lineHeight} min={0.5} max={4} step={0.05}
             onchange={(v) => ed.updateTextStyle({ lineHeight: v }, key('lh'))} onend={end} />
-          <NumField label="Letter spacing" value={t0.style.letterSpacing} min={-20} max={200} step={0.5}
+          <NumField label="Letter spacing" value={ts.letterSpacing ?? 0} min={-20} max={200} step={0.5}
             onchange={(v) => ed.updateTextStyle({ letterSpacing: v }, key('ls'))} onend={end} />
         </div>
       </section>
+      {#if !editingSel}
+        <section data-text-tools>
+          <h4>Effects</h4>
+          <div class="field">
+            <span>Style</span>
+            <select class="input" value={t0.effect?.type ?? ''} data-testid="effect" onchange={(e) => setEffect((e.currentTarget as HTMLSelectElement).value as TextEffectType | '')}>
+              <option value="">None</option>
+              {#each TEXT_EFFECTS as fx}<option value={fx.type}>{fx.label}</option>{/each}
+            </select>
+          </div>
+          {#if t0.effect}
+            {@const fx = t0.effect}
+            {#each FX_SLIDERS[fx.type] as sl (sl.k)}
+              <div class="field">
+                <span>{sl.label} · {fxNum(fx, sl.k)}</span>
+                <input type="range" min={sl.min} max={sl.max} value={fxNum(fx, sl.k)} data-testid="fx-{sl.k}"
+                  oninput={(e) => patchEffect({ [sl.k]: Number((e.currentTarget as HTMLInputElement).value) })} onchange={end} />
+              </div>
+            {/each}
+            {#if 'color' in fx}
+              <ColorField label="Colour" value={fx.color} onchange={(hex) => patchEffect({ color: hex })} onend={end} />
+            {/if}
+            {#if fx.type === 'glitch'}
+              <div class="field">
+                <span>Colours</span>
+                <select class="input" value={fx.colors} onchange={(e) => { patchEffect({ colors: (e.currentTarget as HTMLSelectElement).value }); end(); }}>
+                  <option value="blue-red">Blue / red</option><option value="blue-yellow">Blue / yellow</option>
+                </select>
+              </div>
+            {/if}
+          {/if}
+          <div class="field">
+            <span><Icon name="curve" size={14} /> Curve · {t0.curve ?? 0}</span>
+            <input type="range" min="-100" max="100" value={t0.curve ?? 0} data-testid="curve"
+              oninput={(e) => ed.updateText({ curve: Number((e.currentTarget as HTMLInputElement).value) || undefined }, key('curve'))} onchange={end} />
+          </div>
+        </section>
+      {/if}
     {/if}
 
     {#if s0}
@@ -186,5 +271,8 @@
   .info { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
   .info span { color: var(--muted); font-size: 12px; }
   .hint { color: var(--muted); font-size: 12px; line-height: 1.5; margin: 0; }
+  .hint.sel { color: var(--accent); font-weight: 600; }
+  .btn.link { border: 0; background: none; color: var(--accent); padding: 0; height: auto; justify-content: flex-start; font-size: 12px; }
+  .field > span { display: flex; align-items: center; gap: 4px; }
   input[type='range'] { accent-color: var(--accent); width: 100%; }
 </style>

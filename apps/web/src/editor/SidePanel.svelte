@@ -91,7 +91,7 @@
               ondragstart={(e) => dragData(e, { kind: 'text', preset: key })} onclick={() => ed.addText(key as keyof typeof TEXT_PRESETS)}>{p.label}</button>
           {/each}
         </div>
-        <p class="hint">Double-click text on the page to edit it. More fonts and effects arrive in milestone 3.</p>
+        <p class="hint">Double-click text to edit it. Select some words to style just those. Fonts, effects, curve and lists are in the panel on the right.</p>
       {:else if tab === 'uploads'}
         <button class="btn primary wide" onclick={upload} data-testid="upload"><Icon name="upload" size={16} /> Upload images</button>
         <p class="hint">Or drop image files onto the page. PNG, JPG, WebP, GIF.</p>

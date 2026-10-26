@@ -8,6 +8,7 @@
   import type { EditorState } from '../lib/editor.svelte.ts';
   import { TEXT_PRESETS } from '../lib/editor.svelte.ts';
   import Icon from '../lib/Icon.svelte';
+  import { flatten, getSelectionOffsets, renderRich, setSelectionOffsets } from '../lib/richtext.ts';
 
   let { ed, zoom = $bindable(1), fitRequest = 0 }: { ed: EditorState; zoom?: number; fitRequest?: number } = $props();
 
@@ -434,9 +435,85 @@
     return { el: hit.element, i: pageIndexOf(hit.page.id) };
   });
 
-  function focusOnMount(node: HTMLTextAreaElement): void {
+  /**
+   * The rich text editor. It builds its DOM once, then only on a style change
+   * from outside (`textRev`) or a zoom change, keeping the caret/selection.
+   */
+  function richEditor(node: HTMLDivElement, p: { id: string; rev: number; zoom: number }) {
+    const el = () => {
+      const hit = findElement(ed.doc, p.id);
+      return hit?.element.type === 'text' ? hit.element : null;
+    };
+    const first = el();
+    if (first) renderRich(node, first, p.zoom);
     node.focus();
-    node.select();
+    // select everything, like double-click in Canva
+    const all = document.createRange();
+    all.selectNodeContents(node);
+    document.getSelection()?.removeAllRanges();
+    document.getSelection()?.addRange(all);
+    const track = () => {
+      const r = getSelectionOffsets(node);
+      if (r) ed.textSel = r;
+    };
+    track();
+    document.addEventListener('selectionchange', track);
+    return {
+      update(next: { id: string; rev: number; zoom: number }) {
+        const changed = next.rev !== p.rev || next.zoom !== p.zoom;
+        p = next;
+        const e = el();
+        if (!changed || !e) return;
+        const sel = ed.textSel;
+        renderRich(node, e, p.zoom);
+        const active = document.activeElement;
+        // put the selection back unless the user is typing in another field
+        if (sel && (active === node || !active || active === document.body || active.tagName === 'BUTTON')) {
+          setSelectionOffsets(node, sel.start, sel.end);
+          if (active !== node) node.focus({ preventScroll: true });
+        }
+      },
+      destroy() {
+        document.removeEventListener('selectionchange', track);
+      },
+    };
+  }
+
+  function onRichInput(e: Event, id: string): void {
+    const node = e.currentTarget as HTMLDivElement;
+    const f = flatten(node);
+    ed.setRich(id, f.text, f.runs);
+    const r = getSelectionOffsets(node);
+    if (r) ed.textSel = r;
+  }
+
+  function onRichKey(e: KeyboardEvent): void {
+    const mod = e.metaKey || e.ctrlKey;
+    const k = e.key.toLowerCase();
+    if (e.key === 'Escape') { e.preventDefault(); ed.stopEditing(); }
+    else if (mod && (k === 'b' || k === 'i' || k === 'u')) {
+      // our own styling, not the browser's <b>/<i>/<u>
+      e.preventDefault();
+      const st = ed.textStyle ?? {};
+      const prop = k === 'b' ? 'bold' : k === 'i' ? 'italic' : 'underline';
+      ed.updateTextStyle({ [prop]: !st[prop] });
+      ed.seal();
+    }
+    e.stopPropagation();
+  }
+
+  function onRichPaste(e: ClipboardEvent): void {
+    e.preventDefault();
+    e.stopPropagation();
+    const t = e.clipboardData?.getData('text/plain') ?? '';
+    document.execCommand('insertText', false, t);
+  }
+
+  function onRichBlur(e: FocusEvent): void {
+    // Keep editing while the user works in the properties panel (styling the selection).
+    const to = e.relatedTarget as HTMLElement | null;
+    if (to?.closest('[data-text-tools]')) return;
+    ed.stopEditing();
   }
 
   // ---- page toolbars ----
@@ -518,21 +595,25 @@
   {#if editing}
     {@const el = editing.el}
     {@const p = toScreen(el.x, el.y + pageTop(editing.i))}
-    <textarea
+    <div
       class="text-edit"
+      class:curved={!!el.curve}
       data-testid="text-editor"
-      use:focusOnMount
-      value={el.text}
+      contenteditable="true"
+      role="textbox"
+      aria-multiline="true"
+      tabindex="0"
       spellcheck="true"
-      style="left:{p.x}px;top:{p.y}px;width:{el.w * zoom}px;height:{el.h * zoom}px;transform:rotate({el.rotation}deg);
-        font:{el.style.italic ? 'italic' : 'normal'} {el.style.bold ? 700 : 400} {el.style.fontSize * zoom}px/{el.style.lineHeight} '{el.style.fontFamily}', Inter, sans-serif;
-        letter-spacing:{el.style.letterSpacing * zoom}px;text-align:{el.style.align};color:{el.style.color};opacity:{el.opacity};
-        text-transform:{el.style.uppercase ? 'uppercase' : 'none'};text-decoration:{[el.style.underline && 'underline', el.style.strike && 'line-through'].filter(Boolean).join(' ') || 'none'}"
-      oninput={(e) => ed.setText(el.id, (e.currentTarget as HTMLTextAreaElement).value)}
+      use:richEditor={{ id: el.id, rev: ed.textRev, zoom }}
+      style="left:{p.x}px;top:{p.y}px;width:{el.w * zoom}px;min-height:{el.h * zoom}px;transform:rotate({el.rotation}deg);
+        text-align:{el.style.align};opacity:{el.opacity};line-height:{el.style.lineHeight};
+        font:{el.style.italic ? 'italic' : 'normal'} {el.style.bold ? 700 : 400} {el.style.fontSize * zoom}px/{el.style.lineHeight} '{el.style.fontFamily}', Inter, sans-serif;color:{el.style.color}"
+      oninput={(e) => onRichInput(e, el.id)}
       onpointerdown={(e) => e.stopPropagation()}
-      onkeydown={(e) => { if (e.key === 'Escape') { e.preventDefault(); ed.stopEditing(); } e.stopPropagation(); }}
-      onblur={() => ed.stopEditing()}
-    ></textarea>
+      onkeydown={onRichKey}
+      onpaste={onRichPaste}
+      onblur={onRichBlur}
+    ></div>
   {/if}
 </div>
 
@@ -560,5 +641,8 @@
   .text-edit {
     position: absolute; transform-origin: center; margin: 0; padding: 0; border: 0; resize: none; overflow: hidden;
     background: transparent; outline: 2px solid var(--accent); outline-offset: 0; caret-color: var(--accent); white-space: pre-wrap; word-break: break-word;
+    user-select: text; -webkit-user-select: text; box-sizing: border-box;
   }
+  .text-edit.curved { white-space: pre; display: flex; flex-direction: column; justify-content: center; background: rgba(255,255,255,.85); }
+  .text-edit :global(div) { margin: 0; }
 </style>

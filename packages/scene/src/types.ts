@@ -82,6 +82,26 @@ export interface TextRun {
   style?: Partial<TextStyle>;
 }
 
+/**
+ * A look applied to the whole text box. Amounts are 0..100 like Canva's
+ * sliders and scale with the font size; `direction` is in degrees
+ * (0 = right, 90 = down).
+ */
+export type TextEffect =
+  | { type: 'shadow'; offset: number; direction: number; blur: number; transparency: number; color: Color }
+  | { type: 'lift'; intensity: number }
+  | { type: 'hollow'; thickness: number }
+  | { type: 'splice'; thickness: number; offset: number; direction: number; color: Color }
+  | { type: 'outline'; thickness: number; color: Color }
+  | { type: 'echo'; offset: number; direction: number; color: Color }
+  | { type: 'glitch'; offset: number; direction: number; colors: 'blue-red' | 'blue-yellow' }
+  | { type: 'neon'; intensity: number }
+  | { type: 'background'; roundness: number; spread: number; transparency: number; color: Color };
+
+export type TextEffectType = TextEffect['type'];
+
+export type ListStyle = 'bullet' | 'number';
+
 export interface TextElement extends ElementBase {
   type: 'text';
   /** The whole text. With `runs`, it equals the runs' texts joined. */
@@ -89,6 +109,13 @@ export interface TextElement extends ElementBase {
   style: TextStyle;
   /** Mixed styles inside one box. Absent = the whole text uses `style`. */
   runs?: TextRun[];
+  effect?: TextEffect;
+  /** Bend the text along a circle: -100..100 (0 or absent = straight). Curved text is one line. */
+  curve?: number;
+  /** Each line (paragraph) becomes a list item. */
+  list?: ListStyle;
+  /** Gradient fill for the letters; replaces the colours while set. */
+  gradient?: Extract<Fill, { type: 'linear' }>;
 }
 
 export interface ImageElement extends ElementBase {
@@ -132,6 +159,14 @@ export interface EmbeddedFont {
   asset: string;
   weight?: number;
   italic?: boolean;
+  /**
+   * One script subset of the family (e.g. `latin-ext`) when a face is split
+   * by script, as Google Fonts does. Characters missing from one subset are
+   * looked up in the family's other subsets.
+   */
+  subset?: string;
+  /** Where it came from, e.g. `fontsource:lobster` or `upload`. */
+  source?: string;
 }
 
 export interface Doc {

@@ -121,3 +121,57 @@ describe('text runs and embedded fonts', () => {
     fonts.dispose();
   });
 });
+
+describe('text features (M3)', () => {
+  const base = () => text('Hello', { x: 10, y: 10, w: 300, h: 60 }, { fontSize: 48, color: '#000000', bold: true });
+  const docWith = (el: ReturnType<typeof base>) => {
+    let doc = createDoc({ width: 340, height: 120 });
+    doc = addElements(doc, doc.pages[0]!.id, [el]);
+    return doc;
+  };
+  const count = (png: Uint8Array, test: (px: number[]) => boolean) => {
+    const p = pixels(png);
+    let n = 0;
+    for (let y = 0; y < p.h; y += 2) for (let x = 0; x < p.w; x += 2) if (test(p.at(x, y))) n++;
+    return n;
+  };
+  it('outline draws the outline colour around the letters', () => {
+    const el = { ...base(), effect: { type: 'outline' as const, thickness: 100, color: '#ff0000' } };
+    const red = count(renderer.exportPage(docWith(el), docWith(el).pages[0]!), ([r, g, b]) => r! > 200 && g! < 60 && b! < 60);
+    expect(red).toBeGreaterThan(50);
+  });
+  it('hollow leaves the inside of letters empty', () => {
+    const solid = count(renderer.exportPage(docWith(base()), docWith(base()).pages[0]!), ([r]) => r! < 60);
+    const el = { ...base(), effect: { type: 'hollow' as const, thickness: 30 } };
+    const hollow = count(renderer.exportPage(docWith(el), docWith(el).pages[0]!), ([r]) => r! < 60);
+    expect(hollow).toBeLessThan(solid * 0.8);
+  });
+  it('background effect paints behind the text', () => {
+    const el = { ...base(), effect: { type: 'background' as const, roundness: 50, spread: 50, transparency: 0, color: '#00ff00' } };
+    const green = count(renderer.exportPage(docWith(el), docWith(el).pages[0]!), ([r, g, b]) => g! > 200 && r! < 60 && b! < 60);
+    expect(green).toBeGreaterThan(200);
+  });
+  it('curved text gets a box from the arc', () => {
+    const el = { ...base(), text: 'Curved text here', curve: 80 };
+    const fit = renderer.fitText(el);
+    const straight = renderer.textWidth({ ...el, curve: undefined });
+    expect(fit.w).toBeLessThan(straight);
+    expect(fit.h).toBeGreaterThan(80);
+  });
+  it('a list indents and keeps line count', () => {
+    const el = { ...base(), text: 'One\nTwo\nThree', style: { ...base().style, fontSize: 20 } };
+    expect(renderer.textHeight({ ...el, list: 'bullet' })).toBe(renderer.textHeight(el));
+  });
+  it('gradient fill colours the letters', () => {
+    const el = { ...base(), gradient: { type: 'linear' as const, angle: 90, stops: [{ offset: 0, color: '#0000ff' }, { offset: 1, color: '#0000ff' }] } };
+    const blue = count(renderer.exportPage(docWith(el), docWith(el).pages[0]!), ([r, g, b]) => b! > 200 && r! < 60 && g! < 60);
+    expect(blue).toBeGreaterThan(50);
+  });
+  it('a subset face fills in characters the main face lacks', () => {
+    const fonts = new FontLibrary(ck);
+    fonts.add('Test', readFileSync(new URL('Inter-Regular.ttf', fontDir)).buffer as ArrayBuffer, 'latin-ext');
+    expect(fonts.chain('Test')).toEqual(['Test␟latin-ext']);
+    expect([...fonts.families]).toEqual(['Test']);
+    fonts.dispose();
+  });
+});

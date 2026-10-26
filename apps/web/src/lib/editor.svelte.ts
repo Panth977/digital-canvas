@@ -1,12 +1,13 @@
 import {
-  History, newId, addElements, addPage, arrange, duplicateElements, duplicatePage, findElement, image, movePage,
-  pruneAssets, removeElements, removePage, setTitle, shape, text, updateElements, updatePage,
-  type Arrange, type Doc, type Element, type ElementPatch, type Page, type ShapeKind, type TextElement, type TextStyle,
+  History, newId, addElements, addPage, arrange, commonStyle, duplicateElements, duplicatePage, findElement, image, movePage,
+  normalizeRuns, pruneAssets, pruneFonts, removeElements, removePage, setTitle, shape, styleRange, text, updateElements, updatePage,
+  type Arrange, type Doc, type Element, type ElementPatch, type EmbeddedFont, type Page, type ShapeKind, type TextElement, type TextRun, type TextStyle,
 } from '@digital-canvas/scene';
 import { Renderer } from '@digital-canvas/render';
 import { assetId, type ProjectFile, type ProjectStore } from '@digital-canvas/storage';
 import type { Engine } from './engine.ts';
 import { isImage } from './files.ts';
+import { addCssFace, fetchFamily, type CatalogFont, type FontFile } from './fonts.ts';
 
 export type SaveState = 'saved' | 'saving' | 'unsaved' | 'error';
 
@@ -33,6 +34,12 @@ export class EditorState {
   canRedo = $state(false);
   /** Bumped when something outside `doc` changes the picture (an image decoded). */
   frame = $state(0);
+  /** Characters selected in the text being edited (UTF-16 offsets). */
+  textSel = $state<{ start: number; end: number } | null>(null);
+  /** Bumped when a style change while editing means the editor must redraw its text. */
+  textRev = $state(0);
+  /** A font family being downloaded. */
+  fontLoading = $state<string | null>(null);
 
   readonly renderer: Renderer;
   readonly assets: Map<string, Uint8Array>;
@@ -46,7 +53,7 @@ export class EditorState {
     this.assets = new Map(file.assets);
     for (const f of file.doc.fonts ?? []) {
       const bytes = this.assets.get(f.asset);
-      if (bytes) engine.fonts.addOnce(f.family, f.asset, bytes);
+      if (bytes) this.registerFont(f, bytes);
     }
     for (const [id, bytes] of this.assets) if (file.doc.assets[id]?.mime.startsWith('image/')) this.renderer.setImage(id, bytes);
     this.doc = file.doc;
@@ -135,32 +142,128 @@ export class EditorState {
     this.commit(updateElements(this.doc, ids, patch), key);
   }
 
-  /** Change text style; text boxes grow or shrink to fit. */
+  /** Box changes that keep a text box fitted to its content (curved text keeps its centre). */
+  fitPatch(e: TextElement): Partial<TextElement> {
+    if (!e.curve) return { h: this.renderer.textHeight(e) };
+    const { w, h } = this.renderer.fitText(e);
+    return { w, h, x: e.x + (e.w - w) / 2, y: e.y + (e.h - h) / 2 };
+  }
+
+  /** The selected range of the text being edited, if any characters are selected. */
+  private editRange(): { id: string; start: number; end: number } | null {
+    const id = this.editingTextId, sel = this.textSel;
+    return id && sel && sel.end > sel.start ? { id, ...sel } : null;
+  }
+
+  /** The text style to show: the selected characters' while editing, else the first text box's. */
+  get textStyle(): Partial<TextStyle> | null {
+    const r = this.editRange();
+    if (r) {
+      const hit = findElement(this.doc, r.id);
+      if (hit?.element.type === 'text') return commonStyle(hit.element, r.start, r.end);
+    }
+    const t = this.selected.find((e): e is TextElement => e.type === 'text');
+    return t ? t.style : null;
+  }
+
+  /**
+   * Change text style. While editing with characters selected, only those
+   * change; otherwise every selected text box. Boxes grow or shrink to fit.
+   */
   updateTextStyle(style: Partial<TextStyle>, key: string | null = null): void {
+    const r = this.editRange();
+    if (r) {
+      this.commit(updateElements(this.doc, [r.id], (e) => {
+        if (e.type !== 'text') return {};
+        const next = { ...e, ...styleRange(e, r.start, r.end, style) };
+        return { style: next.style, runs: next.runs, ...this.fitPatch(next) };
+      }), key);
+      this.textRev++;
+      return;
+    }
     this.update((e) => {
       if (e.type !== 'text') return {};
-      const next = { ...e, style: { ...e.style, ...style } };
-      // A style set on the whole box replaces the same setting on its runs.
-      if (e.runs) next.runs = e.runs.map((r) => ({ ...r, style: r.style && Object.fromEntries(Object.entries(r.style).filter(([k]) => !(k in style))) }));
+      const next: TextElement = { ...e, ...styleRange(e, 0, e.text.length, style) };
       // A new font size scales the box too, so line breaks stay where they were.
-      if (style.fontSize && e.style.fontSize > 0) next.w = e.w * (style.fontSize / e.style.fontSize);
-      return { style: next.style, w: next.w, runs: next.runs, h: this.renderer.textHeight(next) };
+      if (style.fontSize && e.style.fontSize > 0 && !e.curve) next.w = e.w * (style.fontSize / e.style.fontSize);
+      return { style: next.style, w: next.w, runs: next.runs, ...this.fitPatch(next) };
     }, key);
+    if (this.editingTextId) this.textRev++;
+  }
+
+  /** Change whole-box text settings (effect, curve, list, gradient), refitting the box. */
+  updateText(patch: Partial<Pick<TextElement, 'effect' | 'curve' | 'list' | 'gradient'>>, key: string | null = null): void {
+    this.update((e) => {
+      if (e.type !== 'text') return {};
+      const next = { ...e, ...patch } as TextElement;
+      for (const k of Object.keys(patch) as (keyof typeof patch)[]) if (patch[k] === undefined || patch[k] === 0) delete next[k];
+      return { ...patch, ...this.fitPatch(next) } as Partial<TextElement>;
+    }, key);
+    if (this.editingTextId) this.textRev++;
   }
 
   setText(id: string, value: string): void {
+    this.setRich(id, value, undefined);
+  }
+
+  /** Text typed in the editor, with its styled runs. */
+  setRich(id: string, value: string, runs: TextRun[] | undefined): void {
     this.commit(updateElements(this.doc, [id], (e) => {
       if (e.type !== 'text') return {};
-      // Typing replaces the text; mixed styles collapse to the box's style (per-run editing comes with the rich text editor).
-      return { text: value, runs: undefined, h: this.renderer.textHeight({ ...e, text: value, runs: undefined }) };
+      const next = { ...e, text: value, runs: runs && normalizeRuns(runs, e.style) };
+      return { text: value, runs: next.runs, ...this.fitPatch(next) };
     }), `text:${id}`);
+  }
+
+  // ---- fonts ----
+
+  private registerFont(f: EmbeddedFont, bytes: Uint8Array): void {
+    this.engine.fonts.addOnce(f.family, f.asset, bytes, f.subset);
+    addCssFace(f.family, f.asset, bytes, f.weight ?? 400, f.italic ?? false);
+  }
+
+  /** Embed font files in the design and make them drawable. */
+  async addFonts(files: FontFile[], key: string | null = null): Promise<void> {
+    const assets = { ...this.doc.assets };
+    const fonts = [...(this.doc.fonts ?? [])];
+    for (const f of files) {
+      const id = await assetId(f.bytes, f.mime);
+      this.assets.set(id, f.bytes);
+      assets[id] = { mime: f.mime, name: `${f.family} ${f.weight}${f.italic ? ' italic' : ''}${f.subset ? ` ${f.subset}` : ''}` };
+      const meta: EmbeddedFont = { family: f.family, asset: id, weight: f.weight, italic: f.italic, subset: f.subset, source: f.source };
+      if (!fonts.some((x) => x.asset === id)) fonts.push(meta);
+      this.registerFont(meta, f.bytes);
+    }
+    this.commit({ ...this.doc, assets, fonts }, key);
+  }
+
+  /** Families this design can draw right now (bundled, embedded, uploaded this session). */
+  get families(): string[] {
+    return [...this.engine.fonts.families].sort((a, b) => a.localeCompare(b));
+  }
+
+  /** Use a catalogue font for the selection, downloading it first when needed. */
+  async useFont(f: CatalogFont): Promise<void> {
+    const key = `font:${Date.now()}`;
+    if (!this.engine.fonts.families.has(f.family)) {
+      const sample = this.selected.filter((e): e is TextElement => e.type === 'text').map((e) => e.text).join(' ');
+      this.fontLoading = f.family;
+      try {
+        await this.addFonts(await fetchFamily(f, sample), key);
+      } finally {
+        this.fontLoading = null;
+      }
+    }
+    this.updateTextStyle({ fontFamily: f.family }, key);
+    this.seal();
+    this.refitText();
   }
 
   /** Re-measure text boxes (after fonts load). */
   refitText(): void {
     const ids: string[] = [];
-    for (const p of this.doc.pages) for (const e of p.elements) if (e.type === 'text' && Math.abs(this.renderer.textHeight(e) - e.h) > 0.5) ids.push(e.id);
-    if (ids.length) this.commit(updateElements(this.doc, ids, (e) => (e.type === 'text' ? { h: this.renderer.textHeight(e) } : {})), 'refit');
+    for (const p of this.doc.pages) for (const e of p.elements) if (e.type === 'text' && Math.abs(this.renderer.fitText(e).h - e.h) > 0.5) ids.push(e.id);
+    if (ids.length) this.commit(updateElements(this.doc, ids, (e) => (e.type === 'text' ? this.fitPatch(e) : {})), 'refit');
   }
 
   private place(w: number, h: number): { x: number; y: number; w: number; h: number } {
@@ -296,6 +399,7 @@ export class EditorState {
     const id = this.editingTextId;
     if (!id) return;
     this.editingTextId = null;
+    this.textSel = null;
     this.seal();
     const hit = findElement(this.doc, id);
     if (hit?.element.type === 'text' && !hit.element.text.trim()) {
@@ -377,7 +481,7 @@ export class EditorState {
     this.saveState = 'saving';
     this.saving = (async () => {
       try {
-        await this.store.save({ doc: pruneAssets(doc), assets: this.assets, thumbnail: this.thumbnail() });
+        await this.store.save({ doc: pruneAssets(pruneFonts(doc)), assets: this.assets, thumbnail: this.thumbnail() });
         // A change made while saving has already scheduled the next save.
         this.saveState = this.doc === doc ? 'saved' : 'unsaved';
         this.saveError = '';

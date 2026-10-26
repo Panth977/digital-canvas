@@ -227,3 +227,20 @@ export function pruneAssets(doc: Doc): Doc {
   const assets = Object.fromEntries(Object.entries(doc.assets).filter(([k]) => used.has(k)));
   return Object.keys(assets).length === Object.keys(doc.assets).length ? doc : { ...doc, assets };
 }
+
+/**
+ * Drop embedded fonts the user added (catalogue or upload) whose family no
+ * text uses any more. Fonts without a `source` (e.g. from an import, where a
+ * face may serve as a fallback) are kept.
+ */
+export function pruneFonts(doc: Doc): Doc {
+  if (!doc.fonts?.length) return doc;
+  const used = new Set<string>();
+  for (const p of doc.pages) for (const e of p.elements) {
+    if (e.type !== 'text') continue;
+    used.add(e.style.fontFamily);
+    for (const r of e.runs ?? []) if (r.style?.fontFamily) used.add(r.style.fontFamily);
+  }
+  const fonts = doc.fonts.filter((f) => !f.source || used.has(f.family));
+  return fonts.length === doc.fonts.length ? doc : { ...doc, fonts };
+}
