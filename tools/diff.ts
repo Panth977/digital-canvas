@@ -69,8 +69,11 @@ for (const n of wanted) {
   const c = surface.getCanvas();
   const heatImg = ck.MakeImage({ width: W, height: H, colorType: ck.ColorType.RGBA_8888, alphaType: ck.AlphaType.Unpremul, colorSpace: ck.ColorSpace.SRGB }, heat, W * 4)!;
   [ref, ours, heatImg].forEach((img, k) => c.drawImageRectOptions(img, ck.XYWHRect(0, 0, W, H), ck.XYWHRect(k * w, 0, w, h), ck.FilterMode.Linear, ck.MipmapMode.None, new ck.Paint()));
-  writeFileSync(join(outDir, `page${n}.png`), surface.makeImageSnapshot().encodeToBytes()!);
+  const snap = surface.makeImageSnapshot();
+  writeFileSync(join(outDir, `page${n}.png`), snap.encodeToBytes()!);
+  snap.delete();
   surface.delete();
+  ref.delete(); ours.delete(); heatImg.delete();
 }
 rows.forEach((l) => console.log(l));
 console.log(`average match ${(total / rows.length).toFixed(2)}%`);

@@ -96,6 +96,8 @@ let pageTexts: { order: number; x: number; y: number; w: number; h: number; colo
 let leafOrder = 0;
 /** Plate mode (with --crops): Canva's text is painted out of its export, every picture is cut from that clean plate. */
 const plateMode = !!cropsDir;
+/** Area of the page being converted (px²). */
+let pageArea = 1;
 /** Text boxes converted before the plate is made (so the plate can be made from where our text sits). */
 let textById = new Map<string, TextElement>();
 
@@ -309,7 +311,8 @@ function convert(el: CanvaEl): Element[] {
     const bw = Math.abs(el.width * Math.cos(r)) + Math.abs(el.height * Math.sin(r));
     const bh = Math.abs(el.width * Math.sin(r)) + Math.abs(el.height * Math.cos(r));
     const box = { x: cx - bw / 2, y: cy - bh / 2, w: bw, h: bh };
-    const bytes = cropShot(box.x, box.y, box.w, box.h, myOrder);
+    // Big pictures (backdrops) keep every pixel; keying is for cut-outs sitting on a backdrop.
+    const bytes = cropShot(box.x, box.y, box.w, box.h, myOrder, bw * bh < pageArea * 0.45);
     if (bytes) {
       const id = `crop-${++cropN}`;
       assets.set(id, bytes);
@@ -478,6 +481,24 @@ function makePlate(cp: CanvaPage): void {
       t = fu > fl + 0.05 ? upper : lower;
       if (t.runs) t.runs = t.runs.map((r) => (r.style && Object.values(r.style).every((v) => v === undefined) ? { text: r.text } : r));
     }
+    // Canva's curved text isn't in the API either: when the straight text doesn't line up, try curves.
+    const straight = fit(t);
+    if (straight < 0.6 && !t.text.trim().includes('\n') && t.text.trim().length > 2) {
+      const cx = t.x + t.w / 2, cy = t.y + t.h / 2;
+      const curved = (k: number): TextElement => {
+        const el: TextElement = { ...t, text: t.text.replace(/\n+$/, ''), curve: k };
+        if (el.runs) el.runs = el.runs.map((r) => ({ ...r, text: r.text.replace(/\n+$/, '') })).filter((r) => r.text);
+        const { w, h } = measure!.fitText(el);
+        return { ...el, w, h, x: cx - w / 2, y: cy - h / 2 };
+      };
+      let best = { k: 0, sc: straight };
+      for (let k = -100; k <= 100; k += 10) if (k) { const sc = fit(curved(k)); if (sc > best.sc) best = { k, sc }; }
+      if (best.k) for (let k = best.k - 8; k <= best.k + 8; k += 2) if (k) { const sc = fit(curved(k)); if (sc > best.sc) best = { k, sc }; }
+      if (best.k && best.sc > straight + 0.15) {
+        t = curved(best.k);
+        gap('curved text (curve found by matching Canva\'s render)');
+      }
+    }
     textById.set(e.id, t);
   }
   const surface = ck.MakeSurface(W, H)!;
@@ -559,6 +580,7 @@ const pages: Page[] = canvaPages.map((cp, i) => {
     const top = [...bins.values()].sort((a, b) => b.n - a.n)[0]!;
     pageBg = top.sum.map((v) => v / top.n);
   }
+  pageArea = cp.dimensions.width * cp.dimensions.height;
   makePlate(cp);
   pageTexts = [];
   if (!plateMode) collectTexts(cp.elements, pageTexts);

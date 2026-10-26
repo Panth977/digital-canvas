@@ -63,6 +63,7 @@ All lengths are CSS pixels (96 per inch); `unit` only says how sizes are shown. 
 - [x] **M2** Sign in with Google (IceBase backend) + Google Drive: connect once, every device sees your designs
 - [ ] **M2.1** "Open with" from Drive, publish the OAuth app
 - [x] **M3** Text & fonts: rich text (style part of a box), 2,000+ Google Fonts (via Fontsource, embedded in the file), font upload, 9 text effects, curved text, lists, gradient text
+- [x] **Video (early)**: video clips, page durations, timeline playback, sounds, MP4 export (WebCodecs via [Mediabunny](https://mediabunny.dev), MPL-2.0)
 - [ ] **M4** Image tools: crop, adjust, filters, shadows, effects, background remover
 - [ ] **M5** Layout tools + ~200 presets: snapping, smart guides, rulers, bleed, groups, resize
 - [ ] **M6** Elements + export: lines, connectors, draw, frames, grids, tables, charts, QR, icons, stock photos; PDF and SVG export
