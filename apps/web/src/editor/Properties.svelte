@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { isVideo, pageDuration, type VideoElement } from '@digital-canvas/scene';
+  import { formatTime } from '../lib/media.ts';
   import { defaultEffect, formatLength, TEXT_EFFECTS, type Element, type ShapeElement, type Stroke, type TextAlign, type TextEffect, type TextEffectType, type TextElement, type ImageElement } from '@digital-canvas/scene';
   import FontPicker from './FontPicker.svelte';
   import type { EditorState } from '../lib/editor.svelte.ts';
@@ -13,6 +15,8 @@
   const texts = $derived(sel.filter((e): e is TextElement => e.type === 'text'));
   const shapes = $derived(sel.filter((e): e is ShapeElement => e.type === 'shape'));
   const images = $derived(sel.filter((e): e is ImageElement => e.type === 'image'));
+  const v0 = $derived(sel.find((e): e is VideoElement => e.type === 'video'));
+  const v0dur = $derived(v0 ? ed.doc.assets[v0.asset]?.duration ?? 0 : 0);
   const t0 = $derived(texts[0]);
   /** Style of the selected characters while editing, else of the first text box. */
   const ts = $derived(ed.textStyle ?? {});
@@ -91,9 +95,34 @@
       <b>{formatLength(ed.doc.width, ed.doc.unit)} × {formatLength(ed.doc.height, ed.doc.unit)} {ed.doc.unit}</b>
       {#if ed.doc.bleed}<span>Print bleed {formatLength(ed.doc.bleed, 'mm')} mm</span>{/if}
     </div>
+    {#if isVideo(ed.doc)}
+      <NumField label="Page duration" value={pageDuration(ed.page)} min={0.1} max={3600} step={0.5} suffix="s" testid="page-duration"
+        onchange={(v) => ed.updatePage({ duration: v }, 'page-dur')} onend={end} />
+      {#if ed.doc.audio?.length}
+        <section>
+          <h4>Sounds</h4>
+          {#each ed.doc.audio as a (a.id)}
+            <div class="snd">
+              <b>{a.name ?? 'Audio'}</b>
+              <div class="row2">
+                <NumField label="Starts at" value={a.start} min={0} step={0.5} suffix="s" onchange={(v) => ed.updateAudio(a.id, { start: v }, `au-s:${a.id}`)} onend={end} />
+                <NumField label="Length" value={a.duration} min={0.1} max={ed.doc.assets[a.asset]?.duration ?? 3600} step={0.5} suffix="s" onchange={(v) => ed.updateAudio(a.id, { duration: v }, `au-d:${a.id}`)} onend={end} />
+              </div>
+              <div class="field">
+                <span>Volume · {Math.round((a.volume ?? 1) * 100)}%</span>
+                <input type="range" min="0" max="100" value={Math.round((a.volume ?? 1) * 100)} oninput={(e) => ed.updateAudio(a.id, { volume: Number((e.currentTarget as HTMLInputElement).value) / 100 }, `au-v:${a.id}`)} onchange={end} />
+              </div>
+              <button class="btn danger" onclick={() => ed.removeAudio(a.id)}>Remove sound</button>
+            </div>
+          {/each}
+        </section>
+      {/if}
+    {:else}
+      <button class="btn" data-testid="make-video" onclick={() => { ed.updatePage({ duration: pageDuration(ed.page) }); end(); }}><Icon name="video" size={16} /> Make it a video</button>
+    {/if}
     <p class="hint">Click an element to edit it. Drag on empty space to select several. Hold Space and drag to pan, ⌘/Ctrl + scroll to zoom.</p>
   {:else}
-    <h3>{one ? (one.type === 'text' ? 'Text' : one.type === 'image' ? 'Image' : 'Shape') : `${sel.length} elements`}</h3>
+    <h3>{one ? (one.type === 'text' ? 'Text' : one.type === 'image' ? 'Image' : one.type === 'video' ? 'Video' : 'Shape') : `${sel.length} elements`}</h3>
 
     {#if t0}
       <section data-text-tools>
@@ -208,6 +237,26 @@
       </section>
     {/if}
 
+    {#if v0}
+      <section>
+        <div class="toggles">
+          <button class="btn" class:on={v0.muted} data-testid="video-mute" onclick={() => { ed.update((e) => (e.type === 'video' ? { muted: !e.muted } : {})); end(); }}>{v0.muted ? 'Unmute' : 'Mute'}</button>
+          <button class="btn" class:on={v0.loop} onclick={() => { ed.update((e) => (e.type === 'video' ? { loop: !e.loop } : {})); end(); }}>Loop</button>
+        </div>
+        <div class="row2">
+          <NumField label="Trim start" value={v0.trimStart ?? 0} min={0} max={v0dur} step={0.1} suffix="s" testid="trim-start"
+            onchange={(v) => ed.update((e) => (e.type === 'video' ? { trimStart: v } : {}), key('ts'))} onend={end} />
+          <NumField label="Trim end" value={v0.trimEnd ?? v0dur} min={0} max={v0dur} step={0.1} suffix="s"
+            onchange={(v) => ed.update((e) => (e.type === 'video' ? { trimEnd: v } : {}), key('te'))} onend={end} />
+        </div>
+        <div class="field">
+          <span>Volume · {Math.round((v0.volume ?? 1) * 100)}%</span>
+          <input type="range" min="0" max="100" value={Math.round((v0.volume ?? 1) * 100)} oninput={(e) => ed.update((x) => (x.type === 'video' ? { volume: Number((e.currentTarget as HTMLInputElement).value) / 100 } : {}), key('vol'))} onchange={end} />
+        </div>
+        <p class="hint">Clip length {formatTime(v0dur, true)}. It plays from the start of its page.</p>
+      </section>
+    {/if}
+
     {#if images.length && images[0]}
       <section>
         <NumField label="Corner radius" value={images[0].radius} min={0} max={2000} onchange={(v) => ed.update((e) => (e.type === 'image' ? { radius: v } : {}), key('ir'))} onend={end} />
@@ -271,6 +320,7 @@
   .info { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
   .info span { color: var(--muted); font-size: 12px; }
   .hint { color: var(--muted); font-size: 12px; line-height: 1.5; margin: 0; }
+  .snd { display: flex; flex-direction: column; gap: 8px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; }
   .hint.sel { color: var(--accent); font-weight: 600; }
   .btn.link { border: 0; background: none; color: var(--accent); padding: 0; height: auto; justify-content: flex-start; font-size: 12px; }
   .field > span { display: flex; align-items: center; gap: 4px; }

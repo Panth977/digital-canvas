@@ -1,5 +1,5 @@
 import { FORMAT, VERSION } from './types.ts';
-import type { Doc, Element, Fill, Page, ShapeElement, ShapeKind, TextElement, TextStyle, ImageElement, Unit } from './types.ts';
+import type { AudioClip, Doc, Element, Fill, Page, ShapeElement, ShapeKind, TextElement, TextStyle, ImageElement, Unit, VideoElement } from './types.ts';
 import { toPx, MIN_SIDE, MAX_SIDE } from './units.ts';
 
 /**
@@ -101,13 +101,17 @@ export function image(asset: string, box: { x: number; y: number; w: number; h: 
   return { id: newId('e_'), type: 'image', asset, ...box, rotation: 0, opacity: 1, radius: 0 };
 }
 
+export function video(asset: string, box: { x: number; y: number; w: number; h: number }): VideoElement {
+  return { id: newId('e_'), type: 'video', asset, ...box, rotation: 0, opacity: 1, radius: 0 };
+}
+
 // ---- element ops ----
 
 export function addElements(doc: Doc, pageId: string, elements: Element[]): Doc {
   return mapPage(doc, pageId, (p) => ({ ...p, elements: [...p.elements, ...elements] }));
 }
 
-export type ElementPatch = Partial<Omit<ShapeElement, 'id' | 'type'>> | Partial<Omit<TextElement, 'id' | 'type'>> | Partial<Omit<ImageElement, 'id' | 'type'>>;
+export type ElementPatch = Partial<Omit<ShapeElement, 'id' | 'type'>> | Partial<Omit<TextElement, 'id' | 'type'>> | Partial<Omit<ImageElement, 'id' | 'type'>> | Partial<Omit<VideoElement, 'id' | 'type'>>;
 
 /** Patch several elements; `patch` may be a function of the old element. */
 export function updateElements(doc: Doc, ids: string[], patch: ElementPatch | ((e: Element) => ElementPatch)): Doc {
@@ -222,7 +226,9 @@ export function setTitle(doc: Doc, title: string): Doc {
 /** Assets no image element or embedded font uses are dropped. */
 export function pruneAssets(doc: Doc): Doc {
   const used = new Set<string>();
-  for (const p of doc.pages) for (const e of p.elements) if (e.type === 'image') used.add(e.asset);
+  for (const p of doc.pages) for (const e of p.elements) if (e.type === 'image' || e.type === 'video') used.add(e.asset);
+  for (const a of doc.audio ?? []) used.add(a.asset);
+  for (const k of [...used]) used.add(`${k}.poster`); // a video's poster frame
   for (const f of doc.fonts ?? []) used.add(f.asset);
   const assets = Object.fromEntries(Object.entries(doc.assets).filter(([k]) => used.has(k)));
   return Object.keys(assets).length === Object.keys(doc.assets).length ? doc : { ...doc, assets };
@@ -243,4 +249,66 @@ export function pruneFonts(doc: Doc): Doc {
   }
   const fonts = doc.fonts.filter((f) => !f.source || used.has(f.family));
   return fonts.length === doc.fonts.length ? doc : { ...doc, fonts };
+}
+
+// ---- timeline (video and presentations) ----
+
+export const DEFAULT_PAGE_DURATION = 5;
+
+export const pageDuration = (p: Page): number => (p.duration && p.duration > 0 ? p.duration : DEFAULT_PAGE_DURATION);
+
+/** A design is a video when a page has a duration, holds a video clip, or the design has sound. */
+export function isVideo(doc: Doc): boolean {
+  return !!doc.audio?.length || doc.pages.some((p) => p.duration !== undefined || p.elements.some((e) => e.type === 'video'));
+}
+
+/** Total length of the visible pages, seconds. */
+export function totalDuration(doc: Doc): number {
+  return doc.pages.filter((p) => !p.hidden).reduce((t, p) => t + pageDuration(p), 0);
+}
+
+/** Where page `pageId` starts on the timeline, seconds. */
+export function pageStart(doc: Doc, pageId: string): number {
+  let t = 0;
+  for (const p of doc.pages) {
+    if (p.hidden) continue;
+    if (p.id === pageId) return t;
+    t += pageDuration(p);
+  }
+  return t;
+}
+
+/** The page showing at time `t` and the time within it. */
+export function pageAtTime(doc: Doc, t: number): { page: Page; local: number; start: number } {
+  const pages = doc.pages.filter((p) => !p.hidden);
+  let start = 0;
+  for (const p of pages) {
+    const d = pageDuration(p);
+    if (t < start + d) return { page: p, local: Math.max(0, t - start), start };
+    start += d;
+  }
+  const last = pages[pages.length - 1] ?? doc.pages[0]!;
+  return { page: last, local: pageDuration(last), start: start - pageDuration(last) };
+}
+
+/** Time in the video file for a clip `local` seconds into its page (null when the clip has ended). */
+export function clipTime(el: VideoElement, local: number, fileDuration: number): number | null {
+  const a = el.trimStart ?? 0;
+  const b = Math.min(el.trimEnd ?? fileDuration, fileDuration);
+  const len = Math.max(0.001, b - a);
+  if (local < len) return a + local;
+  return el.loop ? a + (local % len) : null;
+}
+
+export function addAudio(doc: Doc, clip: Omit<AudioClip, 'id'>): { doc: Doc; id: string } {
+  const id = newId('a_');
+  return { doc: touch(doc, { audio: [...(doc.audio ?? []), { ...clip, id }] }), id };
+}
+
+export function updateAudio(doc: Doc, id: string, patch: Partial<Omit<AudioClip, 'id'>>): Doc {
+  return touch(doc, { audio: (doc.audio ?? []).map((a) => (a.id === id ? { ...a, ...patch } : a)) });
+}
+
+export function removeAudio(doc: Doc, id: string): Doc {
+  return touch(doc, { audio: (doc.audio ?? []).filter((a) => a.id !== id) });
 }

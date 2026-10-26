@@ -51,6 +51,10 @@
     listn: 'M10 6h11M10 12h11M10 18h11M4 4v4M3 4h1M3 14h2l-2 3h2M3 20h2',
     curve: 'M3 17a10 10 0 0118 0M7 17a6 6 0 0110 0',
     search: 'M11 4a7 7 0 110 14 7 7 0 010-14zM16 16l5 5',
+    play: 'M7 4.5v15l13-7.5z',
+    pause: 'M7 4h3.5v16H7zM13.5 4H17v16h-3.5z',
+    music: 'M9 18V5l11-2v13M9 18a3 3 0 11-6 0 3 3 0 016 0zM20 16a3 3 0 11-6 0 3 3 0 016 0z',
+    video: 'M3 6h12v12H3zM15 10l6-3v10l-6-3',
   } as const;
   export type IconName = keyof typeof ICONS;
 </script>

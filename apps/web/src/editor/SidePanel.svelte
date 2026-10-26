@@ -3,6 +3,7 @@
   import { SHAPES, TEXT_PRESETS, type EditorState } from '../lib/editor.svelte.ts';
   import Icon, { type IconName } from '../lib/Icon.svelte';
   import { IMAGE_TYPES, objectUrl, pickFiles } from '../lib/files.ts';
+  import { AUDIO_TYPES, VIDEO_TYPES, formatTime } from '../lib/media.ts';
 
   let { ed }: { ed: EditorState } = $props();
 
@@ -29,7 +30,9 @@
     arrow: '<path d="M4 17h24V8l16 16-16 16v-9H4z"/>',
   };
 
-  const assets = $derived(Object.entries(ed.doc.assets).filter(([, m]) => m.mime.startsWith('image/')));
+  const assets = $derived(Object.entries(ed.doc.assets).filter(([k, m]) => m.mime.startsWith('image/') && !k.endsWith('.poster')));
+  const videos = $derived(Object.entries(ed.doc.assets).filter(([, m]) => m.mime.startsWith('video/')));
+  const sounds = $derived(Object.entries(ed.doc.assets).filter(([, m]) => m.mime.startsWith('audio/')));
   const layers = $derived([...ed.page.elements].reverse());
 
   function dragData(e: DragEvent, data: object): void {
@@ -39,14 +42,15 @@
 
   async function upload(): Promise<void> {
     uploadError = '';
-    const files = await pickFiles(IMAGE_TYPES.join(','));
-    for (const f of files) if (!(await ed.addImageFile(f))) uploadError = `Couldn't read ${f.name}.`;
+    const files = await pickFiles([...IMAGE_TYPES, ...VIDEO_TYPES, ...AUDIO_TYPES, '.mov', '.m4a', '.mp3'].join(','));
+    for (const f of files) if (!(await ed.addMediaFile(f))) uploadError = `Couldn't read ${f.name} (this browser can't open it).`;
   }
 
   function layerName(e: (typeof layers)[number]): string {
     if (e.name) return e.name;
     if (e.type === 'text') return e.text.split('\n')[0]!.slice(0, 40) || 'Text';
     if (e.type === 'image') return ed.doc.assets[e.asset]?.name ?? 'Image';
+    if (e.type === 'video') return ed.doc.assets[e.asset]?.name ?? 'Video';
     return SHAPES.find((s) => s.kind === e.shape)?.label ?? 'Shape';
   }
 
@@ -93,9 +97,28 @@
         </div>
         <p class="hint">Double-click text to edit it. Select some words to style just those. Fonts, effects, curve and lists are in the panel on the right.</p>
       {:else if tab === 'uploads'}
-        <button class="btn primary wide" onclick={upload} data-testid="upload"><Icon name="upload" size={16} /> Upload images</button>
-        <p class="hint">Or drop image files onto the page. PNG, JPG, WebP, GIF.</p>
+        <button class="btn primary wide" onclick={upload} data-testid="upload"><Icon name="upload" size={16} /> Upload media</button>
+        <p class="hint">Or drop files onto the page. Images (PNG, JPG, WebP, GIF), videos (MP4, WebM, MOV) and sounds (MP3, M4A, WAV).</p>
         {#if uploadError}<p class="err">{uploadError}</p>{/if}
+        {#if videos.length}
+          <h3 class="sub">Videos</h3>
+          <div class="assets">
+            {#each videos as [id, m] (id)}
+              {@const poster = ed.assets.get(`${id}.poster`)}
+              <button class="asset vid" title={m.name ?? id} onclick={() => ed.addVideoAsset(id)}>
+                {#if poster}<img src={objectUrl(poster, 'image/png')} alt={m.name ?? ''} />{/if}
+                <span class="dur">{formatTime(m.duration ?? 0)}</span>
+              </button>
+            {/each}
+          </div>
+        {/if}
+        {#if sounds.length}
+          <h3 class="sub">Sounds</h3>
+          {#each sounds as [id, m] (id)}
+            <div class="sound"><Icon name="music" size={14} /> <span>{m.name ?? id}</span> <em>{formatTime(m.duration ?? 0)}</em></div>
+          {/each}
+        {/if}
+        {#if (videos.length || sounds.length) && assets.length}<h3 class="sub">Images</h3>{/if}
         <div class="assets">
           {#each assets as [id, m] (id)}
             {@const bytes = ed.assets.get(id)}
@@ -120,7 +143,7 @@
               ondrop={() => dropLayer(e.id)}
             >
               <button class="lname" onclick={(ev) => ed.select(ev.shiftKey ? [...ed.selection, e.id] : [e.id])}>
-                <Icon name={e.type === 'text' ? 'text' : e.type === 'image' ? 'image' : 'shapes'} size={15} />
+                <Icon name={e.type === 'text' ? 'text' : e.type === 'image' ? 'image' : e.type === 'video' ? 'video' : 'shapes'} size={15} />
                 <span>{layerName(e)}</span>
               </button>
               <button class="lbtn" aria-label={e.locked ? 'Unlock' : 'Lock'} onclick={() => { ed.update({ locked: !e.locked }, null, [e.id]); ed.seal(); }}><Icon name={e.locked ? 'lock' : 'unlock'} size={15} /></button>
@@ -157,6 +180,12 @@
   .assets { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 14px; }
   .asset { aspect-ratio: 1; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; padding: 0; background: #f4f5f8; }
   .asset img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .asset.vid { position: relative; }
+  .dur { position: absolute; right: 4px; bottom: 4px; background: rgba(0,0,0,.65); color: #fff; font-size: 11px; padding: 1px 5px; border-radius: 4px; }
+  h3.sub { margin: 16px 0 8px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .sound { display: flex; align-items: center; gap: 6px; font-size: 13px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 6px; }
+  .sound span { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .sound em { font-style: normal; color: var(--muted); font-size: 12px; }
   .layers { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
   .layers li { display: flex; align-items: center; gap: 2px; border-radius: 8px; border: 1px solid var(--line); background: #fff; padding-right: 4px; }
   .layers li.sel { border-color: var(--accent); background: var(--accent-soft); }

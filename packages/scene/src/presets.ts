@@ -9,6 +9,8 @@ export interface Preset {
   unit: Unit;
   /** Print designs get a 3 mm bleed. */
   print?: boolean;
+  /** Starts as a video (pages have durations). */
+  video?: boolean;
 }
 
 /** Design presets. The full catalogue (~200) lands in M5. */
@@ -23,6 +25,8 @@ export const PRESETS: Preset[] = [
   { id: 'x-post', name: 'X post', category: 'Social', width: 1600, height: 900, unit: 'px' },
   { id: 'x-header', name: 'X header', category: 'Social', width: 1500, height: 500, unit: 'px' },
   { id: 'pinterest-pin', name: 'Pinterest pin', category: 'Social', width: 1000, height: 1500, unit: 'px' },
+  { id: 'video', name: 'Video (16:9)', category: 'Video', width: 1920, height: 1080, unit: 'px', video: true },
+  { id: 'video-vertical', name: 'Video (vertical, Reel)', category: 'Video', width: 1080, height: 1920, unit: 'px', video: true },
   { id: 'youtube-thumbnail', name: 'YouTube thumbnail', category: 'Video', width: 1280, height: 720, unit: 'px' },
   { id: 'youtube-banner', name: 'YouTube banner', category: 'Video', width: 2560, height: 1440, unit: 'px' },
   { id: 'presentation', name: 'Presentation (16:9)', category: 'Documents', width: 1920, height: 1080, unit: 'px' },

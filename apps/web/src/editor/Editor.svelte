@@ -10,6 +10,9 @@
   import Canvas from './Canvas.svelte';
   import SidePanel from './SidePanel.svelte';
   import Properties from './Properties.svelte';
+  import Timeline from './Timeline.svelte';
+  import { isVideo } from '@digital-canvas/scene';
+  import { exportMp4 } from '../lib/mp4.ts';
 
   let { id, store }: { id: string; store: ProjectStore } = $props();
 
@@ -19,7 +22,7 @@
   let fitRequest = $state(0);
   let canvas = $state<Canvas>();
   let showDownload = $state(false);
-  let dl = $state({ format: 'png' as 'png' | 'jpeg' | 'pdf', dpi: 300, scale: 1, transparent: false, pages: 'current' as 'current' | 'all' });
+  let dl = $state({ format: 'png' as 'png' | 'jpeg' | 'pdf' | 'mp4', dpi: 300, scale: 1, transparent: false, pages: 'current' as 'current' | 'all' });
 
   onMount(() => {
     let cancelled = false;
@@ -97,10 +100,26 @@
   }
 
   let busy = $state(false);
+  let progress = $state(0);
 
   async function doDownload(): Promise<void> {
     if (!ed) return;
     const pages = dl.pages === 'all' ? ed.doc.pages : [ed.page];
+    if (dl.format === 'mp4') {
+      busy = true;
+      progress = 0;
+      try {
+        ed.player.pause();
+        const bytes = await exportMp4(ed, { onProgress: (f) => (progress = f) });
+        download(bytes, `${ed.doc.title}.mp4`, 'video/mp4');
+      } catch (e) {
+        alert(`Couldn't make the video: ${e instanceof Error ? e.message : e}`);
+      } finally {
+        busy = false;
+      }
+      showDownload = false;
+      return;
+    }
     if (dl.format === 'pdf') {
       busy = true;
       try {
@@ -159,9 +178,11 @@
             <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
             <div class="dl" onclick={(e) => e.stopPropagation()}>
               <label class="field">File type
-                <select class="input" bind:value={dl.format} data-testid="dl-format" onchange={() => { if (dl.format === 'pdf') dl.pages = 'all'; }}><option value="png">PNG</option><option value="jpeg">JPG</option><option value="pdf">PDF</option></select>
+                <select class="input" bind:value={dl.format} data-testid="dl-format" onchange={() => { if (dl.format === 'pdf') dl.pages = 'all'; }}><option value="png">PNG</option><option value="jpeg">JPG</option><option value="pdf">PDF</option>{#if isVideo(ed.doc)}<option value="mp4">MP4 video</option>{/if}</select>
               </label>
-              {#if dl.format === 'pdf'}
+              {#if dl.format === 'mp4'}
+                <span class="dims">{Math.round(ed.doc.width)} × {Math.round(ed.doc.height)} px · 30 fps · all pages</span>
+              {:else if dl.format === 'pdf'}
                 <label class="field">Quality
                   <select class="input" bind:value={dl.dpi}><option value={150}>Standard (150 dpi)</option><option value={300}>Print (300 dpi)</option></select>
                 </label>
@@ -175,9 +196,9 @@
                 <label class="check"><input type="checkbox" bind:checked={dl.transparent} /> Transparent background</label>
               {/if}
               <label class="field">Pages
-                <select class="input" bind:value={dl.pages}><option value="current">Current page ({ed.pageIndex + 1})</option><option value="all">All pages ({ed.doc.pages.length})</option></select>
+                <select class="input" bind:value={dl.pages} disabled={dl.format === 'mp4'}><option value="current">Current page ({ed.pageIndex + 1})</option><option value="all">All pages ({ed.doc.pages.length})</option></select>
               </label>
-              <button class="btn primary" onclick={doDownload} disabled={busy} data-testid="do-download">{busy ? 'Preparing…' : 'Download'}</button>
+              <button class="btn primary" onclick={doDownload} disabled={busy} data-testid="do-download">{busy ? (dl.format === 'mp4' ? `Rendering… ${Math.round(progress * 100)}%` : 'Preparing…') : 'Download'}</button>
               <p class="note">PDF pages are images at the chosen quality; vector PDF and SVG arrive in milestone 6.</p>
             </div>
           {/if}
@@ -189,6 +210,7 @@
       <SidePanel {ed} />
       <div class="center-col">
         <Canvas {ed} bind:zoom bind:this={canvas} {fitRequest} />
+        {#if isVideo(ed.doc)}<Timeline {ed} />{/if}
         <footer class="bottom">
           <span class="pages">Page {ed.pageIndex + 1} / {ed.doc.pages.length}</span>
           <div class="zoom">

@@ -1,5 +1,5 @@
 import type { Canvas, CanvasKit, Image, Paint, Path } from 'canvaskit-wasm';
-import type { Doc, Element, Fill, ImageElement, Page, ShapeElement, ShapeKind, TextElement } from '@digital-canvas/scene';
+import type { Doc, Element, Fill, ImageElement, Page, ShapeElement, ShapeKind, TextElement, VideoElement } from '@digital-canvas/scene';
 import { color, FontLibrary } from './fonts.ts';
 import { listIndent, TextLayouts } from './text.ts';
 
@@ -51,6 +51,18 @@ export class Renderer {
 
   hasImage(assetId: string): boolean {
     return this.images.has(assetId);
+  }
+
+  private frames = new Map<string, Image>();
+
+  /**
+   * The frame a video asset shows right now (the caller decodes video; the renderer only draws).
+   * Takes ownership of `frame`; null clears it so the poster (or a placeholder) shows.
+   */
+  setVideoFrame(assetId: string, frame: Image | null): void {
+    this.frames.get(assetId)?.delete();
+    if (frame) this.frames.set(assetId, frame);
+    else this.frames.delete(assetId);
   }
 
   // ---- text ----
@@ -261,16 +273,28 @@ export class Renderer {
     path.delete();
   }
 
-  private drawImage(canvas: Canvas, el: ImageElement): void {
+  private drawImage(canvas: Canvas, el: ImageElement | VideoElement): void {
     const ck = this.ck;
-    const img = this.images.get(el.asset);
+    // a video shows its current frame, else its poster (stored as an image under `<asset>.poster`)
+    const img = el.type === 'video' ? this.frames.get(el.asset) ?? this.images.get(`${el.asset}.poster`) : this.images.get(el.asset);
     const dst = ck.XYWHRect(el.x, el.y, el.w, el.h);
     if (el.radius > 0) canvas.clipRRect(ck.RRectXY(dst, el.radius, el.radius), ck.ClipOp.Intersect, true);
     if (!img) {
       // Not loaded yet (or missing): a neutral placeholder.
       this.paint.setStyle(ck.PaintStyle.Fill);
-      this.paint.setColor(ck.Color4f(0.85, 0.86, 0.88, 1));
+      this.paint.setColor(el.type === 'video' ? ck.Color4f(0.12, 0.13, 0.16, 1) : ck.Color4f(0.85, 0.86, 0.88, 1));
       canvas.drawRect(dst, this.paint);
+      if (el.type === 'video') {
+        // play triangle
+        const r = Math.min(el.w, el.h) * 0.12, cx = el.x + el.w / 2, cy = el.y + el.h / 2;
+        const b = new ck.PathBuilder();
+        b.addPolygon([cx - r * 0.6, cy - r, cx + r, cy, cx - r * 0.6, cy + r], true);
+        const path = b.detach();
+        b.delete();
+        this.paint.setColor(ck.Color4f(1, 1, 1, 0.85));
+        canvas.drawPath(path, this.paint);
+        path.delete();
+      }
       return;
     }
     const iw = img.width(), ih = img.height();
@@ -322,6 +346,8 @@ export class Renderer {
   dispose(): void {
     this.text.dispose();
     for (const img of this.images.values()) img.delete();
+    for (const img of this.frames.values()) img.delete();
+    this.frames.clear();
     this.images.clear();
     this.paint.delete();
   }
