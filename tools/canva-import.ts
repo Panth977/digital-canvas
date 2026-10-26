@@ -30,7 +30,7 @@ interface CanvaEl {
   height: number;
   rotation: number;
   opacity: number;
-  paths?: { d: string; fill?: { color?: { color: string } } }[];
+  paths?: { d: string; fill?: { color?: { color: string }; media?: { mediaId: string } } }[];
   fill?: { media?: { mediaId: string; imageBox: { top: number; left: number; width: number; height: number }; recoloring?: Record<string, string> }; flipX?: boolean; flipY?: boolean };
   textRegions?: { characters: string; formatting: { fontSize: number; fontWeight: string; fontStyle: string; color: string; textAlign: string; decoration: string; strikethrough: string; lineHeight: number; letterSpacing: number; fontRef: string } }[];
   children?: CanvaEl[];
@@ -38,7 +38,7 @@ interface CanvaEl {
 
 interface CanvaPage {
   dimensions: { width: number; height: number };
-  background?: { color?: { color: string } };
+  background?: { color?: { color: string }; media?: { mediaId: string } };
   elements: CanvaEl[];
 }
 
@@ -94,6 +94,10 @@ let cropN = 0;
 /** Text boxes of the current page in Canva's drawing order, for scrubbing their pixels out of photo crops. */
 let pageTexts: { order: number; x: number; y: number; w: number; h: number; color: number[] }[] = [];
 let leafOrder = 0;
+/** Plate mode (with --crops): Canva's text is painted out of its export, every picture is cut from that clean plate. */
+const plateMode = !!cropsDir;
+/** Text boxes converted before the plate is made (so the plate can be made from where our text sits). */
+let textById = new Map<string, TextElement>();
 
 function hexRgb(h: string): number[] {
   const v = h.replace('#', '');
@@ -115,7 +119,7 @@ function collectTexts(els: CanvaEl[], out: typeof pageTexts): void {
  * surrounding background colour (the median of the crop's border), so photos that
  * were transparent PNGs in Canva come back without a box. Returns PNG bytes.
  */
-function cropShot(x: number, y: number, w: number, h: number, myOrder = -1): Uint8Array | null {
+function cropShot(x: number, y: number, w: number, h: number, myOrder = -1, key = true): Uint8Array | null {
   if (!ck || !pageShot) return null;
   const s = shotScale;
   const W = Math.max(1, Math.round(w * s)), H = Math.max(1, Math.round(h * s));
@@ -147,7 +151,7 @@ function cropShot(x: number, y: number, w: number, h: number, myOrder = -1): Uin
   const pageShare = pageBg ? border.filter((b) => near(pageBg!, b)).length / border.length : 0;
   const ownKey = top.n / border.length > 0.4;
   const med = ownKey ? top.sum.map((v) => v / top.n) : pageBg!;
-  const keyable = ownKey || pageShare >= 0.1;
+  const keyable = key && (ownKey || pageShare >= 0.1);
   const T0 = 22, T1 = 60;
   if (keyable) {
     // Magic wand from the border: only background connected to the edge becomes transparent, so
@@ -235,60 +239,9 @@ function recolour(png: Uint8Array, map: Record<string, string>): Uint8Array {
   return bytes;
 }
 
-function convert(el: CanvaEl): Element[] {
-  const myOrder = el.type === 'group' ? -1 : leafOrder++;
-  const base = { id: newId('e_'), x: el.left, y: el.top, w: el.width, h: el.height, rotation: el.rotation ?? 0, opacity: el.opacity ?? 1 };
-  if (el.type === 'group') {
-    gap('groups flattened (no group element yet)');
-    return (el.children ?? []).flatMap(convert);
-  }
-  if (el.type === 'shape') {
-    const color = el.paths?.[0]?.fill?.color?.color;
-    if (!color) return []; // invisible layout box
-    if ((el.paths?.length ?? 0) > 1 || !/^M0 0H64V64H0z$/.test(el.paths?.[0]?.d ?? '')) gap('custom vector paths drawn as rectangles');
-    return [{ ...base, type: 'shape', shape: 'rect', fill: { type: 'solid', color }, stroke: null, radius: 0 }];
-  }
-  if (el.type === 'rect' && el.fill?.media && pageShot && (el.opacity ?? 1) > 0.99) {
-    // Opaque image: take Canva's own pixels for its (rotated) bounding box.
-    const r = ((el.rotation ?? 0) * Math.PI) / 180;
-    const cx = el.left + el.width / 2, cy = el.top + el.height / 2;
-    const bw = Math.abs(el.width * Math.cos(r)) + Math.abs(el.height * Math.sin(r));
-    const bh = Math.abs(el.width * Math.sin(r)) + Math.abs(el.height * Math.cos(r));
-    const box = { x: cx - bw / 2, y: cy - bh / 2, w: bw, h: bh };
-    const bytes = cropShot(box.x, box.y, box.w, box.h, myOrder);
-    if (bytes) {
-      const id = `crop-${++cropN}`;
-      assets.set(id, bytes);
-      assetMeta[id] = { mime: 'image/png', ...pngSize(bytes), name: `${el.fill.media.mediaId} (cut from Canva export)` };
-      gap('opaque images cut from Canva page export');
-      return [{ ...base, ...box, rotation: 0, type: 'image', asset: id, radius: 0, crop: { x: 0, y: 0, w: 1, h: 1 } }];
-    }
-  }
-  if (el.type === 'rect' && el.fill?.media) {
-    const m = el.fill.media;
-    const file = join(assetsDir!, `${m.mediaId}.png`);
-    let assetKey = m.mediaId;
-    if (existsSync(file)) {
-      let bytes = new Uint8Array(readFileSync(file));
-      if (m.recoloring && Object.keys(m.recoloring).length) {
-        // Canva recolours graphics (source colour → new colour): do the same to the pixels.
-        assetKey = `${m.mediaId}-${Object.values(m.recoloring).join('').replace(/#/g, '')}`;
-        bytes = recolour(bytes, m.recoloring);
-        gap('recoloured graphics');
-      }
-      if (!assets.has(assetKey)) {
-        assets.set(assetKey, bytes);
-        assetMeta[assetKey] = { mime: 'image/png', ...pngSize(bytes), name: m.mediaId };
-      }
-    }
-    if (!existsSync(file)) gap('images Canva would not hand over (placeholder)');
-    const b = m.imageBox;
-    const crop = { x: -b.left / b.width, y: -b.top / b.height, w: el.width / b.width, h: el.height / b.height };
-    const exact = Math.abs(crop.x) < 1e-3 && Math.abs(crop.y) < 1e-3 && Math.abs(crop.w - 1) < 1e-3 && Math.abs(crop.h - 1) < 1e-3;
-    return [{ ...base, type: 'image', asset: assetKey, radius: 0, ...(exact ? { crop: { x: 0, y: 0, w: 1, h: 1 } } : { crop }), flipX: el.fill.flipX || undefined, flipY: el.fill.flipY || undefined }];
-  }
-  if (el.type === 'text' && el.textRegions?.length) {
-    const regions = el.textRegions;
+/** Our editable copy of a Canva text box. */
+function convertText(el: CanvaEl, base = { id: newId('e_'), x: el.left, y: el.top, w: el.width, h: el.height, rotation: el.rotation ?? 0, opacity: el.opacity ?? 1 }): TextElement {
+    const regions = el.textRegions ?? [];
     // The largest run sets the box's base style; every run keeps its own differences.
     const f = regions.reduce((a, r) => (r.formatting.fontSize > a.formatting.fontSize ? r : a)).formatting;
     const styleOf = (fm: typeof f): TextStyle => {
@@ -339,10 +292,173 @@ function convert(el: CanvaEl): Element[] {
         if (i === 0) gap('text shrunk to fit (font substitution)');
       }
     }
-    return [el2];
+    return el2;
   }
+
+function convert(el: CanvaEl): Element[] {
+  const myOrder = el.type === 'group' ? -1 : leafOrder++;
+  const base = { id: newId('e_'), x: el.left, y: el.top, w: el.width, h: el.height, rotation: el.rotation ?? 0, opacity: el.opacity ?? 1 };
+  if (el.type === 'group') {
+    gap('groups flattened (no group element yet)');
+    return (el.children ?? []).flatMap(convert);
+  }
+  if (plateMode && pageShot && (el.type === 'rect' && el.fill?.media || el.type === 'shape' && el.paths?.some((p) => p.fill?.media))) {
+    // Every picture comes from the text-free plate (it already holds Canva's own pixels, opacity included).
+    const r = ((el.rotation ?? 0) * Math.PI) / 180;
+    const cx = el.left + el.width / 2, cy = el.top + el.height / 2;
+    const bw = Math.abs(el.width * Math.cos(r)) + Math.abs(el.height * Math.sin(r));
+    const bh = Math.abs(el.width * Math.sin(r)) + Math.abs(el.height * Math.cos(r));
+    const box = { x: cx - bw / 2, y: cy - bh / 2, w: bw, h: bh };
+    const bytes = cropShot(box.x, box.y, box.w, box.h, myOrder);
+    if (bytes) {
+      const id = `crop-${++cropN}`;
+      assets.set(id, bytes);
+      const mediaId = el.fill?.media?.mediaId ?? el.paths?.find((p) => p.fill?.media)?.fill?.media?.mediaId ?? 'picture';
+      assetMeta[id] = { mime: 'image/png', ...pngSize(bytes), name: `${mediaId} (cut from Canva export)` };
+      gap('pictures cut from Canva page export');
+      return [{ ...base, ...box, rotation: 0, opacity: 1, type: 'image', asset: id, radius: 0, crop: { x: 0, y: 0, w: 1, h: 1 } }];
+    }
+  }
+  if (el.type === 'shape') {
+    const color = el.paths?.[0]?.fill?.color?.color;
+    if (!color) return []; // invisible layout box
+    if ((el.paths?.length ?? 0) > 1 || !/^M0 0H64V64H0z$/.test(el.paths?.[0]?.d ?? '')) gap('custom vector paths drawn as rectangles');
+    return [{ ...base, type: 'shape', shape: 'rect', fill: { type: 'solid', color }, stroke: null, radius: 0 }];
+  }
+  if (el.type === 'rect' && el.fill?.media && pageShot && (el.opacity ?? 1) > 0.99) {
+    // Opaque image: take Canva's own pixels for its (rotated) bounding box.
+    const r = ((el.rotation ?? 0) * Math.PI) / 180;
+    const cx = el.left + el.width / 2, cy = el.top + el.height / 2;
+    const bw = Math.abs(el.width * Math.cos(r)) + Math.abs(el.height * Math.sin(r));
+    const bh = Math.abs(el.width * Math.sin(r)) + Math.abs(el.height * Math.cos(r));
+    const box = { x: cx - bw / 2, y: cy - bh / 2, w: bw, h: bh };
+    const bytes = cropShot(box.x, box.y, box.w, box.h, myOrder);
+    if (bytes) {
+      const id = `crop-${++cropN}`;
+      assets.set(id, bytes);
+      assetMeta[id] = { mime: 'image/png', ...pngSize(bytes), name: `${el.fill.media.mediaId} (cut from Canva export)` };
+      gap('opaque images cut from Canva page export');
+      return [{ ...base, ...box, rotation: 0, type: 'image', asset: id, radius: 0, crop: { x: 0, y: 0, w: 1, h: 1 } }];
+    }
+  }
+  if (el.type === 'rect' && el.fill?.media) {
+    const m = el.fill.media;
+    const file = join(assetsDir!, `${m.mediaId}.png`);
+    let assetKey = m.mediaId;
+    if (existsSync(file)) {
+      let bytes = new Uint8Array(readFileSync(file));
+      if (m.recoloring && Object.keys(m.recoloring).length) {
+        // Canva recolours graphics (source colour → new colour): do the same to the pixels.
+        assetKey = `${m.mediaId}-${Object.values(m.recoloring).join('').replace(/#/g, '')}`;
+        bytes = recolour(bytes, m.recoloring);
+        gap('recoloured graphics');
+      }
+      if (!assets.has(assetKey)) {
+        assets.set(assetKey, bytes);
+        assetMeta[assetKey] = { mime: 'image/png', ...pngSize(bytes), name: m.mediaId };
+      }
+    }
+    if (!existsSync(file)) gap('images Canva would not hand over (placeholder)');
+    const b = m.imageBox;
+    const crop = { x: -b.left / b.width, y: -b.top / b.height, w: el.width / b.width, h: el.height / b.height };
+    const exact = Math.abs(crop.x) < 1e-3 && Math.abs(crop.y) < 1e-3 && Math.abs(crop.w - 1) < 1e-3 && Math.abs(crop.h - 1) < 1e-3;
+    return [{ ...base, type: 'image', asset: assetKey, radius: 0, ...(exact ? { crop: { x: 0, y: 0, w: 1, h: 1 } } : { crop }), flipX: el.fill.flipX || undefined, flipY: el.fill.flipY || undefined }];
+  }
+  if (el.type === 'text' && el.textRegions?.length) return [textById.get(el.id) ?? convertText(el, base)];
   gap(`unsupported element type ${el.type}`);
   return [];
+}
+
+/** Leaf text boxes of a page (inside groups too). */
+function leafTexts(els: CanvaEl[]): CanvaEl[] {
+  return els.flatMap((e) => (e.type === 'group' ? leafTexts(e.children ?? []) : e.type === 'text' && e.textRegions?.length ? [e] : []));
+}
+
+/**
+ * Fill the masked pixels from their surroundings (pull-push: average down a pyramid of the known
+ * pixels, then fill holes back up from coarser levels). Smooth, and fast enough for full pages.
+ */
+function inpaint(px: Uint8Array, W: number, H: number, mask: Uint8Array): void {
+  type Level = { w: number; h: number; c: Float32Array; a: Float32Array };
+  const l0: Level = { w: W, h: H, c: new Float32Array(W * H * 3), a: new Float32Array(W * H) };
+  for (let i = 0; i < W * H; i++) {
+    const a = mask[i] ? 0 : 1;
+    l0.a[i] = a;
+    for (let k = 0; k < 3; k++) l0.c[i * 3 + k] = px[i * 4 + k]! * a;
+  }
+  const levels = [l0];
+  while (levels.at(-1)!.w > 1 || levels.at(-1)!.h > 1) {
+    const p = levels.at(-1)!;
+    const w = Math.max(1, Math.ceil(p.w / 2)), h = Math.max(1, Math.ceil(p.h / 2));
+    const n: Level = { w, h, c: new Float32Array(w * h * 3), a: new Float32Array(w * h) };
+    for (let y = 0; y < p.h; y++) for (let x = 0; x < p.w; x++) {
+      const i = y * p.w + x, j = (y >> 1) * w + (x >> 1);
+      n.a[j] += p.a[i]!;
+      for (let k = 0; k < 3; k++) n.c[j * 3 + k] += p.c[i * 3 + k]!;
+    }
+    for (let j = 0; j < w * h; j++) if (n.a[j]! > 1) { for (let k = 0; k < 3; k++) n.c[j * 3 + k] /= n.a[j]!; n.a[j] = 1; }
+    levels.push(n);
+  }
+  for (let l = levels.length - 2; l >= 0; l--) {
+    const p = levels[l]!, q = levels[l + 1]!;
+    for (let y = 0; y < p.h; y++) for (let x = 0; x < p.w; x++) {
+      const i = y * p.w + x, j = (y >> 1) * q.w + (x >> 1), rest = 1 - p.a[i]!;
+      if (rest <= 0) continue;
+      for (let k = 0; k < 3; k++) p.c[i * 3 + k] += rest * q.c[j * 3 + k]!;
+      p.a[i] = 1;
+    }
+  }
+  for (let i = 0; i < W * H; i++) if (mask[i]) for (let k = 0; k < 3; k++) px[i * 4 + k] = Math.round(l0.c[i * 3 + k]!);
+}
+
+/** Grow a 0/1 mask by r pixels (square). */
+function dilate(m: Uint8Array, W: number, H: number, r: number): Uint8Array {
+  const tmp = new Uint8Array(W * H), out = new Uint8Array(W * H);
+  for (let y = 0; y < H; y++) {
+    let run = -1e9;
+    for (let x = 0; x < W; x++) { if (m[y * W + x]) run = x; if (x - run <= r) tmp[y * W + x] = 1; }
+    run = 1e9;
+    for (let x = W - 1; x >= 0; x--) { if (m[y * W + x]) run = x; if (run - x <= r) tmp[y * W + x] = 1; }
+  }
+  for (let x = 0; x < W; x++) {
+    let run = -1e9;
+    for (let y = 0; y < H; y++) { if (tmp[y * W + x]) run = y; if (y - run <= r) out[y * W + x] = 1; }
+    run = 1e9;
+    for (let y = H - 1; y >= 0; y--) { if (tmp[y * W + x]) run = y; if (run - y <= r) out[y * W + x] = 1; }
+  }
+  return out;
+}
+
+/**
+ * Plate mode: convert the page's text boxes, draw them where they will sit, and paint those pixels
+ * out of Canva's export (inpaint). Pictures are then cut from this text-free plate, so the only
+ * text on the page is our own, editable copy.
+ */
+function makePlate(cp: CanvaPage): void {
+  textById = new Map();
+  if (!plateMode || !pageShot || !ck || !measure) return;
+  for (const e of leafTexts(cp.elements)) textById.set(e.id, convertText(e));
+  if (!textById.size) return;
+  const W = pageShot.width(), H = pageShot.height(), s = shotScale;
+  const info = { width: W, height: H, colorType: ck.ColorType.RGBA_8888, alphaType: ck.AlphaType.Unpremul, colorSpace: ck.ColorSpace.SRGB };
+  const surface = ck.MakeSurface(W, H)!;
+  const c = surface.getCanvas();
+  c.clear(ck.TRANSPARENT);
+  c.scale(s, s);
+  for (const t of textById.values()) measure.drawElement(c, { ...t, opacity: 1 });
+  surface.flush();
+  const snap = surface.makeImageSnapshot();
+  const ours = snap.readPixels(0, 0, info) as Uint8Array;
+  snap.delete();
+  surface.delete();
+  const m = new Uint8Array(W * H);
+  for (let i = 0; i < W * H; i++) m[i] = ours[i * 4 + 3]! > 6 ? 1 : 0;
+  const mask = dilate(m, W, H, Math.max(2, Math.round(4 * s)));
+  const px = pageShot.readPixels(0, 0, info) as Uint8Array;
+  inpaint(px, W, H, mask);
+  const plate = ck.MakeImage(info, px, W * 4)!;
+  pageShot.delete();
+  pageShot = plate;
 }
 
 const canvaPages: CanvaPage[] = pagesArg.split(',').map((p) => JSON.parse(readFileSync(p, 'utf8')));
@@ -387,8 +503,9 @@ const pages: Page[] = canvaPages.map((cp, i) => {
     const top = [...bins.values()].sort((a, b) => b.n - a.n)[0]!;
     pageBg = top.sum.map((v) => v / top.n);
   }
+  makePlate(cp);
   pageTexts = [];
-  collectTexts(cp.elements, pageTexts);
+  if (!plateMode) collectTexts(cp.elements, pageTexts);
   pageTexts.forEach((t, i) => (t.order = i));
   pageTexts = pageTexts.filter((t) => t.color.length);
   leafOrder = 0;
@@ -398,10 +515,20 @@ const pages: Page[] = canvaPages.map((cp, i) => {
     // Text always on top: substituted fonts run wider than the originals and must not hide under photos.
     elements: (() => {
       const els = cp.elements.flatMap(convert);
+      // A background picture: the plate under everything (Canva's page background is not a plain colour).
+      if (plateMode && cp.background?.media && pageShot) {
+        const bytes = cropShot(0, 0, cp.dimensions.width, cp.dimensions.height, -1, false);
+        if (bytes) {
+          const id = `crop-${++cropN}`;
+          assets.set(id, bytes);
+          assetMeta[id] = { mime: 'image/png', ...pngSize(bytes), name: 'Background (cut from Canva export)' };
+          els.unshift({ id: newId('e_'), name: 'Background', type: 'image', asset: id, x: 0, y: 0, w: cp.dimensions.width, h: cp.dimensions.height, rotation: 0, opacity: 1, radius: 0, locked: true, crop: { x: 0, y: 0, w: 1, h: 1 } });
+        }
+      }
       // A text box that sits entirely inside a photo drawn *below* it in Canva is already in that
       // photo's pixels (we cut photos out of Canva's export). Keeping both would show it twice.
       const kept = els.filter((e, i) => {
-        if (e.type !== 'text') return true;
+        if (e.type !== 'text' || plateMode) return true;
         const inside = els.slice(0, i).some((c) => c.type === 'image' && c.asset.startsWith('crop-') && e.x >= c.x - 2 && e.y >= c.y - 2 && e.x + e.w <= c.x + c.w + 2 && e.y + e.h <= c.y + c.h + 2);
         if (inside) gap('text already inside a photo cut from Canva (kept as pixels)');
         return !inside;

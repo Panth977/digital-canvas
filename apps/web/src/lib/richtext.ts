@@ -38,6 +38,10 @@ export function renderRich(root: HTMLElement, el: TextElement, zoom: number): vo
     });
   }
   for (const l of lines) {
+    // a paragraph's own alignment (set by its first run)
+    const first = (l.firstChild as HTMLElement | null)?.dataset?.s;
+    const align = first ? (JSON.parse(first) as Partial<TextStyle>).align : undefined;
+    if (align) l.style.textAlign = align;
     if (!l.childNodes.length) l.append(document.createElement('br'));
     if (el.list) {
       l.style.display = 'list-item';

@@ -57,6 +57,24 @@ function sliceRuns(runs: TextRun[], start: number, end: number): TextRun[] {
   return out;
 }
 
+/**
+ * Spaces at the end of a line count when aligning (as in Canva, where people pad lines with spaces
+ * to nudge them). Skia lets trailing spaces hang, so make them no-break spaces, which it measures.
+ */
+function keepTrailingSpaces(runs: TextRun[]): TextRun[] {
+  const text = runs.map((r) => r.text).join('');
+  if (!/ (\n|$)/.test(text)) return runs;
+  const out = text.split('');
+  for (const m of text.matchAll(/ +(?=\n|$)/g)) for (let i = m.index!; i < m.index! + m[0].length; i++) out[i] = '\u00a0';
+  const fixed = out.join('');
+  let pos = 0;
+  return runs.map((r) => {
+    const t = fixed.slice(pos, pos + r.text.length);
+    pos += r.text.length;
+    return { ...r, text: t };
+  });
+}
+
 function lighten(hex: Color, amount: number): Color {
   let h = hex.replace('#', '');
   if (h.length === 3) h = [...h].map((c) => c + c).join('');
@@ -144,10 +162,25 @@ export class TextLayouts {
   }
 
   private make(el: TextElement, pass: TextPass): TextLayout {
-    const runs = runsOf(el);
+    const runs = keepTrailingSpaces(runsOf(el));
     const paragraphs: Paragraph[] = [];
     const keep = (p: Paragraph) => (paragraphs.push(p), p);
     if (el.curve) return this.makeCurved(el, runs, pass, keep, paragraphs);
+    // Paragraphs may each have their own alignment (a run starting a line sets it).
+    const perLineAlign = runs.some((r) => r.style?.align && r.style.align !== el.style.align);
+    if (!el.list && perLineAlign) {
+      const blocks: Block[] = [];
+      let y = 0, start = 0;
+      for (const line of el.text.split('\n')) {
+        const lineRuns = sliceRuns(runs, start, start + line.length);
+        const align = lineRuns[0]?.style?.align ?? sliceRuns(runs, start, start + 1)[0]?.style?.align ?? el.style.align;
+        const p = keep(this.build(el, lineRuns.length ? lineRuns : sliceRuns(runs, start, start + 1).map((r) => ({ ...r, text: '' })), pass, align, el.w));
+        blocks.push({ p, x: 0, y });
+        y += p.getHeight();
+        start += line.length + 1;
+      }
+      return { blocks, glyphs: [], width: el.w, height: y, minX: 0, minY: 0, paragraphs };
+    }
     if (!el.list) {
       const p = keep(this.build(el, runs, pass, el.style.align, el.w));
       return { blocks: [{ p, x: 0, y: 0 }], glyphs: [], width: el.w, height: p.getHeight(), minX: 0, minY: 0, paragraphs };
