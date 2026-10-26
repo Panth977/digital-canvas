@@ -33,7 +33,8 @@ for (const f of doc.fonts ?? []) {
   const bytes = project.assets.get(f.asset);
   if (bytes) fonts.add(f.family, bytes);
 }
-for (const [id, b] of project.assets) if (doc.assets[id]?.mime.startsWith('image/')) r.setImage(id, b);
+// Images are decoded per page (a big design's pictures don't all fit in WASM memory at once).
+const pageImages = (n: number) => doc.pages[n - 1]!.elements.flatMap((e) => (e.type === 'image' ? [e.asset] : e.type === 'video' ? [`${e.asset}.poster`] : []));
 
 const rgba = (img: Image) => img.readPixels(0, 0, { width: img.width(), height: img.height(), colorType: ck.ColorType.RGBA_8888, alphaType: ck.AlphaType.Unpremul, colorSpace: ck.ColorSpace.SRGB }) as Uint8Array;
 const wanted = pagesArg ? pagesArg.split(',').map(Number) : doc.pages.map((_, i) => i + 1);
@@ -42,6 +43,8 @@ let total = 0;
 for (const n of wanted) {
   const refFile = join(refDir, `page${n}.png`);
   if (!existsSync(refFile)) continue;
+  const ids = pageImages(n);
+  for (const id of ids) { const b = project.assets.get(id); if (b) r.setImage(id, b); }
   const ref = ck.MakeImageFromEncoded(readFileSync(refFile))!;
   const W = ref.width(), H = ref.height();
   const ours = ck.MakeImageFromEncoded(r.exportPage(doc, doc.pages[n - 1]!, { scale: W / doc.width }))!;
@@ -74,6 +77,7 @@ for (const n of wanted) {
   snap.delete();
   surface.delete();
   ref.delete(); ours.delete(); heatImg.delete();
+  for (const id of ids) r.forgetImage(id);
 }
 rows.forEach((l) => console.log(l));
 console.log(`average match ${(total / rows.length).toFixed(2)}%`);

@@ -49,6 +49,12 @@ export class Renderer {
     return { width: img.width(), height: img.height() };
   }
 
+  /** Free a decoded image (e.g. when only one page is needed at a time). */
+  forgetImage(assetId: string): void {
+    this.images.get(assetId)?.delete();
+    this.images.delete(assetId);
+  }
+
   hasImage(assetId: string): boolean {
     return this.images.has(assetId);
   }

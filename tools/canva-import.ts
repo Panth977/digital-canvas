@@ -98,6 +98,16 @@ let leafOrder = 0;
 const plateMode = !!cropsDir;
 /** Area of the page being converted (px²). */
 let pageArea = 1;
+/** The embedded faces per family, to see which characters they really have. */
+const faceByFamily = new Map<string, import('canvaskit-wasm').Typeface[]>();
+/** Canva cut the face to the characters it drew: no lowercase but the capitals means ALL CAPS. */
+function capsOnly(family: string, text: string): boolean {
+  const faces = faceByFamily.get(family);
+  const lows = [...new Set(text.replace(/[^a-z]/g, ''))].join('');
+  if (!faces?.length || !lows) return false;
+  const has = (str: string) => faces.some((f) => [...f.getGlyphIDs(str)].filter((g) => g !== 0).length >= str.length * 0.8);
+  return !has(lows) && has(lows.toUpperCase());
+}
 /** Text boxes converted before the plate is made (so the plate can be made from where our text sits). */
 let textById = new Map<string, TextElement>();
 
@@ -478,7 +488,7 @@ function makePlate(cp: CanvaPage): void {
       const flip = (u: boolean): TextElement => ({ ...t, style: { ...t.style, uppercase: u }, runs: t.runs?.map((r) => (r.style ? { ...r, style: { ...r.style, uppercase: undefined } } : r)) });
       const lower = flip(false), upper = flip(true);
       const fl = fit(lower), fu = fit(upper);
-      t = fu > fl + 0.05 ? upper : lower;
+      t = capsOnly(t.style.fontFamily, t.text) || fu > fl + 0.05 ? upper : lower;
       if (t.runs) t.runs = t.runs.map((r) => (r.style && Object.values(r.style).every((v) => v === undefined) ? { text: r.text } : r));
     }
     // Canva's curved text isn't in the API either: when the straight text doesn't line up, try curves.
@@ -557,10 +567,13 @@ const first = canvaPages[0]!;
       assetMeta[id] = { mime: 'font/ttf', name: `${m.family} ${face.weight}${face.italic ? ' italic' : ''}` };
       embedded.push({ family: m.family, asset: id, weight: face.weight, italic: !!face.italic });
       fonts.add(m.family, bytes);
+      const tf = ck!.Typeface.MakeTypefaceFromData(bytes.slice().buffer as ArrayBuffer);
+      if (tf) (faceByFamily.get(m.family) ?? faceByFamily.set(m.family, []).get(m.family)!).push(tf);
     }
   }
 }
 const pages: Page[] = canvaPages.map((cp, i) => {
+  if (process.env.DEBUG) console.error(`page ${i + 1}`, process.memoryUsage().rss >> 20, "MB rss");
   const shotFile = cropsDir ? join(cropsDir, `page${i + 1}.png`) : '';
   pageShot?.delete();
   pageShot = shotFile && existsSync(shotFile) ? ck!.MakeImageFromEncoded(readFileSync(shotFile)) : null;
