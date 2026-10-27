@@ -18,6 +18,23 @@ function cleanAnimation(o: Record<string, unknown>): void {
   if (a.direction !== undefined && !ANIM_DIRS.includes(a.direction as string)) delete a.direction;
 }
 
+const TRANSITIONS = ['dissolve', 'fade', 'slide', 'wipe', 'zoom'];
+/** An unknown transition or a broken timing is dropped. */
+function cleanTiming(o: Record<string, unknown>): void {
+  if ('timing' in o) {
+    const t = o.timing;
+    if (!isObj(t)) delete o.timing;
+    else for (const k of ['start', 'end']) if (t[k] !== undefined && !(num(t[k]) && (t[k] as number) >= 0)) delete t[k];
+  }
+}
+function cleanTransition(o: Record<string, unknown>): void {
+  if (!('transition' in o)) return;
+  const a = o.transition;
+  if (!isObj(a) || !TRANSITIONS.includes(a.type as string)) { delete o.transition; return; }
+  if (a.duration !== undefined && !(num(a.duration) && (a.duration as number) > 0)) delete a.duration;
+  if (a.direction !== undefined && !ANIM_DIRS.includes(a.direction as string)) delete a.direction;
+}
+
 /**
  * Check a parsed `document.json` and return it as a Doc. Throws
  * DocFormatError with the first problem found. Newer versions are refused
@@ -38,11 +55,13 @@ export function parseDoc(input: unknown): Doc {
       for (const k of ['x', 'y', 'w', 'h']) if (!num(e[k])) throw new DocFormatError(`${where}element ${j + 1}: bad ${k}`);
       // containers (groups) hold elements too
       cleanAnimation(e);
+      cleanTiming(e);
       if (e.type === 'group' && !Array.isArray(e.children)) throw new DocFormatError(`${where}element ${j + 1}: group without children`);
       if (Array.isArray(e.children)) check(e.children, `${where}element ${j + 1}, `);
     });
     check(p.elements, `page ${i + 1}, `);
     cleanAnimation(p);
+    cleanTransition(p);
   });
   const doc = input as unknown as Doc;
   return {

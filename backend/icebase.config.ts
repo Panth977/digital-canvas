@@ -9,7 +9,18 @@ export default defineConfig({
   api,
   rules: { firestore: 'icebase/rules/firestore.rules' },
   functions: { source: 'functions', runtime: 'nodejs22', region: REGION },
-  hosting: { public: '../apps/web/dist', spa: true },
+  hosting: {
+    public: '../apps/web/dist',
+    spa: true,
+    // The remote MCP server (functions codebase "mcp", backend/mcp): Claude.ai and other agents connect to
+    // https://digital-canvas-p977.web.app/mcp and sign in with OAuth here. Before the SPA's catch-all.
+    rewrites: [
+      '/mcp', '/mcp/**', '/oauth/**',
+      '/.well-known/oauth-protected-resource', '/.well-known/oauth-protected-resource/**',
+      '/.well-known/oauth-authorization-server', '/.well-known/oauth-authorization-server/**',
+      '/.well-known/openid-configuration',
+    ].map((source) => ({ source, function: { functionId: 'mcp', region: REGION } })),
+  },
   firebase: {
     projectId: 'digital-canvas-p977',
     // Public web config (safe to ship in the bundle).

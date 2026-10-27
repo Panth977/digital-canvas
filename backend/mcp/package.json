@@ -1,0 +1,1 @@
+{ "name": "digital-canvas-mcp-functions", "private": true, "type": "module", "main": "src/index.ts", "dependencies": {} }

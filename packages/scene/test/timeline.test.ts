@@ -45,3 +45,31 @@ describe('timeline', () => {
     expect(Object.keys(pruneAssets(d).assets).sort()).toEqual(['a.mp4', 'f4.png']);
   });
 });
+
+describe('timing, transitions (MCP reels)', async () => {
+  const { animateAt, frameAt, transitionLayers, text, parseDoc } = await import('../src/index.ts');
+  it('a timed element shows only in its window', () => {
+    let d = createDoc({ width: 100, height: 100 });
+    const cap = { ...text('hi', { x: 0, y: 0, w: 50, h: 20 }), timing: { start: 1, end: 2 } };
+    d = addElements(d, d.pages[0]!.id, [cap]);
+    const p = d.pages[0]!;
+    expect(animateAt(d, p, 0.5).elements).toHaveLength(0);
+    expect(animateAt(d, p, 1.5).elements).toHaveLength(1);
+    expect(animateAt(d, p, 2).elements).toHaveLength(0);
+  });
+  it('frameAt plays a transition over the start of the next page', () => {
+    let d = updatePage(createDoc({ width: 100, height: 100 }), '', {});
+    d = updatePage(d, d.pages[0]!.id, { duration: 2 });
+    const r = addPage(d);
+    d = updatePage(r.doc, r.pageId, { duration: 2, transition: { type: 'dissolve', duration: 1 } });
+    const f = frameAt(d, 2.5);
+    expect(f.page.id).toBe(r.pageId);
+    expect(f.prev?.page.id).toBe(d.pages[0]!.id);
+    expect(f.progress).toBeCloseTo(0.5);
+    expect(frameAt(d, 3.5).prev).toBeUndefined();
+    expect(frameAt(d, 1).prev).toBeUndefined();
+    const L = transitionLayers({ type: 'slide', direction: 'right' }, 0, 100, 100);
+    expect(L.next.dx).toBe(100);
+    expect(parseDoc(JSON.parse(JSON.stringify({ ...d, pages: d.pages.map((p) => ({ ...p, transition: { type: 'bogus' } })) }))).pages[1]!.transition).toBeUndefined();
+  });
+});

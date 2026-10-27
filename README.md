@@ -28,6 +28,7 @@ Node 22+. The first `npm run e2e` may need `npx playwright install chromium`.
 | `packages/scene` | The document format (`types.ts`), pure operations, geometry, undo history, presets, validation |
 | `packages/render` | CanvasKit renderer: pages, shapes, text (Skia Paragraph), images with adjustments/filters/effects (colour matrices, SkSL), PNG/JPG, SVG and PDF (raster or vector) export — no DOM, runs in Node too |
 | `packages/storage` | `.dcanvas` pack/unpack and project stores: Google Drive (`drive.file`, one app folder), this browser (IndexedDB), a local folder (File System Access API) |
+| `packages/mcp` | MCP server for AI agents (Claude.ai connector at `https://digital-canvas-p977.web.app/mcp`, or `npx @digital-canvas/mcp`): design, see, critique and export posters and reels — see [its README](packages/mcp/README.md) |
 | `backend` | IceBase config (schema, API, rules) and two Cloud Functions: `googleSignIn` (code → custom token, keeps the encrypted Drive refresh token) and `driveToken` |
 | `tools` | `canva-import.ts` (Canva connector JSON → `.dcanvas`, for comparisons) and `render.ts` (render a page to PNG in Node) |
 | `apps/web` | The editor (Svelte 5 + Vite) |
@@ -43,7 +44,8 @@ access tokens. Designs go browser ⇄ Drive directly and never touch the backend
 ```sh
 npm run deploy:functions   # bundles backend/functions and runs firebase deploy (secrets: GOOGLE_CLIENT_SECRET, TOKEN_KEY)
 npm run deploy:rules       # Firestore rules + indexes from the IceBase schema
-npm run deploy:web         # builds apps/web and uploads it to Firebase Hosting
+npm run deploy:web         # builds apps/web and uploads it to Firebase Hosting (also the /mcp, /oauth/** rewrites)
+npm run deploy:mcp         # the MCP connector function (backend/mcp, own codebase)
 ```
 
 ## The `.dcanvas` file
@@ -68,7 +70,9 @@ All lengths are CSS pixels (96 per inch); `unit` only says how sizes are shown. 
 - [x] **M5** Layout tools + 270+ presets: snapping and smart guides (edges, centres, equal spacing; Alt/⌘ to place freely), rulers with draggable guides, print bleed and safe margins, groups (⌘G / ⇧⌘G, double-click into a group), distribute and tidy up, aspect-ratio lock, searchable preset picker (social, video, presentations, documents, print, marketing, web and IAB ads), resize a copy to other sizes
 - [x] **M6** Elements + export: lines & arrows, connectors that follow shapes, freehand draw (pen/marker/highlighter), 13 frames, 12 photo grids, tables, charts (column/bar/line/area/pie/donut), QR codes, icon search ([Iconify](https://iconify.design)), CC photo search ([Openverse](https://openverse.org)); SVG export and vector PDF (real text in embedded fonts)
 
-Later phases: presentations, whiteboards, video, data-bound designs (live menus), AI/MCP integration.
+- [x] **MCP**: connect Claude or any agent (`packages/mcp`): 42 tools to create, edit, look at, critique and export designs and video reels
+
+Later phases: presentations, whiteboards, video, data-bound designs (live menus).
 
 ## License
 

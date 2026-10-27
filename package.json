@@ -11,12 +11,14 @@
   "scripts": {
     "dev": "npm run dev -w @digital-canvas/web",
     "build": "npm run build -w @digital-canvas/web",
-    "check": "tsc -p packages/scene && tsc -p packages/render && tsc -p packages/storage && tsc -p backend && npm run check -w @digital-canvas/web",
+    "check": "tsc -p packages/scene && tsc -p packages/render && tsc -p packages/storage && tsc -p packages/mcp && tsc -p backend && tsc -p backend/mcp && npm run check -w @digital-canvas/web",
     "test": "vitest run",
     "e2e": "playwright test",
     "deploy:functions": "node backend/scripts/deploy-functions.mjs",
     "deploy:web": "npm run build && cd backend && node ../node_modules/@panth977/icebase-cli/src/cli/index.js deploy --env prod --only hosting",
-    "deploy:rules": "cd backend && node ../node_modules/@panth977/icebase-cli/src/cli/index.js deploy --env prod --only firestore,rules,indexes"
+    "deploy:rules": "cd backend && node ../node_modules/@panth977/icebase-cli/src/cli/index.js deploy --env prod --only firestore,rules,indexes",
+    "deploy:mcp": "node backend/scripts/deploy-mcp.mjs",
+    "build:mcp": "node packages/mcp/scripts/build.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.0",

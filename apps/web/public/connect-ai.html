@@ -1,0 +1,32 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Digital Canvas · Connect your AI</title>
+<style>body{font:16px/1.6 system-ui,sans-serif;max-width:760px;margin:40px auto;padding:0 20px;color:#1f2328}h1{font-size:28px}h2{font-size:19px;margin-top:28px}a{color:#5b3df5}pre,code{font:13px/1.5 ui-monospace,Menlo,monospace;background:#f4f4f6;border-radius:6px}pre{padding:12px 14px;overflow:auto}code{padding:1px 5px}pre code{padding:0;background:none}ol li{margin:4px 0}</style>
+<h1>Connect your AI</h1>
+<p>Let Claude (or any AI agent that speaks the <a href="https://modelcontextprotocol.io">Model Context Protocol</a>) make posters, social posts, thumbnails and video reels in Digital Canvas from your own photos and clips. It works on your designs in your Google Drive, looks at what it made, checks it (contrast, overflowing text, safe zones) and exports PNG, PDF, GIF or MP4 to <b>Digital Canvas/Exports</b>. You can open every design here to finish it by hand.</p>
+
+<h2>Claude on the web, desktop or phone</h2>
+<ol>
+  <li>Open <b>Settings › Connectors › Add custom connector</b>.</li>
+  <li>Name: <code>Digital Canvas</code> · URL: <code>https://digital-canvas-p977.web.app/mcp</code></li>
+  <li>Click <b>Connect</b> and sign in with the same Google account you use here.</li>
+</ol>
+<p>Then ask, for example: <i>“Make an Instagram post for our Friday night market using the photos in my ‘Market 2026’ Drive folder.”</i></p>
+
+<h2>Claude Code</h2>
+<pre><code>claude mcp add --transport http digital-canvas https://digital-canvas-p977.web.app/mcp</code></pre>
+<p>or run it on your computer (opens the browser to sign in the first time):</p>
+<pre><code>claude mcp add digital-canvas -- npx -y @digital-canvas/mcp</code></pre>
+
+<h2>Claude Desktop and other apps (local)</h2>
+<p>Add this to the app's MCP config (Claude Desktop: <code>claude_desktop_config.json</code>):</p>
+<pre><code>{
+  "mcpServers": {
+    "digital-canvas": { "command": "npx", "args": ["-y", "@digital-canvas/mcp"] }
+  }
+}</code></pre>
+<p>Work on a folder on your computer instead of Google Drive: <code>"args": ["-y", "@digital-canvas/mcp", "--store", "folder", "/path/to/Designs"]</code>. Video export on your computer needs <a href="https://ffmpeg.org/download.html">ffmpeg</a>.</p>
+
+<h2>What it can see</h2>
+<p>Only your Digital Canvas folder and files the app created or you opened with it — unless you connected your whole Drive in <b>Uploads › Google Drive</b>, in which case it can also find (read-only) your photos and videos elsewhere in Drive. Remove access any time at <a href="https://myaccount.google.com/permissions">Google account › Third-party access</a>.</p>
+<p>Source and docs: <a href="https://github.com/Panth977/digital-canvas/tree/main/packages/mcp">packages/mcp</a>.</p>
+</html>

@@ -47,6 +47,11 @@ export interface ElementBase {
   hidden?: boolean;
   /** Enter animation (presentations, video and GIF export). See anim.ts. */
   animation?: Animation;
+  /**
+   * Shown only during this part of its page, in seconds from the page's start
+   * (captions, timed call-outs). Absent = the whole page. Still views show it.
+   */
+  timing?: { start?: number; end?: number };
 }
 
 export type AnimationType = 'rise' | 'pan' | 'fade' | 'pop' | 'wipe' | 'typewriter' | 'baseline' | 'drift' | 'tumble';
@@ -361,6 +366,19 @@ export interface Page {
   guides?: Guide[];
   /** Animate the whole page: every element without its own animation, staggered. */
   animation?: Animation;
+  /** How this page comes in after the previous one (video). See anim.ts `transitionAt`. */
+  transition?: Transition;
+}
+
+export type TransitionType = 'dissolve' | 'fade' | 'slide' | 'wipe' | 'zoom';
+
+/** A page transition: plays over the first `duration` seconds of the page, over the end of the previous one. */
+export interface Transition {
+  type: TransitionType;
+  /** Seconds (default 0.5). */
+  duration?: number;
+  /** Where the new page comes from (slide, wipe). Default 'right'. */
+  direction?: AnimationDirection;
 }
 
 /** A sound on the design's timeline (music, voice-over). */
@@ -376,6 +394,9 @@ export interface AudioClip {
   duration: number;
   /** 0..1 (default 1). */
   volume?: number;
+  /** Seconds to fade in from silence / out to silence (default 0). */
+  fadeIn?: number;
+  fadeOut?: number;
   name?: string;
 }
 

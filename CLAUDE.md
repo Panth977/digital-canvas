@@ -59,3 +59,9 @@ Open-source Canva alternative. Built on TaskManager ticket **ORCH-27** (ORCH boa
 - Canva's scroll model lives in `Canvas.svelte` (`panRange`/`clampPan`): page width fits → x centred and locked; wider → scrolls between the page edges ± 40 px. Vertically the column runs from 56 px above page 1 (its header) to 88 px below the last page ("Add page"); a shorter column is centred. Every pan goes through `clampPan()`.
 - Zoom state and commands are in `lib/view.svelte.ts` (`view.zoom`, `view.mode` 'fit'|'fill'|null, `view.zoomTo/zoomIn/zoomOut/fit/goToPage`); the canvas registers itself as `view.port`. Fit/Fill re-fit on resize until the user zooms; otherwise a resize keeps the middle of the view still. Range 10–500 %; ⌘0 100 %, ⌥⌘0 fit, ⇧⌘0 fill.
 - Right-click menu: `editor/CanvasMenu.svelte`. Dev global `window.__dcView.get()` → `{ panX, panY, zoom, vw, vh, range, mode }` (pan = screen position of page 1's top-left).
+## MCP server (r5-mcp, 2026-10-28)
+
+- `packages/mcp`: tools in `src/tools/*.ts`, all over a `Workspace` (`DriveWorkspace` | `FolderWorkspace`, `src/workspace.ts`); `Context` opens/edits/saves designs (embeds fonts, prunes assets, thumbnails). Element specs → scene via `build.ts` (loose reader + media/icons/QR). Tests: `packages/mcp/test` against a temp folder, `DC_OFFLINE=1`.
+- Scene gained `ElementBase.timing` (captions; `animateAt` hides outside the window), `Page.transition` + `frameAt`/`transitionLayers`, `AudioClip.fadeIn/fadeOut`. The MCP exporter renders all three; the web player/MP4 export render timing but not yet transitions or audio fades.
+- Gradient `angle` is CSS (90 = left→right, 180 = top→bottom).
+- Remote: `packages/mcp/src/remote` (OAuth 2.1 AS + stateless JSON `/mcp`), deployed by `npm run deploy:mcp` as functions `mcp` + `mcpExport` (codebase `mcp`, `backend/mcp`); hosting rewrites in `backend/icebase.config.ts`.

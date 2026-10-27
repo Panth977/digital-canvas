@@ -31,6 +31,8 @@ export interface LibraryAsset {
   height?: number;
   duration?: number;
 }
+/** On `Digital Canvas/Exports`. */
+const EXPORTS_PROP = 'dcExports';
 /** On `brand.json`. */
 const BRAND_PROP = 'dcBrand';
 
@@ -416,6 +418,45 @@ export class DriveStore implements ProjectStore {
     const url = id ? `${UPLOAD}/files/${id}?uploadType=multipart&fields=id` : `${UPLOAD}/files?uploadType=multipart&fields=id`;
     const r = await this.json<{ id: string }>(url, { method: id ? 'PATCH' : 'POST', headers: { 'content-type': `multipart/related; boundary=${boundary}` }, body });
     this.brandFileId = r.id;
+  }
+
+  // ---- for agents (the MCP server): add to Uploads, save exports ----
+
+  /** Put a file into `Digital Canvas/assets` (stored once under its content-hash id). */
+  async addAsset(id: string, bytes: Uint8Array, mime: string, label?: string): Promise<void> {
+    await this.uploadAsset(id, bytes, mime, label);
+    await this.cache?.set(id, bytes).catch(() => {});
+  }
+
+  private exportsFolderId: string | null = null;
+
+  /** `Digital Canvas/Exports`, created on first use. */
+  private async exportsFolder(): Promise<string> {
+    if (this.exportsFolderId) return this.exportsFolderId;
+    const parent = await this.folder();
+    const q = `'${parent}' in parents and mimeType='${FOLDER_MIME}' and trashed=false and appProperties has { key='${EXPORTS_PROP}' and value='1' }`;
+    const found = await this.json<{ files: DriveFile[] }>(`${API}/files?${new URLSearchParams({ q, fields: 'files(id)', spaces: 'drive' })}`);
+    if (found.files[0]) return (this.exportsFolderId = found.files[0].id);
+    const made = await this.json<DriveFile>(`${API}/files?fields=id`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Exports', mimeType: FOLDER_MIME, parents: [parent], appProperties: { [EXPORTS_PROP]: '1', [ROOT_PROP]: 'exports' } }),
+    });
+    return (this.exportsFolderId = made.id);
+  }
+
+  /** Save an exported file (PNG, PDF, MP4…) into `Digital Canvas/Exports`; returns its Drive id and link. */
+  async saveExport(name: string, bytes: Uint8Array, mime: string): Promise<{ id: string; webViewLink?: string }> {
+    const meta = { name, mimeType: mime, parents: [await this.exportsFolder()] };
+    const boundary = `dc${Math.random().toString(36).slice(2)}`;
+    const head = `--${boundary}\r\ncontent-type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${boundary}\r\ncontent-type: ${mime}\r\n\r\n`;
+    const body = new Blob([head, bytes as BlobPart, `\r\n--${boundary}--`]);
+    return this.json<{ id: string; webViewLink?: string }>(`${UPLOAD}/files?uploadType=multipart&fields=id,webViewLink`, { method: 'POST', headers: { 'content-type': `multipart/related; boundary=${boundary}` }, body });
+  }
+
+  /** The Drive file id of a design (for links). */
+  driveFileId(id: string): Promise<string | undefined> {
+    return this.fileIdOf(id);
   }
 
   // ---- the shared assets folder, for browsing (Projects panel) ----

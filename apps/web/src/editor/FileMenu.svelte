@@ -120,6 +120,7 @@
       <div class="menu sub up" role="menu">
         <button role="menuitem" data-testid="file-shortcuts" onclick={() => { onclose(); onshortcuts(); }}>Keyboard shortcuts <kbd>?</kbd></button>
         <a role="menuitem" href="https://github.com/Panth977/digital-canvas#readme" target="_blank" rel="noreferrer">Help centre</a>
+        <a role="menuitem" data-testid="file-connect-ai" href="/connect-ai.html" target="_blank" rel="noreferrer">Connect your AI (Claude, MCP)</a>
         <a role="menuitem" href="https://github.com/Panth977/digital-canvas/issues/new" target="_blank" rel="noreferrer">Report a problem</a>
       </div>
     {/if}

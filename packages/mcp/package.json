@@ -1,0 +1,55 @@
+{
+  "name": "@digital-canvas/mcp",
+  "version": "0.1.0",
+  "description": "Model Context Protocol server for Digital Canvas: let Claude (or any agent) make posters, social graphics and video reels from your assets.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "design",
+    "canva",
+    "claude",
+    "video",
+    "poster"
+  ],
+  "bin": {
+    "digital-canvas-mcp": "./bin/digital-canvas-mcp.js"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./remote": "./src/remote/index.ts"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "tsx src/main.ts"
+  },
+  "dependencies": {
+    "@digital-canvas/render": "*",
+    "@digital-canvas/scene": "*",
+    "@digital-canvas/storage": "*",
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "@pdf-lib/fontkit": "^1.1.1",
+    "canvaskit-wasm": "^0.42.0",
+    "fflate": "^0.8.2",
+    "gifenc": "^1.0.3",
+    "mediabunny": "^1.62.1",
+    "pdf-lib": "^1.17.1",
+    "uqr": "^0.1.3",
+    "zod": "^3.25.76"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Panth977/digital-canvas",
+    "directory": "packages/mcp"
+  }
+}
