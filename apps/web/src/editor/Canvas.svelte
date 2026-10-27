@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import type { Surface } from 'canvaskit-wasm';
   import {
     aabb, angleTo, center, corners, cropFromBoxes, cropOf, cropPatch, findElement, hitTest, imageBox, intersects, localToPage, normalizeRect, pageToLocal,
@@ -14,11 +14,18 @@
   import Icon from '../lib/Icon.svelte';
   import { view } from '../lib/view.svelte.ts';
   import Rulers, { RULER } from './Rulers.svelte';
+  import { ui } from '../lib/ui.svelte.ts';
   import { flatten, getSelectionOffsets, renderRich, setSelectionOffsets } from '../lib/richtext.ts';
 
   let { ed, zoom = $bindable(1), fitRequest = 0 }: { ed: EditorState; zoom?: number; fitRequest?: number } = $props();
 
-  const STAGE = [0.914, 0.918, 0.937, 1];
+  /** Workspace colour behind the pages, from the theme (--stage), as CanvasKit RGBA. */
+  let STAGE = [0.922, 0.925, 0.941, 1];
+  function readStage(): void {
+    const v = getComputedStyle(host).getPropertyValue('--stage').trim();
+    const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(v);
+    if (m) STAGE = [parseInt(m[1]!, 16) / 255, parseInt(m[2]!, 16) / 255, parseInt(m[3]!, 16) / 255, 1];
+  }
   const HANDLE_HIT = 11;
 
   let host: HTMLDivElement;
@@ -31,7 +38,8 @@
   let fitted = false;
 
   // ---- layout: pages stacked vertically in world space ----
-  const gap = $derived(Math.max(48, ed.doc.height * 0.06));
+  /** Space between pages: room for the page header (about 56 screen px) at any zoom, like Canva. */
+  const gap = $derived(Math.max(ed.doc.height * 0.04, 56 / zoom));
   const pageTop = (i: number) => i * (ed.doc.height + gap);
   const pageIndexOf = (pageId: string) => ed.doc.pages.findIndex((p) => p.id === pageId);
 
@@ -73,10 +81,13 @@
 
   function zoomAt(next: number, s: Point): void {
     next = Math.max(0.02, Math.min(8, next));
+    // keep the same spot of the same page under the cursor (the gap between pages changes with zoom)
     const w = toWorld(s.x, s.y);
+    const i = pageAt(w);
+    const local = toPage(w, i);
     zoom = next;
     panX = s.x - w.x * zoom;
-    panY = s.y - w.y * zoom;
+    panY = s.y - (local.y + pageTop(i)) * zoom;
     clampPan();
   }
 
@@ -92,8 +103,38 @@
   }
 
   $effect(() => {
-    void fitRequest;
-    if (fitRequest) fit();
+    // only a new request re-fits (not the zoom or page that fit() reads)
+    if (fitRequest) untrack(fit);
+  });
+
+  // ---- continuous scroll: the page in the middle of the view is the current one (Canva) ----
+  let scrolledTo = '';
+  $effect(() => {
+    // only the view moving counts (not a page picked elsewhere, which scrolls the view itself)
+    void panY; void zoom; void vh;
+    untrack(() => {
+      if (!vh || drag || ed.selection.length || ed.editingTextId || ed.croppingId) return;
+      const i = pageAt(toWorld(vw / 2, vh / 2));
+      const id = ed.doc.pages[i]?.id;
+      if (id && id !== ed.pageId) {
+        scrolledTo = id;
+        ed.pageId = id;
+      }
+    });
+  });
+  /** A page made current elsewhere (page strip, grid view, add page) is scrolled into view. */
+  $effect(() => {
+    const id = ed.pageId;
+    if (!vh || id === scrolledTo) return;
+    scrolledTo = id;
+    const i = pageIndexOf(id);
+    if (i < 0) return;
+    const top = toScreen(0, pageTop(i)).y, bottom = top + ed.doc.height * zoom;
+    if (bottom < 60 || top > vh - 60) {
+      // a page shorter than the view is centred, a taller one starts near the top
+      panY = Math.min(64, (vh - ed.doc.height * zoom) / 2) - pageTop(i) * zoom;
+      clampPan();
+    }
   });
 
   // ---- drawing ----
@@ -163,6 +204,10 @@
   });
 
   onMount(() => {
+    readStage();
+    const scheme = matchMedia('(prefers-color-scheme: dark)');
+    const onScheme = () => { readStage(); queueDraw(); };
+    scheme.addEventListener('change', onScheme);
     const ro = new ResizeObserver(() => {
       const r = host.getBoundingClientRect();
       vw = r.width;
@@ -176,6 +221,7 @@
     });
     ro.observe(host);
     return () => {
+      scheme.removeEventListener('change', onScheme);
       ro.disconnect();
       surface?.delete();
       surface = null;
@@ -918,6 +964,18 @@
   const visiblePages = $derived(ed.doc.pages.map((p, i) => ({ p, i, o: toScreen(0, pageTop(i)) })).filter(({ o }) => o.y < vh && o.y + ed.doc.height * zoom > 0));
   const margin = $derived(safeMargin(ed.doc));
   const rulerOrigin = $derived(toScreen(0, pageTop(ed.pageIndex)));
+  /** Canva's small pill above the selection: lock, duplicate, delete, more. */
+  const mini = $derived.by(() => {
+    if (drag || ed.editingTextId || ed.croppingId || ed.editingCell || !selected.length) return null;
+    const pts = single ? (single.el.type === 'line' ? lineOutline(single.el, single.i) : screenCorners(single.el, single.i)) : multiBox ? [{ x: multiBox.x, y: multiBox.y }, { x: multiBox.x + multiBox.w, y: multiBox.y + multiBox.h }] : null;
+    if (!pts) return null;
+    const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y);
+    const cx = (Math.min(...xs) + Math.max(...xs)) / 2, top = Math.min(...ys), bottom = Math.max(...ys);
+    // above the element; below it when there is no room (the rotate handle sits below, so leave it space)
+    const y = top - 56 >= 4 ? top - 56 : bottom + 52;
+    if (cx < 0 || cx > vw || y > vh - 40) return null;
+    return { x: Math.max(80, Math.min(vw - 80, cx)), y, locked: selected.some(({ el }) => el.locked) };
+  });
   /** Screen px of print bleed shown around each page (page bars sit outside it). */
   const bleedPx = $derived(view.bleed ? ed.doc.bleed * zoom : 0);
 </script>
@@ -945,6 +1003,12 @@
 
   <svg class="overlay" width={vw} height={vh}>
     {#each visiblePages as { p, i, o } (p.id)}
+      {#if p.hidden}
+        <rect x={o.x} y={o.y} width={ed.doc.width * zoom} height={ed.doc.height * zoom} class="hiddenpage" />
+      {/if}
+      {#if p.id === ed.pageId && ed.doc.pages.length > 1 && !ed.selection.length}
+        <rect x={o.x - 2} y={o.y - 2} width={ed.doc.width * zoom + 4} height={ed.doc.height * zoom + 4} class="curpage" data-testid="current-page" />
+      {/if}
       {#if view.bleed && ed.doc.bleed}
         <rect x={o.x} y={o.y} width={ed.doc.width * zoom} height={ed.doc.height * zoom} class="trim" data-testid="trim-line" />
       {/if}
@@ -1035,17 +1099,37 @@
   {/if}
 
   {#each pageBars as bar (bar.id)}
-    <div class="pagebar" role="toolbar" aria-label="Page actions" tabindex="-1" style="left:{bar.pos.x}px;top:{bar.pos.y - 34 - bleedPx}px;width:{ed.doc.width * zoom}px" onpointerdown={(e) => e.stopPropagation()}>
-      <button class="pagename" class:current={bar.id === ed.pageId} onclick={() => ed.select([], bar.id)}>Page {bar.i + 1}</button>
+    {@const pg = ed.doc.pages[bar.i]!}
+    {@const pageLocked = pg.elements.length > 0 && pg.elements.every((e) => e.locked)}
+    <div class="pagebar" class:narrow={ed.doc.width * zoom < 360} role="toolbar" aria-label="Page actions" tabindex="-1" data-testid="page-header" style="left:{bar.pos.x}px;top:{bar.pos.y - 34 - bleedPx}px;width:{ed.doc.width * zoom}px" onpointerdown={(e) => e.stopPropagation()}>
+      <div class="pagetitle" class:current={bar.id === ed.pageId}>
+        <button class="pagename" onclick={() => ed.select([], bar.id)}>Page {bar.i + 1}</button>
+        <span class="dash">-</span>
+        <input class="pagetitle-input" placeholder="Add page title" value={pg.name ?? ''} aria-label="Page {bar.i + 1} title" data-testid="page-title"
+          onfocus={() => ed.select([], bar.id)}
+          onchange={(e) => { ed.updatePage({ name: (e.currentTarget as HTMLInputElement).value.trim() || undefined }, null, bar.id); ed.seal(); }}
+          onkeydown={(e) => { e.stopPropagation(); if (e.key === 'Enter' || e.key === 'Escape') (e.currentTarget as HTMLInputElement).blur(); }} />
+      </div>
       <div class="pagebtns">
-        <button title="Move up" aria-label="Move page up" disabled={bar.i === 0} onclick={() => ed.movePage(bar.id, -1)}><Icon name="up" size={16} /></button>
-        <button title="Move down" aria-label="Move page down" disabled={bar.i === ed.doc.pages.length - 1} onclick={() => ed.movePage(bar.id, 1)}><Icon name="down" size={16} /></button>
-        <button title="Duplicate page" aria-label="Duplicate page" onclick={() => ed.duplicatePage(bar.id)}><Icon name="copy" size={16} /></button>
-        <button title="Delete page" aria-label="Delete page" disabled={ed.doc.pages.length === 1} onclick={() => ed.removePage(bar.id)}><Icon name="trash" size={16} /></button>
-        <button title="Add page" aria-label="Add page after" onclick={() => { ed.select([], bar.id); ed.addPage(); }}><Icon name="plus" size={16} /></button>
+        <button title="Move up" aria-label="Move page up" disabled={bar.i === 0} onclick={() => ed.movePage(bar.id, -1)}><Icon name="up" size={18} /></button>
+        <button title="Move down" aria-label="Move page down" disabled={bar.i === ed.doc.pages.length - 1} onclick={() => ed.movePage(bar.id, 1)}><Icon name="down" size={18} /></button>
+        <button title={pg.hidden ? 'Show page' : 'Hide page'} aria-label={pg.hidden ? 'Show page' : 'Hide page'} class:on={pg.hidden} data-testid="page-hide" onclick={() => { ed.updatePage({ hidden: pg.hidden ? undefined : true }, null, bar.id); ed.seal(); }}><Icon name={pg.hidden ? 'eyeoff' : 'eye'} size={18} /></button>
+        <button title={pageLocked ? 'Unlock page' : 'Lock page'} aria-label={pageLocked ? 'Unlock page' : 'Lock page'} class:on={pageLocked} disabled={!pg.elements.length} data-testid="page-lock" onclick={() => { ed.update({ locked: !pageLocked }, null, pg.elements.map((e) => e.id)); ed.seal(); }}><Icon name={pageLocked ? 'lock' : 'unlock'} size={18} /></button>
+        <button title="Duplicate page" aria-label="Duplicate page" onclick={() => ed.duplicatePage(bar.id)}><Icon name="copy" size={18} /></button>
+        <button title="Delete page" aria-label="Delete page" disabled={ed.doc.pages.length === 1} onclick={() => ed.removePage(bar.id)}><Icon name="trash" size={18} /></button>
+        <button title="Add page" aria-label="Add page after" onclick={() => { ed.select([], bar.id); ed.addPage(); }}><Icon name="addpage" size={18} /></button>
       </div>
     </div>
   {/each}
+
+  {#if mini}
+    <div class="mini" role="toolbar" aria-label="Quick actions" tabindex="-1" data-testid="mini-toolbar" style="left:{mini.x}px;top:{mini.y}px" onpointerdown={(e) => e.stopPropagation()}>
+      <button title={mini.locked ? 'Unlock' : 'Lock'} aria-label={mini.locked ? 'Unlock' : 'Lock'} onclick={() => { ed.update({ locked: !mini!.locked }); ed.seal(); }}><Icon name={mini.locked ? 'lock' : 'unlock'} size={18} /></button>
+      <button title="Duplicate (⌘D)" aria-label="Duplicate" onclick={() => ed.duplicateSelection()}><Icon name="copy" size={18} /></button>
+      <button title="Delete" aria-label="Delete" onclick={() => ed.deleteSelection()}><Icon name="trash" size={18} /></button>
+      <button title="More" aria-label="More" data-more onclick={() => (ui.pop = ui.pop === 'more' ? null : 'more')}><Icon name="more" size={18} /></button>
+    </div>
+  {/if}
 
   {#if addPagePos.y < vh}
     <button class="addpage" data-testid="add-page" style="left:{addPagePos.x}px;top:{addPagePos.y + 16 + bleedPx}px;width:{ed.doc.width * zoom}px" onpointerdown={(e) => e.stopPropagation()} onclick={() => { ed.select([], ed.doc.pages[ed.doc.pages.length - 1]!.id); ed.addPage(); }}>
@@ -1131,7 +1215,7 @@
   .cropimg { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 6 4; }
   .cropcorner { fill: #fff; }
   .imgcorner { fill: var(--accent); stroke: #fff; stroke-width: 2; }
-  .cropbar { position: absolute; transform: translateX(-50%); display: flex; gap: 6px; padding: 6px; background: #fff; border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,.18); pointer-events: auto; }
+  .cropbar { position: absolute; transform: translateX(-50%); display: flex; gap: 6px; padding: 6px; background: var(--pop); border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,.18); pointer-events: auto; }
   .marquee { fill: rgba(124, 92, 255, .08); stroke: var(--accent); stroke-width: 1; }
   .snap { stroke: #ff2ec4; stroke-width: 1; }
   .snap.gap { stroke-width: 1.5; }
@@ -1139,15 +1223,29 @@
   .guide { stroke: #00b8c4; stroke-width: 1; }
   .trim { fill: none; stroke: #e5484d; stroke-width: 1; stroke-dasharray: 6 4; }
   .margin { fill: none; stroke: #7c5cff; stroke-width: 1; stroke-dasharray: 3 3; opacity: .8; }
-  .pagebar { position: absolute; display: flex; align-items: center; justify-content: space-between; height: 30px; pointer-events: auto; }
-  .pagename { border: 0; background: none; font-weight: 600; color: var(--muted); font-size: 13px; padding: 4px 6px; border-radius: 6px; }
-  .pagename.current { color: var(--ink); }
-  .pagebtns { display: flex; gap: 2px; }
-  .pagebtns button { width: 28px; height: 28px; display: grid; place-items: center; border: 0; background: none; border-radius: 6px; color: var(--ink-2); }
-  .pagebtns button:hover:not(:disabled) { background: rgba(0,0,0,.07); }
+  .pagebar { position: absolute; display: flex; align-items: center; justify-content: space-between; gap: 6px; height: 30px; pointer-events: auto; color: var(--bar-ink); }
+  .pagetitle { display: flex; align-items: center; min-width: 0; flex: 1; font-size: 14px; overflow: hidden; }
+  .pagename { border: 0; background: none; font-weight: 600; color: inherit; font-size: 14px; padding: 4px 0; white-space: nowrap; }
+  .pagetitle.current .pagename { color: var(--ink); }
+  .dash { margin: 0 4px; font-weight: 600; }
+  .pagetitle-input { flex: 1; min-width: 40px; height: 26px; border: 1px solid transparent; border-radius: 6px; background: none; color: var(--ink); font-size: 14px; padding: 0 4px; }
+  .pagetitle-input::placeholder { color: var(--muted); }
+  .pagetitle-input:hover { border-color: var(--line); }
+  .pagetitle-input:focus { outline: none; border-color: var(--accent); }
+  .pagebar.narrow .dash, .pagebar.narrow .pagetitle-input { display: none; }
+  .pagebar.narrow .pagebtns button { width: 24px; }
+  .pagebtns { display: flex; gap: 0; flex-shrink: 0; }
+  .pagebtns button { width: 30px; height: 30px; display: grid; place-items: center; border: 0; background: none; border-radius: 6px; color: inherit; }
+  .pagebtns button:hover:not(:disabled) { background: var(--hover); color: var(--ink); }
+  .pagebtns button.on { color: var(--accent); }
   .pagebtns button:disabled { opacity: .3; cursor: default; }
-  .addpage { position: absolute; height: 40px; display: flex; align-items: center; justify-content: center; gap: 6px; border: 1.5px dashed #c5c8d2; border-radius: 8px; background: rgba(255,255,255,.6); font-weight: 600; color: var(--ink-2); }
-  .addpage:hover { background: #fff; border-color: var(--accent); color: var(--accent); }
+  .curpage { fill: none; stroke: var(--accent); stroke-width: 2; }
+  .hiddenpage { fill: rgba(127, 127, 127, .55); }
+  .mini { position: absolute; transform: translateX(-50%); display: flex; gap: 2px; padding: 4px; background: var(--pop); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); pointer-events: auto; z-index: 4; }
+  .mini button { width: 32px; height: 32px; display: grid; place-items: center; border: 0; background: none; border-radius: 7px; color: inherit; }
+  .mini button:hover { background: var(--hover); }
+  .addpage { position: absolute; height: 40px; display: flex; align-items: center; justify-content: center; gap: 6px; border: 0; border-radius: 8px; background: var(--hover); font-weight: 600; color: var(--bar-ink); }
+  .addpage:hover { background: var(--accent-soft); color: var(--accent); }
   .text-edit {
     position: absolute; transform-origin: center; margin: 0; padding: 0; border: 0; resize: none; overflow: hidden;
     background: transparent; outline: 2px solid var(--accent); outline-offset: 0; caret-color: var(--accent); white-space: pre-wrap; word-break: break-word;

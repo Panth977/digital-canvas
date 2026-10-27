@@ -334,6 +334,8 @@ export interface Page {
   background: Fill;
   hidden?: boolean;
   elements: Element[];
+  /** Speaker / designer notes for this page (not drawn). */
+  notes?: string;
   /** Seconds this page shows in a video or presentation (default 5). */
   duration?: number;
   /** Ruler guides on this page (elements snap to them). */
