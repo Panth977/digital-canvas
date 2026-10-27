@@ -39,7 +39,7 @@ test('moving snaps to the page centre with a guide; Alt places freely', async ({
 
   const c2 = await selectionCenter(page);
   await page.keyboard.down('Alt');
-  await drag(page, c2, { x: c2.x + 3, y: c2.y });
+  await drag(page, c2, { x: c2.x + 4, y: c2.y }); // inside the snap distance (3 px is the drag threshold)
   await page.keyboard.up('Alt');
   const [f] = await elements(page);
   expect(f!.x - m!.x).toBeGreaterThan(2);
@@ -58,14 +58,18 @@ test('group, move as one, select a child by double-click, ungroup', async ({ pag
   const g = els[0] as any;
   expect(g.children).toHaveLength(2);
   expect([g.x, g.y, g.w, g.h]).toEqual([100, 100, 700, 600]);
-  await page.getByTestId('tab-layers').click();
+  await page.getByTestId('position-btn').click();
+  await page.getByTestId('postab-layers').click();
   await expect(page.getByTestId('layer-group')).toBeVisible();
   await expect(page.getByTestId('layer-shape')).toHaveCount(2);
 
   // drag by the rectangle (the middle of the group is empty)
   const from = await screenOf(page, g, { x: 200, y: 200 });
   const to = await screenOf(page, g, { x: 300, y: 250 });
+  // Alt: place freely (the group's centre would land within snapping distance of the page centre)
+  await page.keyboard.down('Alt');
   await drag(page, from, to);
+  await page.keyboard.up('Alt');
   els = await elements(page);
   const moved = els[0] as any;
   expect(moved.x).toBeCloseTo(200, 0);
@@ -78,7 +82,7 @@ test('group, move as one, select a child by double-click, ungroup', async ({ pag
   await page.mouse.dblclick(ell.x, ell.y);
   const sel = await page.evaluate(() => (window as any).__dc.selection);
   expect(sel).toEqual([moved.children[1].id]);
-  await expect(page.getByTestId('properties').locator('h3')).toHaveText('Shape');
+  await expect(page.getByTestId('context-toolbar')).toHaveAttribute('data-kind', 'shape');
 
   // nudging the child refits the group
   await page.keyboard.press('Shift+ArrowRight');
@@ -100,6 +104,7 @@ test('distribute and tidy up from the position panel', async ({ page }) => {
   for (let i = 0; i < 3; i++) await page.getByTestId('shape-rect').click();
   await place(page, [{ x: 0, y: 100, w: 100, h: 100 }, { x: 150, y: 100, w: 100, h: 100 }, { x: 800, y: 100, w: 100, h: 100 }]);
   await page.keyboard.press('ControlOrMeta+a');
+  await page.getByTestId('position-btn').click();
   await page.getByTestId('distribute-x').click();
   expect((await elements(page))[1]!.x).toBeCloseTo(400, 0);
   await place(page, [{ x: 0, y: 0, w: 100, h: 100 }, { x: 160, y: 30, w: 100, h: 100 }, { x: 600, y: -20, w: 100, h: 100 }]);
@@ -111,9 +116,9 @@ test('distribute and tidy up from the position panel', async ({ page }) => {
 
 test('rulers: drag out a guide, elements snap to it, drag it off to delete', async ({ page }) => {
   await newDesign(page);
-  await page.getByTestId('view-menu').click();
+  await page.getByTestId('file-menu').click();
   await page.getByTestId('view-rulers').check();
-  await page.getByTestId('view-menu').click(); // close the menu
+  await page.getByTestId('file-menu').click(); // close the menu
   const top = (await page.getByTestId('ruler-top').boundingBox())!;
   await expect(page.getByTestId('ruler-left')).toBeVisible();
   const stage = (await page.getByTestId('stage').boundingBox())!;
@@ -148,7 +153,7 @@ test('rulers: drag out a guide, elements snap to it, drag it off to delete', asy
 
 test('print bleed and margins can be shown', async ({ page }) => {
   await newDesign(page, 'business-card');
-  await page.getByTestId('view-menu').click();
+  await page.getByTestId('file-menu').click();
   await page.getByTestId('view-bleed').check();
   await page.getByTestId('view-margins').check();
   await expect(page.getByTestId('trim-line')).toHaveCount(1);
@@ -161,6 +166,7 @@ test('position panel: lock aspect ratio for width and height', async ({ page }) 
   await newDesign(page);
   await page.getByTestId('shape-rect').click();
   await place(page, [{ x: 10, y: 10, w: 200, h: 100 }]);
+  await page.getByTestId('position-btn').click();
   await page.getByTestId('lock-ratio').click();
   await page.getByTestId('pos-w').fill('400');
   const [e] = await elements(page);

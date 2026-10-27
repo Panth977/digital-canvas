@@ -113,6 +113,8 @@ test('pages: add, duplicate, delete', async ({ page }) => {
   await page.getByTestId('shape-star').click();
   await page.getByTestId('add-page').click();
   expect((await doc(page)).pages).toHaveLength(2);
+  // the new page was scrolled into view; go back to page 1
+  await page.evaluate(() => { const ed = (window as any).__dc; ed.select([], ed.doc.pages[0].id); });
   await page.getByRole('button', { name: 'Duplicate page' }).first().click();
   const d = await doc(page);
   expect(d.pages).toHaveLength(3);

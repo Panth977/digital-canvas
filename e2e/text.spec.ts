@@ -44,7 +44,10 @@ test('effects, curve and lists change the text box', async ({ page }) => {
   await addAndEdit(page, 'Curve me please');
   await page.keyboard.press('Escape');
   const [t0] = await elements(page);
-  await page.getByTestId('effect').selectOption('outline');
+  // Effects open in the left panel from the contextual toolbar (Canva)
+  await page.getByTestId('effects-btn').click();
+  await expect(page.getByTestId('side-panel').getByTestId('tool-panel')).toHaveAttribute('data-panel', 'effects');
+  await page.getByTestId('fx-pick-outline').click();
   let [t] = await elements(page);
   expect((t as any).effect).toMatchObject({ type: 'outline', thickness: 50 });
   await page.getByTestId('fx-thickness').fill('80');
@@ -58,13 +61,15 @@ test('effects, curve and lists change the text box', async ({ page }) => {
   await page.getByTestId('curve').fill('0');
   [t] = await elements(page);
   expect((t as any).curve).toBeUndefined();
-  await page.getByTestId('list-bullet').click();
+  await page.getByTestId('list').click();
   [t] = await elements(page);
   expect((t as any).list).toBe('bullet');
+  await page.getByTestId('text-color-btn').click();
   await page.getByTestId('gradient-on').click();
   [t] = await elements(page);
   expect((t as any).gradient.type).toBe('linear');
-  await page.getByTestId('effect').selectOption('');
+  await page.getByTestId('effects-btn').click();
+  await page.getByTestId('fx-pick-none').click();
   [t] = await elements(page);
   expect((t as any).effect).toBeUndefined();
 });
