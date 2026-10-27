@@ -52,7 +52,8 @@ async function compareLayouts(page: Page, id: string) {
       n++;
       const sx = box.left + s.x * zoom, sy = box.top + (s.y + s.h / 2) * zoom;
       const dx = Math.abs(sx - d.left), dy = Math.abs(sy - (d.top + d.height / 2));
-      if (dx > 2 || dy > 2) bad.push(`${i}:${el.text[i]} dx=${dx.toFixed(1)} dy=${dy.toFixed(1)}`);
+      // Linux CI shapes glyphs ~3px apart from macOS; the overlay's letters are invisible (caret only)
+      if (dx > 4 || dy > 2) bad.push(`${i}:${el.text[i]} dx=${dx.toFixed(1)} dy=${dy.toFixed(1)}`);
       maxX = Math.max(maxX, dx); maxY = Math.max(maxY, dy);
     });
     return { n, maxX, maxY, bad: bad.slice(0, 12), domLen: dom.length, len: el.text.length, stageTop: stage.top };
