@@ -27,6 +27,8 @@ else
   done
   npx tsx tools/merge-dcanvas.ts $d/out3.dcanvas $parts > $d/import3.log 2>&1
 fi
+# emoji: embed the ones the design uses (Noto Color Emoji subset)
+$PY tools/canva-emoji.py $d/out3.dcanvas > $d/emoji.log 2>&1 || true
 # video clips: where each starts (Canva doesn't report trims)
 $PY tools/canva-videotrim.py $d/out3.dcanvas $d/hi < /dev/null > $d/videotrim.log 2>&1 || true
 npx tsx tools/canva-align.ts $d/out3.dcanvas $d/hi > $d/align3.log 2>&1 || true

@@ -114,7 +114,7 @@ export class TextLayouts {
     const ck = this.ck;
     return new ck.TextStyle({
       color: color(ck, st.color),
-      fontFamilies: [...this.fonts.chain(st.fontFamily), 'Noto Sans', 'Inter'], // Noto Sans when embedded: Canva's fallback (e.g. ₹)
+      fontFamilies: [...this.fonts.chain(st.fontFamily), 'Noto Sans', 'Inter', 'Noto Color Emoji'], // Noto Sans when embedded: Canva's fallback (e.g. ₹)
       fontSize: st.fontSize,
       fontStyle: { weight: st.bold ? ck.FontWeight.Bold : ck.FontWeight.Normal, slant: st.italic ? ck.FontSlant.Italic : ck.FontSlant.Upright },
       decoration: (st.underline ? ck.UnderlineDecoration : 0) | (st.strike ? ck.LineThroughDecoration : 0),
