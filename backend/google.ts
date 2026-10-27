@@ -5,3 +5,6 @@ export const GOOGLE_CLIENT_ID = '753251746130-766vmq0fhocia6s45c9e1aqfqeo708k1.a
 export const GOOGLE_SCOPES = ['openid', 'email', 'profile', 'https://www.googleapis.com/auth/drive.file'];
 
 export const REGION = 'asia-south1';
+
+/** Optional, asked for only when you connect your whole Drive (Uploads → Google Drive). A restricted scope. */
+export const DRIVE_READONLY_SCOPE = 'https://www.googleapis.com/auth/drive.readonly';

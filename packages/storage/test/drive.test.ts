@@ -58,7 +58,14 @@ function fakeDrive() {
     }
     if (id && url.searchParams.get('alt') === 'media') return new Response(files.get(id)!.body as BodyInit);
     if (id && req.method === 'PATCH') {
-      Object.assign(files.get(id)!, await req.json());
+      const f = files.get(id)!;
+      const { appProperties, ...rest } = await req.json();
+      Object.assign(f, rest);
+      // Drive merges app properties; null removes one.
+      for (const [k, v] of Object.entries((appProperties ?? {}) as Record<string, string | null>)) {
+        if (v === null) delete f.appProperties[k];
+        else f.appProperties[k] = v;
+      }
       return json({ id });
     }
     return new Response('{"error":{"message":"not faked"}}', { status: 404 });
@@ -123,6 +130,25 @@ describe('DriveStore', () => {
     const opened = await other.open(a.id);
     expect(opened.assets.get('0123456789abcdef0123.png')).toEqual(img);
     expect((await other.list()).map((m) => m.title).sort()).toEqual(['A2', 'B']);
+  });
+
+  it('lists your uploads with their names, hides removed ones, and shows them again when reused', async () => {
+    const drive = fakeDrive();
+    vi.stubGlobal('fetch', drive.handler);
+    const store = new DriveStore(async () => 't0k');
+    const id1 = '0123456789abcdef0123.png', id2 = 'aaaaaaaaaaaaaaaaaaaa.mp4';
+    const doc = { ...createDoc({ width: 100, height: 100, title: 'A' }), assets: { [id1]: { mime: 'image/png', name: 'cat.png' }, [id2]: { mime: 'video/mp4', name: 'é'.repeat(80) } } };
+    await store.save({ doc, assets: new Map([[id1, new Uint8Array([1])], [id2, new Uint8Array([2])]]) });
+    const list = await new DriveStore(async () => 't0k').listAssets();
+    expect(list.map((a) => [a.id, a.mime, a.name]).sort()).toEqual([[id1, 'image/png', 'cat.png'], [id2, 'video/mp4', 'é'.repeat(50)]]);
+    expect([...(await store.getAsset(id1))!]).toEqual([1]);
+
+    await store.hideAsset(id1);
+    const other = new DriveStore(async () => 't0k');
+    expect((await other.listAssets()).map((a) => a.id)).toEqual([id2]);
+    expect([...(await other.getAsset(id1))!]).toEqual([1]); // designs still open
+    await other.save({ doc: { ...doc, id: 'd2' }, assets: new Map([[id1, new Uint8Array([1])]]) });
+    expect((await other.listAssets(true)).map((a) => a.id).sort()).toEqual([id1, id2]);
   });
 
   it('retries once with a fresh token on 401', async () => {

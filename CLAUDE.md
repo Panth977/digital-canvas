@@ -6,7 +6,7 @@ Open-source Canva alternative. Built on TaskManager ticket **ORCH-27** (ORCH boa
 
 - Renderer: **CanvasKit** (Skia WASM). UI: **Svelte 5** + Vite + TypeScript. Licence: **Apache-2.0**.
 - One **`.dcanvas` file per project** (zip). Projects go in an app folder, so a new project never asks for a path.
-- Drive access: **`drive.file`** scope only (app folder + Open with + Picker). No full-Drive scope.
+- Drive access: **`drive.file`** at sign-in (app folder + Open with + Picker). **Optional `drive.readonly`** (owner ask, 2026-10-27): Uploads → Google Drive asks for it by incremental consent (`account.connectWholeDrive()`, `prompt=consent` + `include_granted_scopes`); the backend keeps the new refresh token and `googleSignIn`/`driveToken` return the granted `scope`.
 - Backend: **IceBase in firebase mode** on Firebase project `digital-canvas-p977` (created 2026-10-26, Drive + Picker APIs enabled). Backend stores almost nothing: user, login count, Drive refresh token. Designs never touch it.
 - Phase 1 = the page editor (M1–M6 in README). No sharing/invites in phase 1.
 - Canva's AI tools are out of scope; our own AI comes later via the open scene format.
@@ -31,3 +31,12 @@ Open-source Canva alternative. Built on TaskManager ticket **ORCH-27** (ORCH boa
 - Connector ends store `attach: { elementId, point }`; `EditorState.commit()` runs `followConnectors()` on every change.
 - Vector PDF embeds whole font files: pdf-lib's `subset: true` drops glyphs of Inter. Text effects, curved text and gradients are drawn as an image of that element only.
 - Openverse allows `page_size` ≤ 20 without a key; photos are searched with `license_type=commercial,modification`, and the credit is kept in the asset `name`.
+
+## Uploads panel notes (2026-10-27)
+
+- `apps/web/src/editor/panels/UploadsPanel.svelte`, state in `lib/drivelib.svelte.ts`. Drive browsing is `DriveBrowser` in `packages/storage/src/drivebrowse.ts` (pure `listParams` query builder; cached pages).
+- Computers (Drive for desktop): there is no API for that tab. A computer is a folder you own with no `parents`; `DriveBrowser.computers()` scans your folders for those. A pasted folder link opens any folder the scan misses.
+- Uploads = `Digital Canvas/assets` (`DriveStore.listAssets`). Files carry `appProperties.dcName` (original name). "Remove" sets `dcHidden=1` only: designs that use the asset still need the file.
+- Drops from the panel onto the page are caught in the capture phase (`application/x-dc-library`), downloaded, then re-dispatched to the stage as an ordinary `{kind:'asset'}` drop, so Canvas.svelte needs no Drive code.
+- IceBase callables reject unknown output fields: when a function's output gains a field, deploy web before functions.
+- e2e: `e2e/fake-drive.ts` is an in-memory Drive behind `page.route`; `fakeSignIn()` sets `window.__account` (user, token, scopes).
