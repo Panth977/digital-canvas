@@ -413,8 +413,11 @@ export class EditorState {
   }
 
   async addVideoFile(file: File, at?: { x: number; y: number }): Promise<boolean> {
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    const mime = mediaMime(file);
+    return this.addVideoBytes(new Uint8Array(await file.arrayBuffer()), mediaMime(file), file.name, at);
+  }
+
+  /** Add a video from its bytes (uploads, stock videos). `name` is kept with the asset (file name or credit). */
+  async addVideoBytes(bytes: Uint8Array, mime: string, name: string, at?: { x: number; y: number }): Promise<boolean> {
     let info;
     try {
       info = await probeVideo(bytes, mime);
@@ -429,8 +432,8 @@ export class EditorState {
       ...this.doc,
       assets: {
         ...this.doc.assets,
-        [id]: { mime, width: info.width, height: info.height, duration: info.duration, name: file.name },
-        [`${id}.poster`]: { mime: 'image/png', width: info.width, height: info.height, name: `${file.name} (poster)` },
+        [id]: { mime, width: info.width, height: info.height, duration: info.duration, name },
+        [`${id}.poster`]: { mime: 'image/png', width: info.width, height: info.height, name: `${name} (poster)` },
       },
     };
     // The page lasts at least as long as the clip (like Canva).
@@ -448,8 +451,11 @@ export class EditorState {
   }
 
   async addAudioFile(file: File): Promise<boolean> {
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    const mime = mediaMime(file);
+    return this.addAudioBytes(new Uint8Array(await file.arrayBuffer()), mediaMime(file), file.name, file.name.replace(/\.[^.]+$/, ''));
+  }
+
+  /** Add a sound from its bytes. `name` is kept with the asset; `title` names the clip on the timeline. */
+  async addAudioBytes(bytes: Uint8Array, mime: string, name: string, title = name): Promise<boolean> {
     let duration: number;
     try {
       duration = await probeAudio(bytes, mime);
@@ -458,10 +464,10 @@ export class EditorState {
     }
     const id = await assetId(bytes, mime);
     this.assets.set(id, bytes);
-    let doc: Doc = { ...this.doc, assets: { ...this.doc.assets, [id]: { mime, duration, name: file.name } } };
+    let doc: Doc = { ...this.doc, assets: { ...this.doc.assets, [id]: { mime, duration, name } } };
     // A design with sound is a video: give pages their (default) durations.
     if (!doc.pages.some((p) => p.duration !== undefined)) doc = { ...doc, pages: doc.pages.map((p) => ({ ...p, duration: pageDuration(p) })) };
-    const r = addAudio(doc, { asset: id, start: 0, offset: 0, duration: Math.min(duration, Math.max(totalDuration(doc), 0.1)) || duration, name: file.name.replace(/\.[^.]+$/, '') });
+    const r = addAudio(doc, { asset: id, start: 0, offset: 0, duration: Math.min(duration, Math.max(totalDuration(doc), 0.1)) || duration, name: title });
     this.commit(r.doc);
     this.seal();
     return true;
@@ -831,13 +837,13 @@ export class EditorState {
   }
 
   /** Insert an SVG icon as a vector graphic. Returns false when the SVG has nothing we can draw. */
-  addSvg(svg: string, name: string, color = '#1f2328'): boolean {
+  addSvg(svg: string, name: string, color = '#1f2328', at?: { x: number; y: number }): boolean {
     const parsed = parseSvg(svg, color);
     if (!parsed) return false;
     const size = this.unit(0.25);
     const vb = parsed.viewBox;
     const s = size / Math.max(vb.w, vb.h);
-    const box = this.placeBox(vb.w * s, vb.h * s);
+    const box = this.placeBox(vb.w * s, vb.h * s, at);
     // stroke widths come in icon units; ours are page px
     const paths = parsed.paths.map((p) => (p.stroke ? { ...p, stroke: { ...p.stroke, width: p.stroke.width * s } } : p));
     this.add({ ...pathElement(paths, vb, box), name });

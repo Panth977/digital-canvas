@@ -31,3 +31,11 @@ Open-source Canva alternative. Built on TaskManager ticket **ORCH-27** (ORCH boa
 - Connector ends store `attach: { elementId, point }`; `EditorState.commit()` runs `followConnectors()` on every change.
 - Vector PDF embeds whole font files: pdf-lib's `subset: true` drops glyphs of Inter. Text effects, curved text and gradients are drawn as an image of that element only.
 - Openverse allows `page_size` ≤ 20 without a key; photos are searched with `license_type=commercial,modification`, and the credit is kept in the asset `name`.
+
+## Content panels (r3-content, 2026-10-27)
+
+- Elements / Text / Photos / Videos / Audio panels live in `apps/web/src/editor/panels/`; sources in `apps/web/src/lib/content/` (Iconify, Openverse, Wikimedia Commons, NASA; all keyless + CORS). `search.ts` merges sources per kind; a failing or slow (>8 s) source drops out.
+- Iconify rate-limits per IP: never load one SVG per tile. Use `loadIcons()` (batched `/<prefix>.json?icons=`) and data: URL thumbnails.
+- Openverse anonymous API is slow/flaky at times; JSON answers are cached in localStorage (`dc.content.*`, 6 h).
+- Panel drops go through `handlePanelDrop()` (one line in Canvas `onDrop`). Credits are kept as the asset `name` (`creditLine()`).
+- e2e: `newDesign()` answers the content hosts with 503; tests that need results `page.route` them after it (see `e2e/content.spec.ts`).

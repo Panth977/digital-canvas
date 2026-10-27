@@ -159,16 +159,17 @@ test('QR code: generate, then change its text', async ({ page }) => {
   expect(q2.paths.at(-1).d).not.toBe(q.paths.at(-1).d);
 });
 
-const ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><path fill="currentColor" d="M10 20v-6h4v6h5v-8h3L12 3L2 12h3v8z"/></svg>';
+const ICON_BODY = '<path fill="currentColor" d="M10 20v-6h4v6h5v-8h3L12 3L2 12h3v8z"/>';
 
 test('icons: search Iconify (mocked) and insert a recolourable vector icon', async ({ page }) => {
-  await page.route('https://api.iconify.design/search?*', (r) => r.fulfill({ json: { icons: ['mdi:home', 'mdi:home-outline'] } }));
-  await page.route('https://api.iconify.design/mdi/*.svg', (r) => r.fulfill({ body: ICON_SVG, contentType: 'image/svg+xml' }));
   await newDesign(page);
-  await page.getByTestId('icon-search').fill('home');
-  await page.getByTestId('icon-search').press('Enter');
-  await expect(page.getByTestId('icon-results').locator('button')).toHaveCount(2);
-  await page.getByRole('button', { name: 'Add icon mdi:home', exact: true }).click();
+  await page.route('https://api.iconify.design/search?*', (r) => r.fulfill({ json: { icons: ['mdi:home', 'mdi:home-outline'] } }));
+  await page.route('https://api.iconify.design/mdi.json?*', (r) => r.fulfill({ json: { prefix: 'mdi', width: 24, height: 24, icons: { home: { body: ICON_BODY }, 'home-outline': { body: ICON_BODY } } } }));
+  await page.getByTestId('elements-search').fill('home');
+  await page.getByTestId('elements-search').press('Enter');
+  await page.getByTestId('etab-icons').click();
+  await expect(page.getByTestId('element-results').locator('button')).toHaveCount(2);
+  await page.getByRole('button', { name: 'Add icon Home', exact: true }).click();
   await expect.poll(async () => (await elements(page)).length).toBe(1);
   const [ic] = (await elements(page)) as any[];
   expect(ic.type).toBe('path');

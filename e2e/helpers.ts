@@ -1,7 +1,15 @@
 import { expect, type Page } from '@playwright/test';
 
-/** Create a design from a preset and wait for the editor. */
+/** Hosts of the side panels' free content libraries (Iconify, Openverse, Wikimedia, NASA). */
+export const CONTENT_HOSTS = /^https:\/\/(api\.iconify\.design|api\.openverse\.org|commons\.wikimedia\.org|upload\.wikimedia\.org|images-api\.nasa\.gov|images-assets\.nasa\.gov)\//;
+
+/**
+ * Create a design from a preset and wait for the editor. The content
+ * libraries are answered offline (empty) so tests never hit those APIs;
+ * a test that needs results routes them after this (later routes win).
+ */
 export async function newDesign(page: Page, preset = 'instagram-post'): Promise<void> {
+  await page.route(CONTENT_HOSTS, (r) => r.fulfill({ status: 503, body: 'offline in tests' }));
   await page.goto('/');
   await page.getByTestId(`preset-${preset}`).click();
   await expect(page.getByTestId('canvas')).toBeVisible();

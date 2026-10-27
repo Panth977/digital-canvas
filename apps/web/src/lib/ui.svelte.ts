@@ -5,11 +5,11 @@
  * the toolbar (Font, Effects, Position, Colour, …) take turns in it.
  */
 
-export type RailTab = 'elements' | 'text' | 'uploads' | 'draw' | 'photos';
+export type RailTab = 'elements' | 'text' | 'uploads' | 'draw' | 'photos' | 'videos' | 'sounds';
 export type ToolPanel = 'font' | 'color' | 'effects' | 'position' | 'image' | 'table' | 'chart' | 'qr' | 'frame' | 'audio';
 export type Panel = RailTab | ToolPanel;
 
-export const RAIL_TABS: readonly RailTab[] = ['elements', 'text', 'uploads', 'draw', 'photos'];
+export const RAIL_TABS: readonly RailTab[] = ['elements', 'text', 'uploads', 'draw', 'photos', 'videos', 'sounds'];
 
 /** What the colour panel edits. `value` is read each time, so it follows undo and dragging. */
 export interface ColorTarget {
