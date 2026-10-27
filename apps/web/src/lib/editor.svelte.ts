@@ -1,12 +1,13 @@
 import {
   History, newId, addAudio, addElements, pageDuration, removeAudio, totalDuration, updateAudio, video, addPage, arrange, commonStyle, duplicateElements, duplicatePage, findElement, image, movePage,
-  normalizeRuns, pruneAssets, pruneFonts, removeElements, removePage, setTitle, shape, styleRange, text, updateElements, updatePage,
-  type Arrange, type AudioClip, type Doc, type Element, type ElementPatch, type EmbeddedFont, type Page, type ShapeKind, type TextElement, type TextRun, type TextStyle,
+  normalizeRuns, pruneAssets, pruneFonts, removeElements, removePage, setAsBackground, setTitle, shape, styleRange, text, updateElements, updatePage,
+  type Arrange, type ImageLook, type AudioClip, type Doc, type Element, type ElementPatch, type EmbeddedFont, type Page, type ShapeKind, type TextElement, type TextRun, type TextStyle,
 } from '@digital-canvas/scene';
 import { Renderer } from '@digital-canvas/render';
 import { assetId, type ProjectFile, type ProjectStore } from '@digital-canvas/storage';
 import type { Engine } from './engine.ts';
 import { isImage } from './files.ts';
+import { removeBackground, type BackgroundRemover } from './bgremove.ts';
 import { addCssFace, fetchFamily, type CatalogFont, type FontFile } from './fonts.ts';
 import { isAudioFile, isVideoFile, mediaMime, probeAudio, probeVideo } from './media.ts';
 import { Player } from './player.svelte.ts';
@@ -42,6 +43,13 @@ export class EditorState {
   textRev = $state(0);
   /** A font family being downloaded. */
   fontLoading = $state<string | null>(null);
+  /** The image or video in crop mode. */
+  croppingId = $state<string | null>(null);
+  /** Background removal running: what it is doing (and how far, 0..1). */
+  bgStatus = $state<{ msg: string; fraction?: number } | null>(null);
+  bgError = $state('');
+  /** The background remover to use (swappable: other models, tests). */
+  bgRemover: BackgroundRemover = removeBackground;
 
   readonly renderer: Renderer;
   /** Plays the design as a video (pages, clips, sounds). */
@@ -115,6 +123,7 @@ export class EditorState {
     this.doc = d;
     this.editingTextId = null;
     this.selection = this.selection.filter((id) => findElement(d, id));
+    if (this.croppingId && !findElement(d, this.croppingId)) this.croppingId = null;
     if (!d.pages.some((p) => p.id === this.pageId)) this.pageId = d.pages[0]!.id;
     this.syncHistory();
     this.scheduleSave();
@@ -135,6 +144,7 @@ export class EditorState {
       if (hit) this.pageId = hit.page.id;
     }
     if (this.editingTextId && !ids.includes(this.editingTextId)) this.stopEditing();
+    if (this.croppingId && !ids.includes(this.croppingId)) this.stopCrop();
   }
 
   selectAll(): void {
@@ -218,6 +228,77 @@ export class EditorState {
       const next = { ...e, text: value, runs: runs && normalizeRuns(runs, e.style) };
       return { text: value, runs: next.runs, ...this.fitPatch(next) };
     }), `text:${id}`);
+  }
+
+  // ---- image tools ----
+
+  /** Selected images and video clips. */
+  private get pictures(): string[] {
+    return this.selected.filter((e) => e.type === 'image' || e.type === 'video').map((e) => e.id);
+  }
+
+  /** Change adjustments, filter or effect of the selected images and clips (undefined = none; dropped when saved). */
+  updateLook(patch: ImageLook | ((e: ImageLook) => ImageLook), key: string | null = null): void {
+    this.commit(updateElements(this.doc, this.pictures, (e) => {
+      if (e.type !== 'image' && e.type !== 'video') return {};
+      return typeof patch === 'function' ? patch(e) : patch;
+    }), key);
+  }
+
+  /** Crop mode: drag the image inside its frame, resize the frame or the image. */
+  startCrop(id = this.selection[0]): void {
+    const hit = id ? findElement(this.doc, id) : null;
+    if (!hit || (hit.element.type !== 'image' && hit.element.type !== 'video') || hit.element.locked) return;
+    this.stopEditing();
+    this.select([hit.element.id]);
+    this.croppingId = hit.element.id;
+  }
+
+  stopCrop(): void {
+    if (!this.croppingId) return;
+    this.croppingId = null;
+    this.seal();
+  }
+
+  /** Make the selected image fill the page, behind everything, locked. */
+  setAsBackground(): void {
+    const id = this.pictures[0];
+    if (!id) return;
+    this.stopCrop();
+    this.commit(setAsBackground(this.doc, id));
+    this.seal();
+  }
+
+  /**
+   * Remove the background of the selected image. The cut-out becomes a new PNG
+   * asset; the old one stays as `original` so it can be restored (or undone).
+   */
+  async removeBackground(): Promise<void> {
+    const el = this.selected.find((e) => e.type === 'image');
+    if (!el || el.type !== 'image' || this.bgStatus) return;
+    const bytes = this.assets.get(el.asset), meta = this.doc.assets[el.asset];
+    if (!bytes || !meta) return;
+    this.bgError = '';
+    this.bgStatus = { msg: 'Starting…' };
+    try {
+      const png = await this.bgRemover(bytes, meta.mime, (msg, fraction) => (this.bgStatus = { msg, fraction }));
+      const id = await this.addAsset(png, 'image/png', meta.name ? `${meta.name.replace(/\.[^.]+$/, '')} (cut out).png` : 'cut out.png');
+      if (!id) throw new Error('the result could not be read');
+      this.commit(updateElements(this.doc, [el.id], (e) => (e.type === 'image' ? { asset: id, original: e.original ?? e.asset } : {})));
+      this.seal();
+    } catch (err) {
+      this.bgError = err instanceof Error ? err.message : String(err);
+    } finally {
+      this.bgStatus = null;
+    }
+  }
+
+  /** Put back the image from before its background was removed. */
+  restoreOriginal(): void {
+    this.commit(updateElements(this.doc, this.pictures, (e) => {
+      return e.type === 'image' && e.original ? { asset: e.original, original: undefined } : {};
+    }));
+    this.seal();
   }
 
   // ---- fonts ----

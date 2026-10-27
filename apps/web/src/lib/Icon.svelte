@@ -55,6 +55,10 @@
     pause: 'M7 4h3.5v16H7zM13.5 4H17v16h-3.5z',
     music: 'M9 18V5l11-2v13M9 18a3 3 0 11-6 0 3 3 0 016 0zM20 16a3 3 0 11-6 0 3 3 0 016 0z',
     video: 'M3 6h12v12H3zM15 10l6-3v10l-6-3',
+    crop: 'M6 2v16h16M2 6h16v16',
+    wand: 'M4 20L15 9M13 7l2-2 4 4-2 2zM18 2v2M22 6h-2M21 3l-1.5 1.5M9 3v2M8 4h2',
+    picker: 'M14 4l6 6M17 7l-9.5 9.5L4 20l3.5-3.5M12 6l6 6',
+    sliders: 'M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M14 4v4M8 10v4M16 16v4',
   } as const;
   export type IconName = keyof typeof ICONS;
 </script>

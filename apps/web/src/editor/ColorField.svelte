@@ -1,4 +1,6 @@
 <script lang="ts">
+  import Icon from '../lib/Icon.svelte';
+
   let { label, value, onchange, onend, testid }: {
     label: string;
     value: string;
@@ -12,6 +14,17 @@
   const hex6 = $derived(value.length >= 7 ? value.slice(0, 7) : value);
   let draft = $state('');
   $effect(() => { draft = hex6; });
+
+  /** The browser's eyedropper (Chrome, Edge): pick a colour from anywhere on screen. */
+  const canPick = typeof window !== 'undefined' && 'EyeDropper' in window;
+  async function pick(): Promise<void> {
+    const Dropper = (window as unknown as { EyeDropper: new () => { open(): Promise<{ sRGBHex: string }> } }).EyeDropper;
+    try {
+      const { sRGBHex } = await new Dropper().open();
+      onchange(sRGBHex.toLowerCase());
+      onend?.();
+    } catch { /* cancelled */ }
+  }
 
   function commitDraft(): void {
     const v = draft.trim().startsWith('#') ? draft.trim() : `#${draft.trim()}`;
@@ -31,6 +44,9 @@
         onchange={() => onend?.()} aria-label={label} />
     </span>
     <input class="input hex" bind:value={draft} onblur={commitDraft} onkeydown={(e) => e.key === 'Enter' && commitDraft()} aria-label="{label} hex" />
+    {#if canPick}
+      <button type="button" class="pick" title="Pick a colour from the screen" aria-label="Pick {label} from the screen" onclick={pick}><Icon name="picker" size={15} /></button>
+    {/if}
   </span>
 </label>
 
@@ -41,5 +57,7 @@
   .swatch { position: relative; width: 32px; height: 32px; flex-shrink: 0; border-radius: 8px; border: 1px solid var(--line); overflow: hidden;
     background-image: linear-gradient(45deg, #ddd 25%, transparent 25%, transparent 75%, #ddd 75%), linear-gradient(45deg, #ddd 25%, transparent 25%, transparent 75%, #ddd 75%); }
   .swatch input { position: absolute; inset: -6px; width: calc(100% + 12px); height: calc(100% + 12px); opacity: 0; cursor: pointer; }
-  .hex { font-family: ui-monospace, Menlo, monospace; text-transform: lowercase; }
+  .pick { flex-shrink: 0; width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink-2); }
+  .pick:hover { color: var(--accent); border-color: var(--accent); }
+  .hex { min-width: 0; font-family: ui-monospace, Menlo, monospace; text-transform: lowercase; }
 </style>

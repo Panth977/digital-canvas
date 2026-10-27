@@ -73,6 +73,7 @@
     else if (mod && k === ']') { stop(); ed.arrange(e.altKey ? 'front' : 'forward'); }
     else if (mod && k === '[') { stop(); ed.arrange(e.altKey ? 'back' : 'backward'); }
     else if (k === 'delete' || k === 'backspace') { stop(); ed.deleteSelection(); }
+    else if (ed.croppingId && (k === 'escape' || k === 'enter')) { stop(); ed.stopCrop(); }
     else if (k === 'escape') { ed.select([]); }
     else if (k === 'enter' && ed.selected.length === 1 && ed.selected[0]!.type === 'text') { stop(); ed.startEditing(ed.selected[0]!.id); }
     else if (k.startsWith('arrow')) {

@@ -230,7 +230,12 @@ export function setTitle(doc: Doc, title: string): Doc {
 /** Assets no image element or embedded font uses are dropped. */
 export function pruneAssets(doc: Doc): Doc {
   const used = new Set<string>();
-  for (const p of doc.pages) for (const e of p.elements) if (e.type === 'image' || e.type === 'video') used.add(e.asset);
+  for (const p of doc.pages) {
+    for (const e of p.elements) {
+      if (e.type === 'image' || e.type === 'video') used.add(e.asset);
+      if (e.type === 'image' && e.original) used.add(e.original);
+    }
+  }
   for (const a of doc.audio ?? []) used.add(a.asset);
   for (const k of [...used]) used.add(`${k}.poster`); // a video's poster frame
   for (const f of doc.fonts ?? []) used.add(f.asset);

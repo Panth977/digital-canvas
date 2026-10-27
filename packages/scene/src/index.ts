@@ -6,3 +6,4 @@ export * from './geometry.ts';
 export * from './history.ts';
 export * from './parse.ts';
 export * from './text.ts';
+export * from './image.ts';

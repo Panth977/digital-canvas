@@ -2,8 +2,9 @@
   import { onMount } from 'svelte';
   import type { Surface } from 'canvaskit-wasm';
   import {
-    aabb, angleTo, center, corners, findElement, hitTest, intersects, normalizeRect, resizeBox, rotatePoint, union, updateElements,
-    type Element, type Handle, type Point, type Rect, type ShapeKind,
+    aabb, angleTo, center, corners, cropFromBoxes, cropOf, cropPatch, findElement, hitTest, imageBox, intersects, localToPage, normalizeRect, pageToLocal,
+    panImage, resizeBox, resizeFrame, rotatePoint, scaleImage, union, updateElements,
+    type CropHandle, type Element, type Handle, type ImageElement, type Point, type Rect, type ShapeKind, type VideoElement,
   } from '@digital-canvas/scene';
   import type { EditorState } from '../lib/editor.svelte.ts';
   import { TEXT_PRESETS } from '../lib/editor.svelte.ts';
@@ -125,13 +126,28 @@
       c.restore();
     });
     shadow.delete();
+    if (cropping) {
+      // crop mode: everything dimmed, the whole image faded, the frame's part bright on top
+      const { el, i } = cropping;
+      const dim = new ck.Paint();
+      dim.setColor(ck.Color4f(0.06, 0.07, 0.12, 0.35));
+      c.drawRect(ck.XYWHRect(0, 0, vw, vh), dim);
+      dim.delete();
+      const s = toScreen(0, pageTop(i));
+      c.save();
+      c.translate(s.x, s.y);
+      c.scale(zoom, zoom);
+      ed.renderer.drawCropGhost(c, el, 0.5);
+      ed.renderer.drawElement(c, el);
+      c.restore();
+    }
     c.restore();
     surface.flush();
   }
 
   $effect(() => {
     // Redraw whenever anything visible changes.
-    void ed.doc; void ed.editingTextId; void ed.frame; void zoom; void panX; void panY; void vw; void vh;
+    void ed.doc; void ed.editingTextId; void ed.frame; void cropping; void zoom; void panX; void panY; void vw; void vh;
     queueDraw();
   });
 
@@ -154,6 +170,59 @@
       surface = null;
     };
   });
+
+  // ---- crop mode ----
+  type Picture = ImageElement | VideoElement;
+  /** The element in crop mode: its frame and where the whole image lies, in element space. */
+  const cropping = $derived.by(() => {
+    void ed.frame;
+    const hit = ed.croppingId ? findElement(ed.doc, ed.croppingId) : null;
+    const el = hit?.element;
+    if (!hit || !el || (el.type !== 'image' && el.type !== 'video')) return null;
+    const meta = ed.doc.assets[el.asset];
+    const size = ed.renderer.imageSize(el) ?? (meta?.width && meta.height ? { width: meta.width, height: meta.height } : null);
+    if (!size) return null;
+    const frame = { x: el.x, y: el.y, w: el.w, h: el.h };
+    return { el, i: pageIndexOf(hit.page.id), frame, img: imageBox(frame, cropOf(el, size.width, size.height)) };
+  });
+
+  /** Element space → screen. */
+  function elScreen(el: Picture, i: number, p: Point): Point {
+    const q = localToPage(el, p);
+    return toScreen(q.x, q.y + pageTop(i));
+  }
+  function boxScreen(el: Picture, i: number, b: Rect): Point[] {
+    return [{ x: b.x, y: b.y }, { x: b.x + b.w, y: b.y }, { x: b.x + b.w, y: b.y + b.h }, { x: b.x, y: b.y + b.h }].map((p) => elScreen(el, i, p));
+  }
+
+  interface CropHandlePos { kind: 'frame' | 'image'; h: CropHandle; x: number; y: number }
+  const cropHandles = $derived.by((): CropHandlePos[] => {
+    if (!cropping) return [];
+    const { el, i, frame: f, img } = cropping;
+    const at = (b: Rect, h: CropHandle) => elScreen(el, i, {
+      x: h.includes('w') ? b.x : h.includes('e') ? b.x + b.w : b.x + b.w / 2,
+      y: h.includes('n') ? b.y : h.includes('s') ? b.y + b.h : b.y + b.h / 2,
+    });
+    const frameH: CropHandle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
+    const imgH: CropHandle[] = ['nw', 'ne', 'se', 'sw'];
+    return [
+      ...imgH.map((h) => ({ kind: 'image' as const, h, ...at(img, h) })),
+      ...frameH.map((h) => ({ kind: 'frame' as const, h, ...at(f, h) })),
+    ];
+  });
+
+  function cropHandleAt(s: Point): CropHandlePos | null {
+    // frame handles win over image corners that sit on top of them
+    for (const kind of ['frame', 'image'] as const)
+      for (const h of cropHandles) if (h.kind === kind && Math.hypot(h.x - s.x, h.y - s.y) <= HANDLE_HIT) return h;
+    return null;
+  }
+
+  function cropLocal(el: Picture, i: number, s: Point): Point {
+    return pageToLocal(el, toPage(toWorld(s.x, s.y), i));
+  }
+
+  const inBox = (b: Rect, p: Point) => p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h;
 
   // ---- selection overlay ----
   const selected = $derived(ed.selected.map((el) => ({ el, i: pageIndexOf(findElement(ed.doc, el.id)!.page.id) })));
@@ -178,7 +247,7 @@
   interface HandlePos { h: Handle | 'rot'; x: number; y: number }
 
   const handles = $derived.by((): HandlePos[] => {
-    if (ed.editingTextId) return [];
+    if (ed.editingTextId || ed.croppingId) return [];
     if (single) {
       const { el, i } = single;
       if (el.locked) return [];
@@ -214,7 +283,8 @@
     | { mode: 'resize'; handle: Handle; pageI: number; orig: Element[]; box: Rect; key: string; shift: boolean }
     | { mode: 'rotate'; pageI: number; orig: Element; key: string }
     | { mode: 'marquee'; start: Point; now: Point; pageI: number; base: string[] }
-    | { mode: 'pan'; start: Point; panX: number; panY: number };
+    | { mode: 'pan'; start: Point; panX: number; panY: number }
+    | { mode: 'crop-pan' | 'crop-frame' | 'crop-scale'; el: Picture; i: number; frame: Rect; img: Rect; start: Point; handle: CropHandle; key: string };
 
   let drag = $state.raw<Drag | null>(null);
   let cursor = $state('default');
@@ -251,6 +321,21 @@
     if (ed.editingTextId) ed.stopEditing();
     const key = `drag:${Date.now()}`;
 
+    if (cropping) {
+      const { el, i, frame, img } = cropping;
+      const start = cropLocal(el, i, s);
+      const ch = cropHandleAt(s);
+      if (ch) {
+        drag = { mode: ch.kind === 'frame' ? 'crop-frame' : 'crop-scale', el, i, frame, img, start, handle: ch.h, key };
+        return;
+      }
+      if (inBox(img, start)) {
+        drag = { mode: 'crop-pan', el, i, frame, img, start, handle: 'nw', key };
+        return;
+      }
+      ed.stopCrop(); // a click outside the image is "Done"
+    }
+
     const h = handleAt(s);
     if (h) {
       if (h.h === 'rot' && single) drag = { mode: 'rotate', pageI: single.i, orig: single.el, key };
@@ -286,7 +371,10 @@
     const s = localPoint(e);
     if (!drag) {
       const h = handleAt(s);
-      if (h) cursor = CURSOR[h.h]!;
+      const ch = cropping ? cropHandleAt(s) : null;
+      if (ch) cursor = CURSOR[ch.h]!;
+      else if (cropping && inBox(cropping.img, cropLocal(cropping.el, cropping.i, s))) cursor = 'move';
+      else if (h) cursor = CURSOR[h.h]!;
       else {
         const hit = elementAt(s);
         ed.hoverId = hit?.el.id ?? null;
@@ -311,6 +399,18 @@
       case 'resize':
         resizeTo(drag, toPage(w, drag.pageI), e.shiftKey);
         break;
+      case 'crop-pan':
+      case 'crop-frame':
+      case 'crop-scale': {
+        const d = drag;
+        const p = cropLocal(d.el, d.i, s);
+        let patch;
+        if (d.mode === 'crop-pan') patch = { crop: cropFromBoxes(d.frame, panImage(d.frame, d.img, p.x - d.start.x, p.y - d.start.y)) };
+        else if (d.mode === 'crop-scale') patch = { crop: cropFromBoxes(d.frame, scaleImage(d.frame, d.img, d.handle as 'nw', p)) };
+        else patch = cropPatch(d.el, resizeFrame(d.frame, d.img, d.handle, p, 8 / zoom), d.img);
+        ed.commit(updateElements(ed.doc, [d.el.id], patch), d.key);
+        break;
+      }
       case 'rotate': {
         const el = drag.orig;
         const c = center(el);
@@ -379,8 +479,13 @@
   }
 
   function onDblClick(e: MouseEvent): void {
+    if (ed.croppingId) {
+      ed.stopCrop();
+      return;
+    }
     const hit = elementAt(localPoint(e));
     if (hit?.el.type === 'text') ed.startEditing(hit.el.id);
+    else if (hit?.el.type === 'image' || hit?.el.type === 'video') ed.startCrop(hit.el.id);
   }
 
   function onWheel(e: WheelEvent): void {
@@ -567,6 +672,18 @@
         <rect x={h.x - (h.h === 'e' || h.h === 'w' ? 3.5 : 9)} y={h.y - (h.h === 'e' || h.h === 'w' ? 9 : 3.5)} width={h.h === 'e' || h.h === 'w' ? 7 : 18} height={h.h === 'e' || h.h === 'w' ? 18 : 7} rx="3.5" class="handle" />
       {/if}
     {/each}
+    {#if cropping}
+      {@const { el, i, frame, img } = cropping}
+      <polygon points={poly(boxScreen(el, i, img))} class="cropimg" data-testid="crop-image" />
+      <polygon points={poly(boxScreen(el, i, frame))} class="cropframe" data-testid="crop-frame" />
+      {#each cropHandles as h (h.kind + h.h)}
+        {#if h.kind === 'image'}
+          <circle cx={h.x} cy={h.y} r="6" class="handle imgcorner" data-testid="crop-img-{h.h}" />
+        {:else}
+          <rect x={h.x - 6} y={h.y - 6} width="12" height="12" rx="2" class="handle cropcorner" data-testid="crop-{h.h}" />
+        {/if}
+      {/each}
+    {/if}
     {#if drag?.mode === 'marquee'}
       {@const r = normalizeRect(drag.start, drag.now)}
       <rect x={r.x} y={r.y} width={r.w} height={r.h} class="marquee" />
@@ -590,6 +707,15 @@
     <button class="addpage" data-testid="add-page" style="left:{addPagePos.x}px;top:{addPagePos.y + 16}px;width:{ed.doc.width * zoom}px" onpointerdown={(e) => e.stopPropagation()} onclick={() => { ed.select([], ed.doc.pages[ed.doc.pages.length - 1]!.id); ed.addPage(); }}>
       <Icon name="plus" size={16} /> Add page
     </button>
+  {/if}
+
+  {#if cropping}
+    {@const pts = [...boxScreen(cropping.el, cropping.i, cropping.frame), ...boxScreen(cropping.el, cropping.i, cropping.img)]}
+    <div class="cropbar" style="left:{(Math.min(...pts.map((p) => p.x)) + Math.max(...pts.map((p) => p.x))) / 2}px;top:{Math.max(...pts.map((p) => p.y)) + 16}px"
+      role="toolbar" aria-label="Crop" tabindex="-1" onpointerdown={(e) => e.stopPropagation()}>
+      <button class="btn" onclick={() => ed.update({ crop: undefined })}>Reset</button>
+      <button class="btn primary" data-testid="crop-done" onclick={() => ed.stopCrop()}>Done</button>
+    </div>
   {/if}
 
   {#if editing}
@@ -628,6 +754,11 @@
   .handle { fill: #fff; stroke: rgba(15, 17, 21, .25); stroke-width: 1; filter: drop-shadow(0 1px 2px rgba(0,0,0,.25)); }
   .rot circle { fill: #fff; stroke: rgba(15, 17, 21, .2); filter: drop-shadow(0 1px 2px rgba(0,0,0,.25)); }
   .rot path { fill: none; stroke: var(--ink); stroke-width: 1.6; stroke-linecap: round; }
+  .cropframe { fill: none; stroke: #fff; stroke-width: 2; filter: drop-shadow(0 0 1px rgba(0,0,0,.6)); }
+  .cropimg { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 6 4; }
+  .cropcorner { fill: #fff; }
+  .imgcorner { fill: var(--accent); stroke: #fff; stroke-width: 2; }
+  .cropbar { position: absolute; transform: translateX(-50%); display: flex; gap: 6px; padding: 6px; background: #fff; border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,.18); pointer-events: auto; }
   .marquee { fill: rgba(124, 92, 255, .08); stroke: var(--accent); stroke-width: 1; }
   .pagebar { position: absolute; display: flex; align-items: center; justify-content: space-between; height: 30px; pointer-events: auto; }
   .pagename { border: 0; background: none; font-weight: 600; color: var(--muted); font-size: 13px; padding: 4px 6px; border-radius: 6px; }
