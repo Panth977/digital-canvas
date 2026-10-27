@@ -6,7 +6,7 @@ import {
 } from '@digital-canvas/scene';
 import { Renderer, exportSvg, exportVectorPdf } from '@digital-canvas/render';
 import {
-  chart, coverCrop, followConnectors, frame, FRAMES, freehand, grid, isFrame, line, parseSvg, qrCode, qrUpdate, setLineEnds, table, tableCellText, tableFitRows,
+  chart, coverCrop, erasedBy, followConnectors, frame, FRAMES, freehand, grid, isFrame, line, parseSvg, qrCode, qrUpdate, setLineEnds, table, tableCellText, tableFitRows,
   tableSetCell, type Attach, type Brush, type ChartKind, type LineElement, type LineMarker, type LineRoute, type Stroke, type TableElement,
 } from '@digital-canvas/scene';
 import { assetId, type ProjectFile, type ProjectStore } from '@digital-canvas/storage';
@@ -874,6 +874,16 @@ export class EditorState {
   addStroke(pageId: string, points: { x: number; y: number }[]): void {
     const t = this.tool;
     if (!t || !points.length) return;
+    if (t.brush === 'eraser') {
+      const page = this.doc.pages.find((p) => p.id === pageId);
+      const ids = page ? erasedBy(page.elements, points, t.size / 2) : [];
+      if (ids.length) {
+        this.commit(removeElements(this.doc, ids));
+        this.seal();
+        this.selection = this.selection.filter((s) => !ids.includes(s));
+      }
+      return;
+    }
     const el = freehand(points, { color: t.color, size: t.size, brush: t.brush });
     if (!el) return;
     el.opacity = t.opacity;
@@ -958,6 +968,7 @@ export const BRUSHES: Record<Brush, { label: string; size: number; opacity: numb
   pen: { label: 'Pen', size: 6, opacity: 1, color: '#1f2328' },
   marker: { label: 'Marker', size: 16, opacity: 1, color: '#7c5cff' },
   highlighter: { label: 'Highlighter', size: 28, opacity: 0.4, color: '#facc15' },
+  eraser: { label: 'Eraser', size: 24, opacity: 0.35, color: '#9aa1ad' },
 };
 
 export interface LinePreset {

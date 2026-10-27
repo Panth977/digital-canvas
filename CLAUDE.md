@@ -40,3 +40,10 @@ Open-source Canva alternative. Built on TaskManager ticket **ORCH-27** (ORCH boa
 - Drops from the panel onto the page are caught in the capture phase (`application/x-dc-library`), downloaded, then re-dispatched to the stage as an ordinary `{kind:'asset'}` drop, so Canvas.svelte needs no Drive code.
 - IceBase callables reject unknown output fields: when a function's output gains a field, deploy web before functions.
 - e2e: `e2e/fake-drive.ts` is an in-memory Drive behind `page.route`; `fakeSignIn()` sets `window.__account` (user, token, scopes).
+## Rail modules (r3, 2026-10-27)
+
+- Panels live in `apps/web/src/editor/panels/` (AI, Templates, Brand, Tools, Projects, Apps); shared look in `panels.css` (`dp-` classes).
+- Templates: author in `tools/templates/library.ts` (loose docs, see `packages/scene/src/loose.ts`), then `npx tsx tools/templates/build.ts [id…]` writes `apps/web/src/templates/*.json` + `index.json` and `apps/web/public/templates/*.png`. Icons are baked in from Iconify (Fluent Emoji flat, Phosphor, MDI). `packages/render/test/templates.test.ts` checks every template.
+- Brand Kit: `packages/storage/src/brand.ts`; every store implements `loadBrand/saveBrand` (Drive: `Digital Canvas/brand.json` with `appProperties.dcBrand=1`, logos in `assets/`).
+- AI is bring-your-own-key: key in `localStorage['dc.anthropicKey']`, sent only to api.anthropic.com via `@anthropic-ai/sdk` (`dangerouslyAllowBrowser`), model `claude-sonnet-5-5`. "Design for me" asks for a loose doc and validates it with `designFromReply` → `parseDoc`.
+- Eraser brush: `addStroke` with brush `eraser` removes drawings (`erasedBy`, scene/erase.ts) instead of drawing.

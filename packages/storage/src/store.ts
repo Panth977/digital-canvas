@@ -1,4 +1,5 @@
 import type { ProjectFile } from './file.ts';
+import { MemoryBrand, type BrandData } from './brand.ts';
 
 export interface ProjectMeta {
   id: string;
@@ -23,6 +24,9 @@ export interface ProjectStore {
   open(id: string): Promise<ProjectFile>;
   save(file: ProjectFile): Promise<void>;
   remove(id: string): Promise<void>;
+  /** The brand kit kept alongside the designs (see brand.ts). */
+  loadBrand?(): Promise<BrandData | null>;
+  saveBrand?(data: BrandData): Promise<void>;
 }
 
 export function metaOf(file: ProjectFile): ProjectMeta {
@@ -48,4 +52,7 @@ export class MemoryStore implements ProjectStore {
   }
   async save(file: ProjectFile) { this.files.set(file.doc.id, file); }
   async remove(id: string) { this.files.delete(id); }
+  private brand = new MemoryBrand();
+  loadBrand() { return this.brand.loadBrand(); }
+  saveBrand(data: BrandData) { return this.brand.saveBrand(data); }
 }

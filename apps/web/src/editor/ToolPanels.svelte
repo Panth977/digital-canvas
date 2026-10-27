@@ -1,4 +1,5 @@
 <script lang="ts">
+  import BrandColorRow from './panels/BrandColorRow.svelte';
   import {
     ADJUST_SLIDERS, addElements, createDoc, defaultImageEffect, IMAGE_EFFECTS, IMAGE_FILTERS, image as imageEl,
     CHARTS, coverCrop, FRAMES, tableAddCol, tableAddRow, tableColWidth, tableRemoveCol, tableRemoveRow, tableSetCell,
@@ -291,6 +292,7 @@
             {/each}
           </div>
         {/if}
+        <BrandColorRow current={c.value()} onpick={pickSwatch} />
         <h4>Default colours</h4>
         <div class="swatches">
           {#each DEFAULT_COLORS as hex (hex)}

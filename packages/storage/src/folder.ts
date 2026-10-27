@@ -1,5 +1,6 @@
 import { EXTENSION, fileName, pack, peek, unpack, type ProjectFile } from './file.ts';
 import { KV, appDb } from './idb.ts';
+import { brandJson, parseBrand, usedBrandAssets, type BrandData } from './brand.ts';
 import { byRecent, type ProjectMeta, type ProjectStore } from './store.ts';
 
 declare global {
@@ -113,5 +114,37 @@ export class FolderStore implements ProjectStore {
     const name = await this.nameOf(id);
     if (name) await this.dir.removeEntry(name);
     this.names.delete(id);
+  }
+
+  /** `brand.json` in the folder, logos in `brand-assets/`. */
+  async loadBrand(): Promise<BrandData | null> {
+    let json: string;
+    try {
+      json = await (await (await this.dir.getFileHandle('brand.json')).getFile()).text();
+    } catch {
+      return null;
+    }
+    const kit = parseBrand(JSON.parse(json));
+    const assets = new Map<string, Uint8Array>();
+    const dir = await this.dir.getDirectoryHandle('brand-assets').catch(() => null);
+    if (dir) for (const l of kit.logos) {
+      try { assets.set(l.asset, new Uint8Array(await (await (await dir.getFileHandle(l.asset)).getFile()).arrayBuffer())); } catch { /* missing logo */ }
+    }
+    return { kit, assets };
+  }
+
+  async saveBrand(data: BrandData): Promise<void> {
+    const used = usedBrandAssets(data);
+    if (used.size) {
+      const dir = await this.dir.getDirectoryHandle('brand-assets', { create: true });
+      for (const [id, bytes] of used) {
+        const w = await (await dir.getFileHandle(id, { create: true })).createWritable();
+        await w.write(bytes as BufferSource);
+        await w.close();
+      }
+    }
+    const w = await (await this.dir.getFileHandle('brand.json', { create: true })).createWritable();
+    await w.write(brandJson(data.kit));
+    await w.close();
   }
 }

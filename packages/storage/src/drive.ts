@@ -1,4 +1,5 @@
 import { EXTENSION, MIME, fileName, pack, unpack, type ProjectFile } from './file.ts';
+import { brandJson, parseBrand, type BrandData } from './brand.ts';
 import { byRecent, type ProjectMeta, type ProjectStore } from './store.ts';
 
 /** Returns a valid Drive access token (the caller caches and refreshes). */
@@ -30,6 +31,8 @@ export interface LibraryAsset {
   height?: number;
   duration?: number;
 }
+/** On `brand.json`. */
+const BRAND_PROP = 'dcBrand';
 
 /** Only content-hash ids (as `assetId` makes) are safe to share between designs. */
 export const isSharedAssetId = (id: string) => /^[0-9a-f]{20}\.[a-z0-9]+$/.test(id);
@@ -341,5 +344,51 @@ export class DriveStore implements ProjectStore {
     if (!fileId) return;
     await this.call(`${API}/files/${fileId}?fields=id`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ trashed: true }) });
     this.ids.delete(id);
+  }
+
+  // ---- brand kit: `Digital Canvas/brand.json`, logos in `assets/` ----
+
+  private brandFileId: string | null = null;
+
+  private async brandFile(): Promise<string | null> {
+    if (this.brandFileId) return this.brandFileId;
+    const parent = await this.folder();
+    const q = `'${parent}' in parents and trashed=false and appProperties has { key='${BRAND_PROP}' and value='1' }`;
+    const r = await this.json<{ files: DriveFile[] }>(`${API}/files?${new URLSearchParams({ q, fields: 'files(id)', spaces: 'drive' })}`);
+    return (this.brandFileId = r.files[0]?.id ?? null);
+  }
+
+  async loadBrand(): Promise<BrandData | null> {
+    const id = await this.brandFile();
+    if (!id) return null;
+    const kit = parseBrand(await (await this.call(`${API}/files/${id}?alt=media`)).json());
+    const assets = new Map<string, Uint8Array>();
+    await Promise.all(kit.logos.map(async (l) => {
+      const bytes = await this.downloadAsset(l.asset).catch(() => undefined);
+      if (bytes) assets.set(l.asset, bytes);
+    }));
+    return { kit, assets };
+  }
+
+  async saveBrand(data: BrandData): Promise<void> {
+    for (const l of data.kit.logos) {
+      const bytes = data.assets.get(l.asset);
+      if (bytes && isSharedAssetId(l.asset)) await this.uploadAsset(l.asset, bytes, l.mime);
+    }
+    const id = await this.brandFile();
+    const meta: Record<string, unknown> = { name: 'brand.json', mimeType: 'application/json', appProperties: { [BRAND_PROP]: '1', [ROOT_PROP]: 'brand' } };
+    if (!id) meta.parents = [await this.folder()];
+    const boundary = `dc${Math.random().toString(36).slice(2)}`;
+    const body = `--${boundary}\r\ncontent-type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${boundary}\r\ncontent-type: application/json\r\n\r\n${brandJson(data.kit)}\r\n--${boundary}--`;
+    const url = id ? `${UPLOAD}/files/${id}?uploadType=multipart&fields=id` : `${UPLOAD}/files?uploadType=multipart&fields=id`;
+    const r = await this.json<{ id: string }>(url, { method: id ? 'PATCH' : 'POST', headers: { 'content-type': `multipart/related; boundary=${boundary}` }, body });
+    this.brandFileId = r.id;
+  }
+
+  // ---- the shared assets folder, for browsing (Projects panel) ----
+
+  /** One shared asset's bytes (cached). */
+  readAsset(id: string): Promise<Uint8Array | undefined> {
+    return this.downloadAsset(id);
   }
 }

@@ -15,3 +15,5 @@ export * from './line.ts';
 export * from './elements.ts';
 export * from './vector.ts';
 export * from './svg.ts';
+export * from './erase.ts';
+export * from './loose.ts';

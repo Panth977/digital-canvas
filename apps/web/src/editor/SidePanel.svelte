@@ -10,15 +10,27 @@
   import { ui, type RailTab } from '../lib/ui.svelte.ts';
   import ToolPanels from './ToolPanels.svelte';
   import UploadsPanel from './panels/UploadsPanel.svelte';
+  import AIPanel from './panels/AIPanel.svelte';
+  import TemplatesPanel from './panels/TemplatesPanel.svelte';
+  import BrandPanel from './panels/BrandPanel.svelte';
+  import BrandTextStyles from './panels/BrandTextStyles.svelte';
+  import ToolsPanel from './panels/ToolsPanel.svelte';
+  import ProjectsPanel from './panels/ProjectsPanel.svelte';
+  import AppsPanel from './panels/AppsPanel.svelte';
 
   let { ed }: { ed: EditorState } = $props();
 
   /** Canva's rail, in Canva's order (sections we don't have are left out). */
   const TABS: { id: RailTab; label: string; icon: IconName }[] = [
+    { id: 'ai', label: 'AI', icon: 'ai' },
+    { id: 'templates', label: 'Templates', icon: 'templates' },
     { id: 'elements', label: 'Elements', icon: 'elements' },
     { id: 'text', label: 'Text', icon: 'text' },
+    { id: 'brand', label: 'Brand', icon: 'brand' },
     { id: 'uploads', label: 'Uploads', icon: 'cloud' },
     { id: 'draw', label: 'Tools', icon: 'pen' },
+    { id: 'projects', label: 'Projects', icon: 'projects' },
+    { id: 'apps', label: 'Apps', icon: 'apps' },
     { id: 'photos', label: 'Photos', icon: 'image' },
   ];
   /** The rail item lit: the open section, or the one a contextual panel came from. */
@@ -252,30 +264,24 @@
           <p class="hint small">CC-licensed photos via <a href="https://openverse.org" target="_blank" rel="noreferrer">Openverse</a>. The credit is kept with each photo (Uploads, hover).</p>
         {/if}
       {:else if ui.panel === 'draw'}
-        <h3>Draw</h3>
-        <div class="brushes">
-          {#each Object.entries(BRUSHES) as [b, info]}
-            <button class="btn" class:on={ed.tool?.brush === b} data-testid="brush-{b}" onclick={() => (ed.tool = toolFor(b as Brush))}>{info.label}</button>
-          {/each}
-        </div>
-        {#if ed.tool}
-          <div class="drawopts">
-            <ColorField label="Colour" value={ed.tool.color} testid="draw-color" onchange={(hex) => ed.tool && (ed.tool = { ...ed.tool, color: hex })} />
-            <label class="field"><span>Size · {ed.tool.size}px</span>
-              <input type="range" min="1" max="80" value={ed.tool.size} data-testid="draw-size" oninput={(e) => ed.tool && (ed.tool = { ...ed.tool, size: Number((e.currentTarget as HTMLInputElement).value) })} />
-            </label>
-            <label class="field"><span>Transparency · {Math.round((1 - ed.tool.opacity) * 100)}%</span>
-              <input type="range" min="0" max="90" value={Math.round((1 - ed.tool.opacity) * 100)} oninput={(e) => ed.tool && (ed.tool = { ...ed.tool, opacity: 1 - Number((e.currentTarget as HTMLInputElement).value) / 100 })} />
-            </label>
-          </div>
-        {/if}
-        <p class="hint">Draw on the page; each stroke becomes its own element you can move, resize and recolour. Close this panel (or press Esc) to stop drawing.</p>
+        <ToolsPanel {ed} />
+      {:else if ui.panel === 'ai'}
+        <AIPanel {ed} />
+      {:else if ui.panel === 'templates'}
+        <TemplatesPanel {ed} />
+      {:else if ui.panel === 'brand'}
+        <BrandPanel {ed} />
+      {:else if ui.panel === 'projects'}
+        <ProjectsPanel {ed} />
+      {:else if ui.panel === 'apps'}
+        <AppsPanel {ed} />
       {:else if ui.panel === 'text'}
         <form class="search" onsubmit={(e) => { e.preventDefault(); searchFonts(); }}>
           <Icon name="search" size={18} />
           <input placeholder="Search fonts and combinations" bind:value={textQuery} data-testid="text-search" aria-label="Search fonts" />
         </form>
         <button class="btn primary cta" data-testid="add-textbox" onclick={() => ed.addText('body')}><Icon name="text" size={18} /> Add a text box</button>
+        <BrandTextStyles {ed} />
         <h3 class="sec">Default text styles</h3>
         <div class="texts">
           {#each Object.entries(TEXT_PRESETS) as [key, p]}
@@ -336,10 +342,6 @@
   .iconbtn:hover { border-color: var(--accent); }
   .iconbtn img { width: 100%; height: 100%; }
   .photos { margin-top: 10px; }
-  .brushes { display: flex; gap: 6px; }
-  .brushes .btn.on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
-  .drawopts { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
-  .drawopts input[type='range'] { width: 100%; }
   .err { color: var(--danger); font-size: 13px; }
   .assets { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 14px; }
   .asset { aspect-ratio: 1; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; padding: 0; background: var(--chip); }
