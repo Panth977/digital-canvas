@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { handlePanelDrop } from '../lib/content/insert.svelte.ts';
   import { onMount, untrack } from 'svelte';
   import type { Surface } from 'canvaskit-wasm';
   import {
@@ -833,6 +834,8 @@
         all.selectNodeContents(editorNode);
         document.getSelection()?.removeAllRanges();
         document.getSelection()?.addRange(all);
+        const r = getSelectionOffsets(editorNode);
+        if (r) ed.textSel = r; // now, not on the next selectionchange
       } else ed.startEditing(hit.el.id);
     }
     else if (hit.el.type === 'table') {
@@ -877,6 +880,7 @@
     const frameId = under && isFrame(under) && !under.locked ? under.id : null;
     const data = e.dataTransfer?.getData('application/x-digital-canvas');
     if (data) {
+      if (await handlePanelDrop(ed, data, at, frameId)) return; // side-panel content (Elements, Text, Photos, Videos, Audio)
       const d = JSON.parse(data) as { kind: 'shape'; shape: ShapeKind } | { kind: 'text'; preset: keyof typeof TEXT_PRESETS } | { kind: 'asset'; id: string } | { kind: 'photo'; photo: Photo };
       if (d.kind === 'shape') ed.addShape(d.shape, at);
       else if (d.kind === 'text') ed.addText(d.preset, at);

@@ -47,3 +47,10 @@ Open-source Canva alternative. Built on TaskManager ticket **ORCH-27** (ORCH boa
 - Brand Kit: `packages/storage/src/brand.ts`; every store implements `loadBrand/saveBrand` (Drive: `Digital Canvas/brand.json` with `appProperties.dcBrand=1`, logos in `assets/`).
 - AI is bring-your-own-key: key in `localStorage['dc.anthropicKey']`, sent only to api.anthropic.com via `@anthropic-ai/sdk` (`dangerouslyAllowBrowser`), model `claude-sonnet-5-5`. "Design for me" asks for a loose doc and validates it with `designFromReply` → `parseDoc`.
 - Eraser brush: `addStroke` with brush `eraser` removes drawings (`erasedBy`, scene/erase.ts) instead of drawing.
+## Content panels (r3-content, 2026-10-27)
+
+- Elements / Text / Photos / Videos / Audio panels live in `apps/web/src/editor/panels/`; sources in `apps/web/src/lib/content/` (Iconify, Openverse, Wikimedia Commons, NASA; all keyless + CORS). `search.ts` merges sources per kind; a failing or slow (>8 s) source drops out.
+- Iconify rate-limits per IP: never load one SVG per tile. Use `loadIcons()` (batched `/<prefix>.json?icons=`) and data: URL thumbnails.
+- Openverse anonymous API is slow/flaky at times; JSON answers are cached in localStorage (`dc.content.*`, 6 h).
+- Panel drops go through `handlePanelDrop()` (one line in Canvas `onDrop`). Credits are kept as the asset `name` (`creditLine()`).
+- e2e: `newDesign()` answers the content hosts with 503; tests that need results `page.route` them after it (see `e2e/content.spec.ts`).

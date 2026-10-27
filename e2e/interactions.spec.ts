@@ -307,7 +307,7 @@ test('text: a click on a selected text box puts the caret there; double-click se
   await page.keyboard.press('Escape');
   await page.mouse.dblclick(c.x, c.y);
   await expect(page.getByTestId('text-editor')).toBeVisible();
-  expect(await page.evaluate(() => (window as any).__dc.textSel)).toEqual({ start: 0, end: typed.length });
+  await expect.poll(() => page.evaluate(() => (window as any).__dc.textSel)).toEqual({ start: 0, end: typed.length });
   await page.keyboard.press('Escape');
   await page.keyboard.press('ControlOrMeta+Shift+K');
   expect(await page.evaluate(() => (window as any).__dc.page.elements[0].style.uppercase)).toBe(true);
