@@ -61,7 +61,7 @@ All lengths are CSS pixels (96 per inch); `unit` only says how sizes are shown. 
 
 - [x] **M1** Scene format, CanvasKit renderer, editor core (select, move, resize, rotate, multi-select, undo, pages, layers, text editing, image upload, PNG/JPG download), browser + folder storage
 - [x] **M2** Sign in with Google (IceBase backend) + Google Drive: connect once, every device sees your designs
-- [ ] **M2.1** "Open with" from Drive, publish the OAuth app
+- [x] **M2.1** "Open with" from Drive (open .dcanvas files, New › Digital Canvas), OAuth app published; assets stored once in `Digital Canvas/assets/`, not inside each design
 - [x] **M3** Text & fonts: rich text (style part of a box), 2,000+ Google Fonts (via Fontsource, embedded in the file), font upload, 9 text effects, curved text, lists, gradient text
 - [x] **Video (early)**: video clips, page durations, timeline playback, sounds, MP4 export (WebCodecs via [Mediabunny](https://mediabunny.dev), MPL-2.0)
 - [x] **M4** Image tools: crop mode, 11 adjustments, 12 filters with intensity, effects (shadow, glow, duotone, pixelate, outline), background remover in the browser ([MODNet](https://github.com/ZHKKKe/MODNet), Apache-2.0, via onnxruntime-web), set as page background, eyedropper — for images and video clips
