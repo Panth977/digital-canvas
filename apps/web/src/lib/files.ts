@@ -1,7 +1,13 @@
 /** Browser helpers for files: downloads, picking, image sizes. */
+import { isNative } from './native/platform.ts';
 
-export function download(bytes: Uint8Array | Blob, name: string, mime = 'application/octet-stream'): void {
+/**
+ * Save a file. Browsers download it; the native app writes it to its cache
+ * and opens the share sheet (Save to Files / Photos, AirDrop, other apps).
+ */
+export async function download(bytes: Uint8Array | Blob, name: string, mime = 'application/octet-stream'): Promise<void> {
   const blob = bytes instanceof Blob ? bytes : new Blob([bytes as BlobPart], { type: mime });
+  if (isNative()) return (await import('./native/files.ts')).shareFile(blob, name);
   const url = URL.createObjectURL(blob);
   const a = Object.assign(document.createElement('a'), { href: url, download: name });
   document.body.append(a);
@@ -10,7 +16,23 @@ export function download(bytes: Uint8Array | Blob, name: string, mime = 'applica
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
-export function pickFiles(accept: string, multiple = true): Promise<File[]> {
+/** Native app: several files to the share sheet at once (e.g. one image per page). */
+export async function shareAll(files: { bytes: Uint8Array; name: string; mime: string }[]): Promise<void> {
+  const m = await import('./native/files.ts');
+  return m.shareFiles(files.map((f) => ({ blob: new Blob([f.bytes as BlobPart], { type: f.mime }), name: f.name })));
+}
+
+/**
+ * Let the user pick files. In the native app, image/video-only lists open the
+ * photo library (several at once); anything else uses the system file picker.
+ * `source: 'files'` forces the file picker.
+ */
+export async function pickFiles(accept: string, multiple = true, source: 'auto' | 'files' = 'auto'): Promise<File[]> {
+  if (isNative() && source === 'auto') {
+    const m = await import('./native/files.ts');
+    const kind = m.galleryKind(accept);
+    if (kind) return m.pickFromGallery(kind, multiple);
+  }
   return new Promise((resolve) => {
     const input = Object.assign(document.createElement('input'), { type: 'file', accept, multiple });
     input.onchange = () => resolve([...(input.files ?? [])]);

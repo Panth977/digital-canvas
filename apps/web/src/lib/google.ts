@@ -1,4 +1,6 @@
 import { GOOGLE_CLIENT_ID, GOOGLE_SCOPES } from '@digital-canvas/backend/google';
+import { bounced } from './native/bounce.ts';
+import { isNative } from './native/platform.ts';
 
 /** Google Identity Services, authorization-code flow in a popup. */
 interface CodeClient { requestCode(): void }
@@ -55,6 +57,19 @@ export async function requestCode(opts: { consent?: boolean; hint?: string; scop
   });
 }
 
+export interface CodeOptions { consent?: boolean; hint?: string; scopes?: string[] }
+
+/**
+ * An authorization code plus the redirect URI it was issued for (what the
+ * backend's googleSignIn needs). Browsers: the GIS popup ('postmessage').
+ * Native app: Google in the system browser, bounced back through the hosted
+ * /auth/callback (lib/native/oauth.ts).
+ */
+export async function getCode(opts: CodeOptions = {}): Promise<{ code: string; redirectUri?: string }> {
+  if (isNative()) return (await import('./native/oauth.ts')).nativeRequestCode(opts);
+  return { code: await requestCode(opts) };
+}
+
 export const CALLBACK_PATH = '/auth/callback';
 
 /** Same as requestCode, but leaves the page: Google sends the browser back to /auth/callback. */
@@ -78,7 +93,8 @@ export async function redirectForCode(opts: { consent?: boolean; hint?: string; 
 
 /** On /auth/callback: the code Google sent, if its state matches ours. */
 export function takeRedirectCode(): { code: string; redirectUri: string; returnTo: string } | { error: string } | null {
-  if (location.pathname !== CALLBACK_PATH) return null;
+  // A code for the native app was handed on by native/bounce.ts.
+  if (bounced || location.pathname !== CALLBACK_PATH) return null;
   const q = new URLSearchParams(location.search);
   const saved = JSON.parse(sessionStorage.getItem('dc-oauth') ?? 'null') as { state: string; returnTo: string } | null;
   sessionStorage.removeItem('dc-oauth');

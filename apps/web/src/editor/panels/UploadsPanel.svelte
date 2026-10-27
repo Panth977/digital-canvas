@@ -7,6 +7,7 @@
   import { AUDIO_TYPES, VIDEO_TYPES, formatTime } from '../../lib/media.ts';
   import { account } from '../../lib/account.svelte.ts';
   import { driveLib, SOURCES } from '../../lib/drivelib.svelte.ts';
+  import { isNative } from '../../lib/native/platform.ts';
 
   let { ed }: { ed: EditorState } = $props();
 
@@ -78,9 +79,20 @@
     if (lib.tab === 'uploads') void lib.loadUploads();
   });
 
+  /** The app (apps/mobile) adds a photo-library button; "Upload files" stays the file picker. */
+  const native = isNative();
+
   async function upload(): Promise<void> {
     const files = await pickFiles([...IMAGE_TYPES, 'image/svg+xml', ...VIDEO_TYPES, ...AUDIO_TYPES, '.mov', '.m4a', '.mp3'].join(','));
     await addFiles(files);
+  }
+
+  async function uploadPhotos(): Promise<void> {
+    try {
+      await addFiles(await pickFiles([...IMAGE_TYPES, ...VIDEO_TYPES].join(',')));
+    } catch (e) {
+      uploadError = `Couldn't open your photos: ${e instanceof Error ? e.message : e}`;
+    }
   }
 
   async function addFiles(files: Iterable<File>): Promise<void> {
@@ -302,7 +314,12 @@
     <div class="dropzone" class:over={dragOver}
       ondragover={(e) => { if (e.dataTransfer?.types.includes('Files')) { e.preventDefault(); dragOver = true; } }}
       ondragleave={() => (dragOver = false)} ondrop={onPanelDrop}>
-      <button class="btn primary cta" onclick={upload} data-testid="upload"><Icon name="upload" size={18} /> Upload files</button>
+      {#if native}
+        <button class="btn primary cta" onclick={uploadPhotos} data-testid="upload-photos"><Icon name="image" size={18} /> Photos and videos</button>
+        <button class="btn cta" onclick={upload} data-testid="upload"><Icon name="upload" size={18} /> Upload files</button>
+      {:else}
+        <button class="btn primary cta" onclick={upload} data-testid="upload"><Icon name="upload" size={18} /> Upload files</button>
+      {/if}
       <p class="hint">Drop files here or onto the page. Images (PNG, JPG, WebP, GIF, SVG), videos (MP4, WebM, MOV) and sounds (MP3, M4A, WAV).</p>
     </div>
     {#if uploadError}<p class="err">{uploadError}</p>{/if}
@@ -451,6 +468,7 @@
   .dropzone { border-radius: 10px; transition: background .15s; }
   .dropzone.over { background: var(--accent-soft); outline: 2px dashed var(--accent); outline-offset: 4px; }
   .cta { width: 100%; height: 40px; border-radius: 8px; font-size: 14px; }
+  .cta + .cta { margin-top: 8px; }
   .hint { color: var(--muted); font-size: 12px; line-height: 1.5; margin: 12px 0 0; }
   .hint.small { margin-top: 8px; }
   .err { color: var(--danger); font-size: 13px; margin: 10px 0 0; }
