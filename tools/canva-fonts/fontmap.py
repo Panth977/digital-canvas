@@ -63,6 +63,14 @@ def parse(name):
     italic = 'italic' in style.lower() or 'oblique' in style.lower()
     family = re.sub(r'(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])', ' ', fam).strip()
     return family, w, italic
+# Every family Google Fonts has: use the whole font, not Canva's subset (all glyphs, so ALL CAPS
+# detection and later edits work; and it is free to ship)
+for name in list(merged):
+    if name in blind: continue
+    fam = parse(name)[0]
+    if fam in LOOKALIKE: continue
+    g = google(name)
+    if g: merged[name] = g; print('google font for', name)
 for name in blind:
     g = google(name)
     if g: merged[name] = g; print('google font for', name)

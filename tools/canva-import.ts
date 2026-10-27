@@ -705,7 +705,9 @@ function makePlate(cp: CanvaPage): void {
     }
     // Canva's curved text isn't in the API either: when the straight text doesn't line up, try curves.
     const straight = fit(t);
-    if (straight < 0.85 && !t.text.trim().includes('\n') && t.text.trim().length > 2) {
+    // Only single-line boxes with real words: short or wrapped text fits badly for other reasons (font, size).
+    const oneLine = t.h < t.style.fontSize * t.style.lineHeight * 1.6;
+    if (straight < 0.6 && oneLine && !t.text.trim().includes('\n') && t.text.replace(/\s/g, '').length >= 6) {
       const cx = t.x + t.w / 2, cy = t.y + t.h / 2;
       const curved = (k: number): TextElement => {
         const el: TextElement = { ...t, text: t.text.replace(/\n+$/, ''), curve: k };
@@ -717,7 +719,7 @@ function makePlate(cp: CanvaPage): void {
       for (let k = -100; k <= 100; k += 10) if (k) { const sc = fit(curved(k)); if (sc > best.sc) best = { k, sc }; }
       if (best.k) for (let k = best.k - 8; k <= best.k + 8; k += 2) if (k) { const sc = fit(curved(k)); if (sc > best.sc) best = { k, sc }; }
       if (process.env.DC_DEBUG) console.error('curve', JSON.stringify(t.text), straight.toFixed(2), best);
-      if (best.k && best.sc > straight + 0.04) {
+      if (Math.abs(best.k) >= 10 && best.sc > straight + 0.15) {
         t = curved(best.k);
         gap('curved text (curve found by matching Canva\'s render)');
       }
