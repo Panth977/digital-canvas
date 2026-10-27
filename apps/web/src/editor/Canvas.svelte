@@ -1820,6 +1820,8 @@
   .sel.locked { stroke: #f59e0b; }
   .dashed { stroke-dasharray: 5 4; stroke-width: 1.5; }
   .handle { fill: #fff; stroke: rgba(15, 17, 21, .25); stroke-width: 1; filter: drop-shadow(0 1px 2px rgba(0,0,0,.25)); }
+  /* phones: Android WebView (124, GPU-less) drops small filtered SVG shapes entirely; an outline reads as well */
+  :global(.m-editor) .handle { filter: none; stroke: rgba(15, 17, 21, .4); stroke-width: 1.2; }
   .rot circle { fill: #fff; stroke: rgba(15, 17, 21, .2); filter: drop-shadow(0 1px 2px rgba(0,0,0,.25)); }
   .rot path { fill: none; stroke: var(--ink); stroke-width: 1.6; stroke-linecap: round; }
   .cropframe { fill: none; stroke: #fff; stroke-width: 2; filter: drop-shadow(0 0 1px rgba(0,0,0,.6)); }
