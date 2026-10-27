@@ -58,6 +58,16 @@
   function toPage(w: Point, i: number): Point {
     return { x: w.x, y: w.y - pageTop(i) };
   }
+  // Canva drops a clicked element in the middle of the visible part of the page (asked on demand)
+  $effect(() => {
+    ed.viewProbe = () => {
+      const i = ed.pageIndex;
+      if (i < 0 || !vw || !vh) return null;
+      const c = toPage(toWorld(vw / 2, vh / 2), i);
+      return { pageId: ed.pageId, x: c.x, y: c.y };
+    };
+  });
+
   function localPoint(e: PointerEvent | MouseEvent | DragEvent): Point {
     const r = host.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top };
