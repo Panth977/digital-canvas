@@ -1,6 +1,7 @@
 import { FORMAT, VERSION } from './types.ts';
-import type { AudioClip, Doc, Element, Fill, Page, PathElement, ShapeElement, ShapeKind, TextElement, TextStyle, ImageElement, Unit, VideoElement } from './types.ts';
+import type { AudioClip, Doc, Element, Fill, GroupElement, Page, PathElement, ShapeElement, ShapeKind, TextElement, TextStyle, ImageElement, Unit, VideoElement } from './types.ts';
 import { toPx, MIN_SIDE, MAX_SIDE } from './units.ts';
+import { childrenOf, mapLists, offsetElement, transformChildren, walk, withChildren } from './tree.ts';
 
 /**
  * Pure document operations. Every function returns a new Doc and never
@@ -61,10 +62,21 @@ function mapPage(doc: Doc, pageId: string, fn: (p: Page) => Page): Doc {
 
 // ---- lookups ----
 
-export function findElement(doc: Doc, id: string): { page: Page; element: Element; index: number } | null {
+/** Finds elements inside groups too: `parent` is the containing group (null at top level), `index` the place in its list. */
+export function findElement(doc: Doc, id: string): { page: Page; element: Element; index: number; parent: Element | null } | null {
+  const search = (els: Element[], parent: Element | null): { element: Element; index: number; parent: Element | null } | null => {
+    for (let index = 0; index < els.length; index++) {
+      const e = els[index]!;
+      if (e.id === id) return { element: e, index, parent };
+      const c = childrenOf(e);
+      const hit = c && search(c, e);
+      if (hit) return hit;
+    }
+    return null;
+  };
   for (const page of doc.pages) {
-    const index = page.elements.findIndex((e) => e.id === id);
-    if (index >= 0) return { page, element: page.elements[index]!, index };
+    const hit = search(page.elements, null);
+    if (hit) return { page, ...hit };
   }
   return null;
 }
@@ -115,53 +127,75 @@ export function addElements(doc: Doc, pageId: string, elements: Element[]): Doc 
   return mapPage(doc, pageId, (p) => ({ ...p, elements: [...p.elements, ...elements] }));
 }
 
-export type ElementPatch = Partial<Omit<ShapeElement, 'id' | 'type'>> | Partial<Omit<TextElement, 'id' | 'type'>> | Partial<Omit<ImageElement, 'id' | 'type'>> | Partial<Omit<VideoElement, 'id' | 'type'>> | Partial<Omit<PathElement, 'id' | 'type'>>;
+export type ElementPatch = Partial<Omit<ShapeElement, 'id' | 'type'>> | Partial<Omit<TextElement, 'id' | 'type'>> | Partial<Omit<ImageElement, 'id' | 'type'>> | Partial<Omit<VideoElement, 'id' | 'type'>> | Partial<Omit<PathElement, 'id' | 'type'>> | Partial<Omit<GroupElement, 'id' | 'type'>>;
 
-/** Patch several elements; `patch` may be a function of the old element. */
+const FRAME_KEYS = ['x', 'y', 'w', 'h', 'rotation', 'flipX', 'flipY'] as const;
+
+/** Apply a patch; a container whose box changed carries its children along. */
+function patchElement(e: Element, patch: ElementPatch): Element {
+  const n = { ...e, ...patch } as Element;
+  const kids = childrenOf(e);
+  if (kids && !('children' in patch) && FRAME_KEYS.some((k) => k in patch && (patch as Record<string, unknown>)[k] !== e[k])) {
+    return withChildren(n, transformChildren(e, n, kids));
+  }
+  return n;
+}
+
+/** Patch several elements (also inside groups); `patch` may be a function of the old element. */
 export function updateElements(doc: Doc, ids: string[], patch: ElementPatch | ((e: Element) => ElementPatch)): Doc {
   const set = new Set(ids);
   let changed = false;
   const pages = doc.pages.map((p) => {
-    if (!p.elements.some((e) => set.has(e.id))) return p;
+    const elements = mapLists(p.elements, (list) => {
+      if (!list.some((e) => set.has(e.id))) return list;
+      return list.map((e) => (set.has(e.id) ? patchElement(e, typeof patch === 'function' ? patch(e) : patch) : e));
+    });
+    if (elements === p.elements) return p;
     changed = true;
-    return {
-      ...p,
-      elements: p.elements.map((e) => (set.has(e.id) ? ({ ...e, ...(typeof patch === 'function' ? patch(e) : patch) } as Element) : e)),
-    };
+    return { ...p, elements };
   });
   return changed ? touch(doc, { pages }) : doc;
 }
 
+/** Remove elements (also from groups; a group left empty goes too). */
 export function removeElements(doc: Doc, ids: string[]): Doc {
   const set = new Set(ids);
-  return touch(doc, { pages: doc.pages.map((p) => ({ ...p, elements: p.elements.filter((e) => !set.has(e.id)) })) });
+  return touch(doc, { pages: doc.pages.map((p) => ({ ...p, elements: mapLists(p.elements, (list) => (list.some((e) => set.has(e.id)) ? list.filter((e) => !set.has(e.id)) : list)) })) });
 }
 
-/** Copies of `ids` on their own page, offset by `offset` px. Returns the doc and the new ids. */
+/** A deep copy with fresh ids (children too), moved by (`dx`, `dy`). */
+export function cloneElement<T extends Element>(e: T, dx = 0, dy = 0): T {
+  const reId = (x: Element): Element => {
+    const c = { ...x, id: newId('e_') };
+    const kids = childrenOf(x);
+    return kids ? withChildren(c, kids.map(reId)) : c;
+  };
+  return offsetElement(reId(structuredClone(e)), dx, dy) as T;
+}
+
+/** Copies of `ids` in their own list (page or group), offset by `offset` px. Returns the doc and the new ids. */
 export function duplicateElements(doc: Doc, ids: string[], offset = 20): { doc: Doc; ids: string[] } {
   const newIds: string[] = [];
   const set = new Set(ids);
   const pages = doc.pages.map((p) => {
-    const copies = p.elements
-      .filter((e) => set.has(e.id))
-      .map((e) => {
-        const c = { ...structuredClone(e), id: newId('e_'), x: e.x + offset, y: e.y + offset };
-        newIds.push(c.id);
-        return c;
-      });
-    return copies.length ? { ...p, elements: [...p.elements, ...copies] } : p;
+    const elements = mapLists(p.elements, (list) => {
+      const copies = list.filter((e) => set.has(e.id)).map((e) => cloneElement(e, offset, offset));
+      newIds.push(...copies.map((c) => c.id));
+      return copies.length ? [...list, ...copies] : list;
+    });
+    return elements === p.elements ? p : { ...p, elements };
   });
   return { doc: touch(doc, { pages }), ids: newIds };
 }
 
 export type Arrange = 'forward' | 'backward' | 'front' | 'back';
 
-/** Change stacking order within each element's page. */
+/** Change stacking order within each element's list (its page, or its group). */
 export function arrange(doc: Doc, ids: string[], how: Arrange): Doc {
   const set = new Set(ids);
-  const pages = doc.pages.map((p) => {
-    if (!p.elements.some((e) => set.has(e.id))) return p;
-    let els = [...p.elements];
+  const pages = doc.pages.map((p) => ({ ...p, elements: mapLists(p.elements, (list) => {
+    if (!list.some((e) => set.has(e.id))) return list;
+    let els = [...list];
     if (how === 'front') els = [...els.filter((e) => !set.has(e.id)), ...els.filter((e) => set.has(e.id))];
     else if (how === 'back') els = [...els.filter((e) => set.has(e.id)), ...els.filter((e) => !set.has(e.id))];
     else if (how === 'forward') {
@@ -169,20 +203,21 @@ export function arrange(doc: Doc, ids: string[], how: Arrange): Doc {
     } else {
       for (let i = 1; i < els.length; i++) if (set.has(els[i]!.id) && !set.has(els[i - 1]!.id)) [els[i], els[i - 1]] = [els[i - 1]!, els[i]!];
     }
-    return { ...p, elements: els };
-  });
+    return els;
+  }) }));
   return touch(doc, { pages });
 }
 
-/** Move one element to `index` in its page's stack (layers panel drag). */
+/** Move one element to `index` in its list's stack (layers panel drag). */
 export function moveElementTo(doc: Doc, id: string, index: number): Doc {
   const hit = findElement(doc, id);
   if (!hit) return doc;
-  return mapPage(doc, hit.page.id, (p) => {
-    const els = p.elements.filter((e) => e.id !== id);
+  return mapPage(doc, hit.page.id, (p) => ({ ...p, elements: mapLists(p.elements, (list) => {
+    if (!list.includes(hit.element)) return list;
+    const els = list.filter((e) => e.id !== id);
     els.splice(Math.max(0, Math.min(index, els.length)), 0, hit.element);
-    return { ...p, elements: els };
-  });
+    return els;
+  }) }));
 }
 
 // ---- page ops ----
@@ -199,7 +234,7 @@ export function duplicatePage(doc: Doc, pageId: string): { doc: Doc; pageId: str
   const i = doc.pages.findIndex((p) => p.id === pageId);
   if (i < 0) return { doc, pageId };
   const src = doc.pages[i]!;
-  const copy: Page = { ...structuredClone(src), id: newId('p_'), elements: src.elements.map((e) => ({ ...structuredClone(e), id: newId('e_') })) };
+  const copy: Page = { ...structuredClone(src), id: newId('p_'), elements: src.elements.map((e) => cloneElement(e)) };
   const pages = [...doc.pages];
   pages.splice(i + 1, 0, copy);
   return { doc: touch(doc, { pages }), pageId: copy.id };
@@ -230,7 +265,7 @@ export function setTitle(doc: Doc, title: string): Doc {
 /** Assets no image element or embedded font uses are dropped. */
 export function pruneAssets(doc: Doc): Doc {
   const used = new Set<string>();
-  for (const p of doc.pages) for (const e of p.elements) if (e.type === 'image' || e.type === 'video') used.add(e.asset);
+  for (const p of doc.pages) for (const e of walk(p.elements)) if (e.type === 'image' || e.type === 'video') used.add(e.asset);
   for (const a of doc.audio ?? []) used.add(a.asset);
   for (const k of [...used]) used.add(`${k}.poster`); // a video's poster frame
   for (const f of doc.fonts ?? []) used.add(f.asset);
@@ -246,7 +281,7 @@ export function pruneAssets(doc: Doc): Doc {
 export function pruneFonts(doc: Doc): Doc {
   if (!doc.fonts?.length) return doc;
   const used = new Set<string>();
-  for (const p of doc.pages) for (const e of p.elements) {
+  for (const p of doc.pages) for (const e of walk(p.elements)) {
     if (e.type !== 'text') continue;
     used.add(e.style.fontFamily);
     for (const r of e.runs ?? []) if (r.style?.fontFamily) used.add(r.style.fontFamily);
@@ -263,7 +298,7 @@ export const pageDuration = (p: Page): number => (p.duration && p.duration > 0 ?
 
 /** A design is a video when a page has a duration, holds a video clip, or the design has sound. */
 export function isVideo(doc: Doc): boolean {
-  return !!doc.audio?.length || doc.pages.some((p) => p.duration !== undefined || p.elements.some((e) => e.type === 'video'));
+  return !!doc.audio?.length || doc.pages.some((p) => p.duration !== undefined || [...walk(p.elements)].some((e) => e.type === 'video'));
 }
 
 /** Total length of the visible pages, seconds. */

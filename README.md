@@ -55,7 +55,7 @@ assets/<hash>    image bytes, named by content hash (stored once)
 thumbnail.png    preview of page 1
 ```
 
-All lengths are CSS pixels (96 per inch); `unit` only says how sizes are shown. Elements are `shape`, `text` and `image`, each with `x, y, w, h, rotation, opacity`. See `packages/scene/src/types.ts`.
+All lengths are CSS pixels (96 per inch); `unit` only says how sizes are shown. Elements are `shape`, `text`, `image`, `video`, `path` and `group`, each with `x, y, w, h, rotation, opacity`. A group's `children` are stored in page coordinates; its box is the frame they move, scale and rotate with. Pages may carry ruler `guides`. See `packages/scene/src/types.ts`.
 
 ## Roadmap (phase 1: the page editor)
 
@@ -65,7 +65,7 @@ All lengths are CSS pixels (96 per inch); `unit` only says how sizes are shown. 
 - [x] **M3** Text & fonts: rich text (style part of a box), 2,000+ Google Fonts (via Fontsource, embedded in the file), font upload, 9 text effects, curved text, lists, gradient text
 - [x] **Video (early)**: video clips, page durations, timeline playback, sounds, MP4 export (WebCodecs via [Mediabunny](https://mediabunny.dev), MPL-2.0)
 - [ ] **M4** Image tools: crop, adjust, filters, shadows, effects, background remover
-- [ ] **M5** Layout tools + ~200 presets: snapping, smart guides, rulers, bleed, groups, resize
+- [x] **M5** Layout tools + 270+ presets: snapping and smart guides (edges, centres, equal spacing; Alt/⌘ to place freely), rulers with draggable guides, print bleed and safe margins, groups (⌘G / ⇧⌘G, double-click into a group), distribute and tidy up, aspect-ratio lock, searchable preset picker (social, video, presentations, documents, print, marketing, web and IAB ads), resize a copy to other sizes
 - [ ] **M6** Elements + export: lines, connectors, draw, frames, grids, tables, charts, QR, icons, stock photos; PDF and SVG export
 
 Later phases: presentations, whiteboards, video, data-bound designs (live menus), AI/MCP integration.

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { moveElementTo, type ShapeKind } from '@digital-canvas/scene';
+  import { childrenOf, findElement, moveElementTo, type Element, type ShapeKind } from '@digital-canvas/scene';
   import { SHAPES, TEXT_PRESETS, type EditorState } from '../lib/editor.svelte.ts';
   import Icon, { type IconName } from '../lib/Icon.svelte';
   import { IMAGE_TYPES, objectUrl, pickFiles } from '../lib/files.ts';
@@ -11,6 +11,8 @@
   let tab = $state<Tab | null>('elements');
   let uploadError = $state('');
   let dragLayer = $state<string | null>(null);
+  /** Groups folded shut in the layers list. */
+  let folded = $state<string[]>([]);
 
   const TABS: { id: Tab; label: string; icon: IconName }[] = [
     { id: 'elements', label: 'Elements', icon: 'shapes' },
@@ -46,8 +48,9 @@
     for (const f of files) if (!(await ed.addMediaFile(f))) uploadError = `Couldn't read ${f.name} (this browser can't open it).`;
   }
 
-  function layerName(e: (typeof layers)[number]): string {
+  function layerName(e: Element): string {
     if (e.name) return e.name;
+    if (e.type === 'group') return `Group (${e.children.length})`;
     if (e.type === 'text') return e.text.split('\n')[0]!.slice(0, 40) || 'Text';
     if (e.type === 'image') return ed.doc.assets[e.asset]?.name ?? 'Image';
     if (e.type === 'video') return ed.doc.assets[e.asset]?.name ?? 'Video';
@@ -57,13 +60,44 @@
 
   function dropLayer(targetId: string): void {
     if (!dragLayer || dragLayer === targetId) return;
-    const els = ed.page.elements;
-    const to = els.findIndex((e) => e.id === targetId);
-    ed.commit(moveElementTo(ed.doc, dragLayer, to));
-    ed.seal();
+    const from = findElement(ed.doc, dragLayer), to = findElement(ed.doc, targetId);
+    // reorder within one list (the page, or one group)
+    if (from && to && from.parent?.id === to.parent?.id) {
+      ed.commit(moveElementTo(ed.doc, dragLayer, to.index));
+      ed.seal();
+    }
     dragLayer = null;
   }
 </script>
+
+{#snippet layer(e: Element, depth: number)}
+  {@const kids = childrenOf(e)}
+  <li
+    class:sel={ed.selection.includes(e.id)}
+    class:hidden={e.hidden}
+    style:margin-left="{depth * 16}px"
+    data-testid="layer-{e.type}"
+    draggable="true"
+    ondragstart={(ev) => { ev.stopPropagation(); dragLayer = e.id; }}
+    ondragover={(ev) => ev.preventDefault()}
+    ondrop={() => dropLayer(e.id)}
+  >
+    {#if kids}
+      <button class="lbtn fold" aria-label={folded.includes(e.id) ? 'Expand group' : 'Collapse group'} onclick={() => (folded = folded.includes(e.id) ? folded.filter((x) => x !== e.id) : [...folded, e.id])}><Icon name={folded.includes(e.id) ? 'down' : 'up'} size={14} /></button>
+    {/if}
+    <button class="lname" onclick={(ev) => ed.select(ev.shiftKey ? [...ed.selection, e.id] : [e.id])}>
+      <Icon name={kids ? 'layers' : e.type === 'text' ? 'text' : e.type === 'image' ? 'image' : e.type === 'video' ? 'video' : 'shapes'} size={15} />
+      <span>{layerName(e)}</span>
+    </button>
+    <button class="lbtn" aria-label={e.locked ? 'Unlock' : 'Lock'} onclick={() => { ed.update({ locked: !e.locked }, null, [e.id]); ed.seal(); }}><Icon name={e.locked ? 'lock' : 'unlock'} size={15} /></button>
+    <button class="lbtn" aria-label={e.hidden ? 'Show' : 'Hide'} onclick={() => { ed.update({ hidden: !e.hidden }, null, [e.id]); ed.seal(); }}><Icon name={e.hidden ? 'eyeoff' : 'eye'} size={15} /></button>
+  </li>
+  {#if kids && !folded.includes(e.id)}
+    {#each [...kids].reverse() as c (c.id)}
+      {@render layer(c, depth + 1)}
+    {/each}
+  {/if}
+{/snippet}
 
 <aside class="side">
   <nav class="rail">
@@ -135,21 +169,7 @@
         {/if}
         <ul class="layers" data-testid="layers">
           {#each layers as e (e.id)}
-            <li
-              class:sel={ed.selection.includes(e.id)}
-              class:hidden={e.hidden}
-              draggable="true"
-              ondragstart={() => (dragLayer = e.id)}
-              ondragover={(ev) => ev.preventDefault()}
-              ondrop={() => dropLayer(e.id)}
-            >
-              <button class="lname" onclick={(ev) => ed.select(ev.shiftKey ? [...ed.selection, e.id] : [e.id])}>
-                <Icon name={e.type === 'text' ? 'text' : e.type === 'image' ? 'image' : e.type === 'video' ? 'video' : 'shapes'} size={15} />
-                <span>{layerName(e)}</span>
-              </button>
-              <button class="lbtn" aria-label={e.locked ? 'Unlock' : 'Lock'} onclick={() => { ed.update({ locked: !e.locked }, null, [e.id]); ed.seal(); }}><Icon name={e.locked ? 'lock' : 'unlock'} size={15} /></button>
-              <button class="lbtn" aria-label={e.hidden ? 'Show' : 'Hide'} onclick={() => { ed.update({ hidden: !e.hidden }, null, [e.id]); ed.seal(); }}><Icon name={e.hidden ? 'eyeoff' : 'eye'} size={15} /></button>
-            </li>
+            {@render layer(e, 0)}
           {/each}
         </ul>
       {/if}
@@ -195,4 +215,5 @@
   .lname span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .lbtn { width: 28px; height: 28px; display: grid; place-items: center; border: 0; background: none; border-radius: 6px; color: var(--muted); }
   .lbtn:hover { background: rgba(0,0,0,.06); color: var(--ink); }
+  .lbtn.fold { width: 22px; margin-left: 4px; }
 </style>

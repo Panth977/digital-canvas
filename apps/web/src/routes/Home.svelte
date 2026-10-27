@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { PRESETS, createDoc, formatLength, type Preset, type Unit } from '@digital-canvas/scene';
+  import { PRESET_CATEGORIES, createDoc, formatLength, searchPresets, type Preset, type PresetCategory, type Unit } from '@digital-canvas/scene';
   import { unpack, type ProjectMeta } from '@digital-canvas/storage';
   import Icon from '../lib/Icon.svelte';
   import { library } from '../lib/library.svelte.ts';
@@ -10,12 +10,13 @@
   let projects = $state<ProjectMeta[]>([]);
   let loading = $state(true);
   let error = $state('');
-  let category = $state<Preset['category'] | 'All'>('All');
+  let category = $state<PresetCategory | 'All'>('All');
+  let query = $state('');
   let custom = $state({ w: 1080, h: 1080, unit: 'px' as Unit });
   let menuFor = $state<string | null>(null);
 
-  const categories = ['All', ...new Set(PRESETS.map((p) => p.category))] as const;
-  const shown = $derived(category === 'All' ? PRESETS : PRESETS.filter((p) => p.category === category));
+  const categories = ['All', ...PRESET_CATEGORIES] as const;
+  const shown = $derived(searchPresets(query, category));
 
   async function refresh() {
     loading = true;
@@ -135,13 +136,18 @@
   <section class="create">
     <div class="row-head">
       <h2>Create a design</h2>
-      <div class="tabs">
-        {#each categories as c}
-          <button class="tab" class:on={category === c} onclick={() => (category = c)}>{c}</button>
-        {/each}
-      </div>
+      <label class="search">
+        <Icon name="search" size={16} />
+        <input class="input" type="search" placeholder="Search sizes: Instagram story, A4, business card, 728x90…" bind:value={query} data-testid="preset-search" aria-label="Search sizes" />
+      </label>
     </div>
-    <div class="presets">
+    <div class="tabs">
+      {#each categories as c}
+        <button class="tab" class:on={category === c} onclick={() => (category = c)} data-testid="category-{c}">{c}</button>
+      {/each}
+      <span class="count">{shown.length} sizes</span>
+    </div>
+    <div class="presets scroll-y">
       {#each shown as p (p.id)}
         {@const b = previewBox(p)}
         <button class="preset" data-testid="preset-{p.id}" onclick={() => create({ width: p.width, height: p.height, unit: p.unit, print: p.print, title: p.name, video: p.video })}>
@@ -149,6 +155,8 @@
           <b>{p.name}</b>
           <span>{sizeLabel(p)}</span>
         </button>
+      {:else}
+        <div class="none">No sizes match “{query}”. Try a custom size.</div>
       {/each}
       <form class="preset custom" onsubmit={(e) => { e.preventDefault(); create({ width: custom.w, height: custom.h, unit: custom.unit, print: custom.unit !== 'px' }); }}>
         <b>Custom size</b>
@@ -238,10 +246,13 @@
   section { margin-top: 26px; }
   .row-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
   h2 { margin: 0; font-size: 18px; }
-  .tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+  .tabs { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  .count { margin-left: auto; color: var(--muted); font-size: 12px; }
+  .search { display: flex; align-items: center; gap: 8px; color: var(--muted); width: min(420px, 100%); }
+  .none { grid-column: 1 / -1; padding: 16px; color: var(--muted); }
   .tab { border: 0; background: transparent; padding: 6px 12px; border-radius: 99px; font-weight: 600; color: var(--ink-2); }
   .tab.on { background: var(--ink); color: #fff; }
-  .presets { display: grid; grid-auto-flow: column; grid-auto-columns: 168px; gap: 12px; overflow-x: auto; padding-bottom: 8px; scrollbar-width: thin; }
+  .presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; max-height: 470px; padding: 4px 4px 8px; }
   .preset { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; text-align: left; padding: 12px; background: #fff; border: 1px solid var(--line); border-radius: var(--radius); transition: transform .12s, box-shadow .12s; }
   .preset:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
   .preset b { font-size: 13px; }

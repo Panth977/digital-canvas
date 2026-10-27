@@ -1,5 +1,5 @@
 import type { Canvas, CanvasKit, Image, Paint, Path } from 'canvaskit-wasm';
-import type { Doc, Element, Fill, ImageElement, Page, PathElement, ShapeElement, ShapeKind, TextElement, VideoElement } from '@digital-canvas/scene';
+import { childrenOf, type Doc, type Element, type Fill, type ImageElement, type Page, type PathElement, type ShapeElement, type ShapeKind, type TextElement, type VideoElement } from '@digital-canvas/scene';
 import { color, FontLibrary } from './fonts.ts';
 import { listIndent, TextLayouts } from './text.ts';
 
@@ -8,6 +8,8 @@ export { color, FontLibrary };
 export interface DrawOptions {
   /** Element ids to leave out (e.g. the text box being edited). */
   skip?: ReadonlySet<string>;
+  /** Also draw this far (px) outside the page: the print bleed area. */
+  bleed?: number;
 }
 
 export interface ExportOptions {
@@ -195,18 +197,34 @@ export class Renderer {
   /** Draw one page in page coordinates (0,0 = top-left of the page). */
   drawPage(canvas: Canvas, doc: Doc, page: Page, opts: DrawOptions = {}, background = true): void {
     const ck = this.ck;
+    const b = opts.bleed ?? 0;
     canvas.save();
-    canvas.clipRect(ck.XYWHRect(0, 0, doc.width, doc.height), ck.ClipOp.Intersect, true);
-    if (background) this.fillRect(canvas, page.background, 0, 0, doc.width, doc.height);
+    canvas.clipRect(ck.XYWHRect(-b, -b, doc.width + 2 * b, doc.height + 2 * b), ck.ClipOp.Intersect, true);
+    if (background) this.fillRect(canvas, page.background, -b, -b, doc.width + 2 * b, doc.height + 2 * b);
     for (const el of page.elements) {
       if (el.hidden || opts.skip?.has(el.id)) continue;
-      this.drawElement(canvas, el);
+      this.drawElement(canvas, el, opts.skip);
     }
     canvas.restore();
   }
 
-  drawElement(canvas: Canvas, el: Element): void {
+  drawElement(canvas: Canvas, el: Element, skip?: ReadonlySet<string>): void {
     const ck = this.ck;
+    const kids = childrenOf(el);
+    if (kids) {
+      // a group: children are in page coordinates; only its opacity applies
+      if (el.opacity <= 0) return;
+      const layered = el.opacity < 1;
+      if (layered) {
+        const p = new ck.Paint();
+        p.setAlphaf(el.opacity);
+        canvas.saveLayer(p);
+        p.delete();
+      }
+      for (const k of kids) if (!k.hidden && !skip?.has(k.id)) this.drawElement(canvas, k, skip);
+      if (layered) canvas.restore();
+      return;
+    }
     canvas.save();
     const cx = el.x + el.w / 2, cy = el.y + el.h / 2;
     if (el.rotation) canvas.rotate(el.rotation, cx, cy);
@@ -225,7 +243,7 @@ export class Renderer {
     if (el.type === 'shape') this.drawShape(canvas, el);
     else if (el.type === 'path') this.drawPath(canvas, el);
     else if (el.type === 'text') this.drawText(canvas, el);
-    else this.drawImage(canvas, el);
+    else if (el.type === 'image' || el.type === 'video') this.drawImage(canvas, el);
     if (layered) canvas.restore();
     canvas.restore();
   }

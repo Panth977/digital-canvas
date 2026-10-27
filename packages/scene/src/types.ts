@@ -165,8 +165,27 @@ export interface PathElement extends ElementBase {
   paths: PathPart[];
 }
 
-export type Element = ShapeElement | TextElement | ImageElement | VideoElement | PathElement;
+/**
+ * Elements that move, resize and rotate together. `children` are stored in
+ * **page coordinates** (like any top-level element), so hit testing, snapping
+ * and drawing need no extra transform. The group's own box is the frame the
+ * children were laid out in: changing it (`updateElements`) transforms the
+ * children with it, and changing a child refits the box. The renderer draws
+ * the children as they are and applies only the group's `opacity`.
+ */
+export interface GroupElement extends ElementBase {
+  type: 'group';
+  children: Element[];
+}
+
+export type Element = ShapeElement | TextElement | ImageElement | VideoElement | PathElement | GroupElement;
 export type ElementType = Element['type'];
+
+/** A ruler guide: a vertical line at `x = pos` (axis 'x') or a horizontal one at `y = pos`, page px. */
+export interface Guide {
+  axis: 'x' | 'y';
+  pos: number;
+}
 
 export interface Page {
   id: string;
@@ -176,6 +195,8 @@ export interface Page {
   elements: Element[];
   /** Seconds this page shows in a video or presentation (default 5). */
   duration?: number;
+  /** Ruler guides on this page (elements snap to them). */
+  guides?: Guide[];
 }
 
 /** A sound on the design's timeline (music, voice-over). */

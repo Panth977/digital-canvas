@@ -2,6 +2,7 @@ import {
   History, newId, addAudio, addElements, pageDuration, removeAudio, totalDuration, updateAudio, video, addPage, arrange, commonStyle, duplicateElements, duplicatePage, findElement, image, movePage,
   normalizeRuns, pruneAssets, pruneFonts, removeElements, removePage, setTitle, shape, styleRange, text, updateElements, updatePage,
   type Arrange, type AudioClip, type Doc, type Element, type ElementPatch, type EmbeddedFont, type Page, type ShapeKind, type TextElement, type TextRun, type TextStyle,
+  childrenOf, cloneElement, distribute, groupElements, resizeDoc, tidyUp, ungroupElements, walk, type ResizeTarget,
 } from '@digital-canvas/scene';
 import { Renderer } from '@digital-canvas/render';
 import { assetId, type ProjectFile, type ProjectStore } from '@digital-canvas/storage';
@@ -267,7 +268,7 @@ export class EditorState {
   /** Re-measure text boxes (after fonts load). */
   refitText(): void {
     const ids: string[] = [];
-    for (const p of this.doc.pages) for (const e of p.elements) if (e.type === 'text' && Math.abs(this.renderer.fitText(e).h - e.h) > 0.5) ids.push(e.id);
+    for (const p of this.doc.pages) for (const e of walk(p.elements)) if (e.type === 'text' && Math.abs(this.renderer.fitText(e).h - e.h) > 0.5) ids.push(e.id);
     if (ids.length) this.commit(updateElements(this.doc, ids, (e) => (e.type === 'text' ? this.fitPatch(e) : {})), 'refit');
   }
 
@@ -441,7 +442,7 @@ export class EditorState {
 
   paste(): void {
     if (!this.clipboard.length) return;
-    const copies = this.clipboard.map((e) => ({ ...structuredClone(e), id: newId('e_'), x: e.x + 20, y: e.y + 20 }));
+    const copies = this.clipboard.map((e) => cloneElement(e, 20, 20));
     this.clipboard = copies;
     this.commit(addElements(this.doc, this.pageId, copies));
     this.seal();
@@ -475,6 +476,50 @@ export class EditorState {
         case 'bottom': return { y: box.b - e.h };
       }
     }));
+  }
+
+  // ---- layout: groups, distribute, tidy up, resize ----
+
+  /** Group the selection (Cmd+G). The elements must share a list: the page, or one group. */
+  group(): void {
+    const r = groupElements(this.doc, this.selection);
+    if (!r) return;
+    this.commit(r.doc);
+    this.seal();
+    this.select([r.id]);
+  }
+
+  /** Ungroup the selected groups (Cmd+Shift+G); their children become the selection. */
+  ungroup(): void {
+    const ids = this.selected.filter((e) => childrenOf(e)).map((e) => e.id);
+    if (!ids.length) return;
+    const r = ungroupElements(this.doc, ids);
+    this.commit(r.doc);
+    this.seal();
+    this.select(r.ids);
+  }
+
+  distribute(axis: 'x' | 'y'): void {
+    this.commit(distribute(this.doc, this.selection, axis));
+    this.seal();
+  }
+
+  tidyUp(): void {
+    this.commit(tidyUp(this.doc, this.selection));
+    this.seal();
+  }
+
+  /** Copies of this design at other sizes ("Resize"), saved to the same store. Returns them. */
+  async resizeCopies(targets: ResizeTarget[]): Promise<Doc[]> {
+    const out: Doc[] = [];
+    for (const t of targets) {
+      const doc = resizeDoc(pruneAssets(pruneFonts(this.doc)), t);
+      const scale = Math.min(1, 480 / Math.max(doc.width, doc.height));
+      const thumbnail = this.renderer.exportPage(doc, doc.pages[0]!, { format: 'png', scale });
+      await this.store.save({ doc, assets: this.assets, thumbnail });
+      out.push(doc);
+    }
+    return out;
   }
 
   startEditing(id: string): void {
