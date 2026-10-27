@@ -7,6 +7,16 @@ export class DocFormatError extends Error {
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const num = (v: unknown) => typeof v === 'number' && Number.isFinite(v);
+const ANIM_TYPES = ['rise', 'pan', 'fade', 'pop', 'wipe', 'typewriter', 'baseline', 'drift', 'tumble'];
+const ANIM_DIRS = ['left', 'right', 'up', 'down'];
+/** An unknown or broken animation is dropped (the design still opens). */
+function cleanAnimation(o: Record<string, unknown>): void {
+  if (!('animation' in o)) return;
+  const a = o.animation;
+  if (!isObj(a) || !ANIM_TYPES.includes(a.type as string)) { delete o.animation; return; }
+  if (a.duration !== undefined && !(num(a.duration) && (a.duration as number) > 0)) delete a.duration;
+  if (a.direction !== undefined && !ANIM_DIRS.includes(a.direction as string)) delete a.direction;
+}
 
 /**
  * Check a parsed `document.json` and return it as a Doc. Throws
@@ -27,10 +37,12 @@ export function parseDoc(input: unknown): Doc {
         throw new DocFormatError(`${where}element ${j + 1}: unknown element`);
       for (const k of ['x', 'y', 'w', 'h']) if (!num(e[k])) throw new DocFormatError(`${where}element ${j + 1}: bad ${k}`);
       // containers (groups) hold elements too
+      cleanAnimation(e);
       if (e.type === 'group' && !Array.isArray(e.children)) throw new DocFormatError(`${where}element ${j + 1}: group without children`);
       if (Array.isArray(e.children)) check(e.children, `${where}element ${j + 1}, `);
     });
     check(p.elements, `page ${i + 1}, `);
+    cleanAnimation(p);
   });
   const doc = input as unknown as Doc;
   return {

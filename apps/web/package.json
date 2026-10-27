@@ -19,6 +19,7 @@
     "@panth977/icebase": "npm:@jsr/panth977__icebase@0.4.7",
     "canvaskit-wasm": "^0.42.0",
     "firebase": "^13.1.0",
+    "gifenc": "^1.0.3",
     "mediabunny": "^1.62.1"
   },
   "devDependencies": {
