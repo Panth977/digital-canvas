@@ -23,6 +23,8 @@ export interface ColorTarget {
   kind?: 'text' | 'fill' | 'page' | 'other';
 }
 
+import { mobile } from './mobile.svelte.ts';
+
 class UI {
   panel = $state<Panel | null>('elements');
   /** The rail section to go back to when a contextual panel closes. */
@@ -40,8 +42,9 @@ class UI {
   styleClip = $state.raw<{ style: import('./copystyle.ts').CopiedStyle; source: string } | null>(null);
 
   reset(): void {
-    this.panel = 'elements';
+    this.panel = mobile.on ? null : 'elements';
     this.lastRail = 'elements';
+    mobile.sheet = null;
     this.color = null;
     this.pop = null;
     this.pagesStrip = false;
@@ -54,12 +57,15 @@ class UI {
   rail(t: RailTab): void {
     this.panel = this.panel === t ? null : t;
     this.lastRail = t;
+    mobile.sheet = null;
   }
 
   /** Open a contextual panel; the same button again goes back to the rail section. */
   open(p: ToolPanel, toggle = true): void {
     this.pop = null;
-    this.panel = toggle && this.panel === p ? this.lastRail : p;
+    // the phone shows one sheet at a time: leaving a tool panel closes the sheet
+    this.panel = toggle && this.panel === p ? (mobile.on ? null : this.lastRail) : p;
+    mobile.sheet = null;
   }
 
   openColor(t: ColorTarget): void {
@@ -69,7 +75,7 @@ class UI {
 
   /** Leave a contextual panel (it no longer applies). */
   close(): void {
-    if (this.panel && !RAIL_TABS.includes(this.panel as RailTab)) this.panel = this.lastRail;
+    if (this.panel && !RAIL_TABS.includes(this.panel as RailTab)) this.panel = mobile.on ? null : this.lastRail;
     this.color = null;
   }
 
