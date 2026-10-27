@@ -28,12 +28,20 @@ def google(name):
     fam, w, it = parse(name)
     if fam in LOOKALIKE:
         fam, w, it = LOOKALIKE[fam], 400, False
-    url = 'https://fonts.googleapis.com/css?family=' + urllib.parse.quote(fam) + f':{w}{"i" if it else ""}'
+    # without `subset` the CSS API serves Latin only
+    subsets = 'latin,latin-ext,cyrillic,cyrillic-ext,greek,greek-ext,vietnamese,devanagari,gujarati,gurmukhi,bengali,tamil,telugu,kannada,malayalam,oriya,arabic,hebrew,thai'
+    url = 'https://fonts.googleapis.com/css?family=' + urllib.parse.quote(fam) + f':{w}{"i" if it else ""}&subset={subsets}'
     try:
         css = urllib.request.urlopen(url, timeout=20).read().decode()
         ttf = re.search(r'url\((https:[^)]+\.ttf)\)', css).group(1)
         f = f'{out}/{name}-google.ttf'
         open(f, 'wb').write(urllib.request.urlopen(ttf, timeout=60).read())
+        # it must draw every character Canva drew with this font
+        from fontTools.ttLib import TTFont
+        have = TTFont(f).getBestCmap() or {}
+        need = {c for v in index.values() if v['name'] == name for c in v['chars'] if not c.isspace()}
+        if any(ord(c) not in have for c in need):
+            return None
         return f
     except Exception:
         return None
