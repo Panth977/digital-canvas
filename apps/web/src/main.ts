@@ -8,7 +8,10 @@ import { isNative } from './lib/native/platform.ts';
 import { installNativeFetch } from './lib/native/http.ts';
 import { registerServiceWorker } from './lib/pwa.ts';
 
-if (isNative()) installNativeFetch();
+if (isNative()) {
+  installNativeFetch();
+  void import('./lib/native/links.ts').then((m) => m.installAppLinks());
+}
 if (!bounced) registerServiceWorker();
 
 export default bounced ? undefined : mount(App, { target: document.getElementById('app')! });
