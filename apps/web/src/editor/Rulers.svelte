@@ -66,14 +66,14 @@
 <div class="corner" style="width:{RULER}px;height:{RULER}px">{unit}</div>
 
 <style>
-  .ruler { position: absolute; top: 0; left: 0; background: #f4f5f8; overflow: hidden; z-index: 2; }
+  .ruler { position: absolute; top: 0; left: 0; background: var(--panel); overflow: hidden; z-index: 2; }
   .ruler.top { border-bottom: 1px solid var(--line); cursor: row-resize; }
   .ruler.left { border-right: 1px solid var(--line); cursor: col-resize; }
-  .page { position: absolute; background: #fff; }
+  .page { position: absolute; background: var(--chip); }
   .top .page { top: 0; bottom: 0; }
   .left .page { left: 0; right: 0; }
   svg { position: absolute; inset: 0; }
   line { stroke: #9aa0ab; stroke-width: 1; shape-rendering: crispEdges; }
   text { font-size: 9px; fill: var(--muted); }
-  .corner { position: absolute; top: 0; left: 0; z-index: 3; background: #f4f5f8; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); font-size: 9px; color: var(--muted); display: grid; place-items: center; }
+  .corner { position: absolute; top: 0; left: 0; z-index: 3; background: var(--panel); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); font-size: 9px; color: var(--muted); display: grid; place-items: center; }
 </style>

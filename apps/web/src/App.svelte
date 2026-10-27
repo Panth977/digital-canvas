@@ -32,6 +32,6 @@
 
 <style>
   .boot { height: 100%; display: grid; place-items: center; color: var(--muted); }
-  .drive-req { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 50; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 10px 16px; box-shadow: var(--shadow); font-weight: 600; }
+  .drive-req { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 50; background: var(--pop); border: 1px solid var(--line); border-radius: 10px; padding: 10px 16px; box-shadow: var(--shadow); font-weight: 600; }
   .drive-req.err { color: var(--danger); }
 </style>

@@ -224,22 +224,26 @@
 </div>
 
 <style>
-  .home { height: 100%; padding: 0 32px 40px; }
+  .home { height: 100%; padding: 0 32px 40px; background: var(--stage); }
+  header { margin: 0 -32px 18px; padding: 10px 32px !important; background: var(--header); color: #fff; }
+  header .label { color: rgba(255,255,255,.85); }
+  header .btn.ghost { color: #fff; }
+  header .btn.ghost:hover { background: rgba(255,255,255,.15); }
   header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 0; flex-wrap: wrap; }
   .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 18px; letter-spacing: -0.01em; }
   .where { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .label { color: var(--muted); font-size: 13px; }
-  .chip { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border-radius: 99px; background: #fff; border: 1px solid var(--line); font-weight: 600; font-size: 13px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border-radius: 99px; background: var(--field); border: 1px solid var(--line); font-weight: 600; font-size: 13px; }
   .me { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; }
   .me img, .me .init { width: 28px; height: 28px; border-radius: 50%; }
   .me .init { display: grid; place-items: center; background: var(--accent); color: #fff; }
-  .btn.google { background: #fff; border-color: #dadce0; }
+  .btn.google { background: var(--field); border-color: #dadce0; }
   .banner.info { background: #f1edff; border-color: #ddd3ff; }
   .err-banner { background: #fff0f0; border-color: #ffd0d0; color: var(--danger); }
   .banner { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: #fff7e6; border: 1px solid #ffe2a8; border-radius: var(--radius); margin-bottom: 12px; flex-wrap: wrap; }
   .hero {
     border-radius: 18px; padding: 44px 32px; color: #fff; text-align: center; margin-bottom: 8px;
-    background: radial-gradient(1200px 300px at 20% -20%, rgba(255,255,255,.25), transparent), linear-gradient(120deg, #6d4bff, #8f6bff 40%, #00c4cc);
+    background: var(--header);
   }
   .hero h1 { margin: 0 0 8px; font-size: 34px; letter-spacing: -0.02em; }
   .hero p { margin: 0; opacity: .9; }
@@ -251,30 +255,30 @@
   .search { display: flex; align-items: center; gap: 8px; color: var(--muted); width: min(420px, 100%); }
   .none { grid-column: 1 / -1; padding: 16px; color: var(--muted); }
   .tab { border: 0; background: transparent; padding: 6px 12px; border-radius: 99px; font-weight: 600; color: var(--ink-2); }
-  .tab.on { background: var(--ink); color: #fff; }
+  .tab.on { background: var(--ink); color: var(--panel); }
   .presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; max-height: 470px; padding: 4px 4px 8px; }
-  .preset { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; text-align: left; padding: 12px; background: #fff; border: 1px solid var(--line); border-radius: var(--radius); transition: transform .12s, box-shadow .12s; }
+  .preset { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; text-align: left; padding: 12px; background: var(--pop); border: 1px solid var(--line); border-radius: var(--radius); transition: transform .12s, box-shadow .12s; }
   .preset:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
   .preset b { font-size: 13px; }
   .preset span { font-size: 12px; color: var(--muted); }
-  .pv { width: 100%; height: 84px; display: grid; place-items: center; background: linear-gradient(135deg, #f1edff, #e6fbfb); border-radius: 8px; margin-bottom: 6px; }
+  .pv { width: 100%; height: 84px; display: grid; place-items: center; background: var(--chip); border-radius: 8px; margin-bottom: 6px; }
   .pv-page { background: #fff; border-radius: 3px; box-shadow: 0 2px 8px rgba(80, 60, 200, .18); }
   .custom { gap: 8px; }
   .custom-row { display: flex; gap: 6px; align-items: center; width: 100%; }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
-  .card { background: #fff; border: 1px solid var(--line); border-radius: var(--radius); overflow: visible; }
-  .thumb { display: grid; place-items: center; width: 100%; aspect-ratio: 4 / 3; border: 0; background: #f1f2f6; border-radius: var(--radius) var(--radius) 0 0; overflow: hidden; color: var(--muted); padding: 10px; }
+  .card { background: var(--pop); border: 1px solid var(--line); border-radius: var(--radius); overflow: visible; }
+  .thumb { display: grid; place-items: center; width: 100%; aspect-ratio: 4 / 3; border: 0; background: var(--chip); border-radius: var(--radius) var(--radius) 0 0; overflow: hidden; color: var(--muted); padding: 10px; }
   .thumb img { max-width: 100%; max-height: 100%; box-shadow: 0 2px 10px rgba(0,0,0,.12); background: #fff; }
   .meta { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 10px 8px 10px 12px; }
   .meta > div:first-child { min-width: 0; display: flex; flex-direction: column; }
   .meta b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .meta span { font-size: 12px; color: var(--muted); }
   .menu-wrap { position: relative; }
-  .menu { position: absolute; right: 0; top: 36px; background: #fff; border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); padding: 4px; z-index: 5; min-width: 120px; }
+  .menu { position: absolute; right: 0; top: 36px; background: var(--pop); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); padding: 4px; z-index: 5; min-width: 120px; }
   .menu button { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 8px 10px; border-radius: 6px; }
-  .menu button:hover { background: #f4f5f8; }
+  .menu button:hover { background: var(--hover); }
   .danger { color: var(--danger); }
-  .empty { padding: 40px; text-align: center; color: var(--muted); background: #fff; border: 1px dashed var(--line); border-radius: var(--radius); }
+  .empty { padding: 40px; text-align: center; color: var(--muted); background: var(--pop); border: 1px dashed var(--line); border-radius: var(--radius); }
   .muted { color: var(--muted); }
   .err { color: var(--danger); display: flex; gap: 6px; align-items: center; }
   footer { margin-top: 40px; color: var(--muted); font-size: 12px; text-align: center; }

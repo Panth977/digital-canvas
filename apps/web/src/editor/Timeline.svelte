@@ -61,17 +61,17 @@
 </div>
 
 <style>
-  .timeline { display: flex; align-items: stretch; gap: 10px; padding: 8px 12px; background: #fff; border-top: 1px solid var(--line); flex-shrink: 0; }
+  .timeline { display: flex; align-items: stretch; gap: 10px; padding: 8px 12px; background: var(--panel); border-top: 1px solid var(--line); flex-shrink: 0; }
   .controls { display: flex; align-items: center; gap: 8px; }
   .play { width: 36px; height: 36px; border-radius: 50%; border: 0; background: var(--accent); color: #fff; display: grid; place-items: center; }
   .time { font-variant-numeric: tabular-nums; font-size: 12px; color: var(--muted); width: 92px; }
   .track { position: relative; flex: 1; display: flex; flex-direction: column; gap: 4px; cursor: pointer; touch-action: none; user-select: none; padding: 2px 0; }
   .row { position: relative; height: 30px; }
   .row.audio { height: 20px; }
-  .clip { position: absolute; top: 0; bottom: 0; border: 1px solid #c9cdd6; background: #f3f4f8; border-radius: 6px; display: flex; align-items: center; justify-content: space-between; padding: 0 6px; font-size: 11px; overflow: hidden; box-sizing: border-box; }
+  .clip { position: absolute; top: 0; bottom: 0; border: 1px solid var(--line); background: var(--chip); border-radius: 6px; display: flex; align-items: center; justify-content: space-between; padding: 0 6px; font-size: 11px; overflow: hidden; box-sizing: border-box; }
   .clip.cur { border-color: var(--accent); background: var(--accent-soft); }
   .clip em { font-style: normal; color: var(--muted); }
-  .sound { position: absolute; top: 0; bottom: 0; background: #e8f6ee; border: 1px solid #8fd1a9; border-radius: 5px; display: flex; align-items: center; gap: 4px; padding: 0 6px; font-size: 11px; overflow: hidden; white-space: nowrap; box-sizing: border-box; }
-  .head { position: absolute; top: -2px; bottom: -2px; width: 2px; margin-left: -1px; background: #111; pointer-events: none; }
-  .head::before { content: ''; position: absolute; top: -4px; left: -4px; width: 10px; height: 10px; border-radius: 50%; background: #111; }
+  .sound { position: absolute; top: 0; bottom: 0; background: rgba(48,164,108,.18); border: 1px solid #5cbf8a; border-radius: 5px; display: flex; align-items: center; gap: 4px; padding: 0 6px; font-size: 11px; overflow: hidden; white-space: nowrap; box-sizing: border-box; }
+  .head { position: absolute; top: -2px; bottom: -2px; width: 2px; margin-left: -1px; background: var(--ink); pointer-events: none; }
+  .head::before { content: ''; position: absolute; top: -4px; left: -4px; width: 10px; height: 10px; border-radius: 50%; background: var(--ink); }
 </style>
