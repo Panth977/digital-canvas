@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CHARTS, chart, childrenOf, decompose, findElement, FRAMES, GRIDS, line, moveElementTo, type Element, type ShapeKind } from '@digital-canvas/scene';
+  import { CHARTS, chart, decompose, FRAMES, GRIDS, line, type ShapeKind } from '@digital-canvas/scene';
   import { BRUSHES, LINES, SHAPES, TEXT_PRESETS, type EditorState } from '../lib/editor.svelte.ts';
   import type { Brush } from '@digital-canvas/scene';
   import ColorField from './ColorField.svelte';
@@ -7,23 +7,40 @@
   import Icon, { type IconName } from '../lib/Icon.svelte';
   import { IMAGE_TYPES, objectUrl, pickFiles } from '../lib/files.ts';
   import { AUDIO_TYPES, VIDEO_TYPES, formatTime } from '../lib/media.ts';
+  import { ui, type RailTab } from '../lib/ui.svelte.ts';
+  import ToolPanels from './ToolPanels.svelte';
 
   let { ed }: { ed: EditorState } = $props();
 
-  type Tab = 'elements' | 'text' | 'draw' | 'uploads' | 'layers';
-  let tab = $state<Tab | null>('elements');
   let uploadError = $state('');
-  let dragLayer = $state<string | null>(null);
-  /** Groups folded shut in the layers list. */
-  let folded = $state<string[]>([]);
 
-  const TABS: { id: Tab; label: string; icon: IconName }[] = [
-    { id: 'elements', label: 'Elements', icon: 'shapes' },
+  /** Canva's rail, in Canva's order (sections we don't have are left out). */
+  const TABS: { id: RailTab; label: string; icon: IconName }[] = [
+    { id: 'elements', label: 'Elements', icon: 'elements' },
     { id: 'text', label: 'Text', icon: 'text' },
-    { id: 'draw', label: 'Draw', icon: 'pen' },
-    { id: 'uploads', label: 'Uploads', icon: 'upload' },
-    { id: 'layers', label: 'Layers', icon: 'layers' },
+    { id: 'uploads', label: 'Uploads', icon: 'cloud' },
+    { id: 'draw', label: 'Tools', icon: 'pen' },
+    { id: 'photos', label: 'Photos', icon: 'image' },
   ];
+  /** The rail item lit: the open section, or the one a contextual panel came from. */
+  const lit = $derived(ui.panel ? (ui.isRail ? ui.panel : null) : null);
+
+  // the pen is on while the Tools (draw) section is open
+  let wasDraw = false;
+  $effect(() => {
+    const draw = ui.panel === 'draw';
+    if (draw && !wasDraw) ed.tool = ed.tool ?? { ...toolFor('pen') };
+    else if (!draw && wasDraw) ed.tool = null;
+    wasDraw = draw;
+  });
+
+  let textQuery = $state('');
+  function searchFonts(): void {
+    const q = textQuery.trim();
+    if (!ed.selected.some((e) => e.type === 'text')) ed.addText('body');
+    ui.fontQuery = q;
+    ui.open('font', false);
+  }
 
   const SHAPE_SVG: Record<ShapeKind, string> = {
     rect: '<rect x="4" y="4" width="40" height="40" rx="3"/>',
@@ -39,7 +56,6 @@
   const assets = $derived(Object.entries(ed.doc.assets).filter(([k, m]) => m.mime.startsWith('image/') && !k.endsWith('.poster')));
   const videos = $derived(Object.entries(ed.doc.assets).filter(([, m]) => m.mime.startsWith('video/')));
   const sounds = $derived(Object.entries(ed.doc.assets).filter(([, m]) => m.mime.startsWith('audio/')));
-  const layers = $derived([...ed.page.elements].reverse());
 
   function dragData(e: DragEvent, data: object): void {
     e.dataTransfer?.setData('application/x-digital-canvas', JSON.stringify(data));
@@ -50,30 +66,6 @@
     uploadError = '';
     const files = await pickFiles([...IMAGE_TYPES, ...VIDEO_TYPES, ...AUDIO_TYPES, '.mov', '.m4a', '.mp3'].join(','));
     for (const f of files) if (!(await ed.addMediaFile(f))) uploadError = `Couldn't read ${f.name} (this browser can't open it).`;
-  }
-
-  function layerName(e: Element): string {
-    if (e.name) return e.name;
-    if (e.type === 'group') return `Group (${e.children.length})`;
-    if (e.type === 'text') return e.text.split('\n')[0]!.slice(0, 40) || 'Text';
-    if (e.type === 'image') return ed.doc.assets[e.asset]?.name ?? 'Image';
-    if (e.type === 'video') return ed.doc.assets[e.asset]?.name ?? 'Video';
-    if (e.type === 'path') return e.qr !== undefined ? 'QR code' : 'Graphic';
-    if (e.type === 'line') return e.start.attach || e.end.attach ? 'Connector' : 'Line';
-    if (e.type === 'table') return `Table ${e.rows.length} × ${e.cols.length}`;
-    if (e.type === 'chart') return `${CHARTS.find((c) => c.kind === e.chart)?.label ?? ''} chart`;
-    return SHAPES.find((s) => s.kind === e.shape)?.label ?? 'Shape';
-  }
-
-  function layerIcon(e: (typeof layers)[number]): IconName {
-    if (e.type === 'image') return e.mask ? 'frame' : 'image';
-    return ({ text: 'text', video: 'video', line: 'line', table: 'table', chart: 'chart', path: e.type === 'path' && e.qr !== undefined ? 'qr' : 'shapes', shape: 'shapes', group: 'layers' } as const)[e.type];
-  }
-
-  function openTab(t: Tab): void {
-    tab = tab === t ? null : t;
-    // the pen is on while the Draw tab is open
-    ed.tool = tab === 'draw' ? (ed.tool ?? { ...toolFor('pen') }) : null;
   }
 
   // ---- Elements: previews ----
@@ -163,61 +155,42 @@
   // ---- Draw ----
   const toolFor = (b: Brush) => ({ brush: b, color: BRUSHES[b].color, size: BRUSHES[b].size, opacity: BRUSHES[b].opacity });
 
-  function dropLayer(targetId: string): void {
-    if (!dragLayer || dragLayer === targetId) return;
-    const from = findElement(ed.doc, dragLayer), to = findElement(ed.doc, targetId);
-    // reorder within one list (the page, or one group)
-    if (from && to && from.parent?.id === to.parent?.id) {
-      ed.commit(moveElementTo(ed.doc, dragLayer, to.index));
-      ed.seal();
-    }
-    dragLayer = null;
-  }
 </script>
 
-{#snippet layer(e: Element, depth: number)}
-  {@const kids = childrenOf(e)}
-  <li
-    class:sel={ed.selection.includes(e.id)}
-    class:hidden={e.hidden}
-    style:margin-left="{depth * 16}px"
-    data-testid="layer-{e.type}"
-    draggable="true"
-    ondragstart={(ev) => { ev.stopPropagation(); dragLayer = e.id; }}
-    ondragover={(ev) => ev.preventDefault()}
-    ondrop={() => dropLayer(e.id)}
-  >
-    {#if kids}
-      <button class="lbtn fold" aria-label={folded.includes(e.id) ? 'Expand group' : 'Collapse group'} onclick={() => (folded = folded.includes(e.id) ? folded.filter((x) => x !== e.id) : [...folded, e.id])}><Icon name={folded.includes(e.id) ? 'down' : 'up'} size={14} /></button>
-    {/if}
-    <button class="lname" onclick={(ev) => ed.select(ev.shiftKey ? [...ed.selection, e.id] : [e.id])}>
-      <Icon name={kids ? 'layers' : layerIcon(e)} size={15} />
-      <span>{layerName(e)}</span>
-    </button>
-    <button class="lbtn" aria-label={e.locked ? 'Unlock' : 'Lock'} onclick={() => { ed.update({ locked: !e.locked }, null, [e.id]); ed.seal(); }}><Icon name={e.locked ? 'lock' : 'unlock'} size={15} /></button>
-    <button class="lbtn" aria-label={e.hidden ? 'Show' : 'Hide'} onclick={() => { ed.update({ hidden: !e.hidden }, null, [e.id]); ed.seal(); }}><Icon name={e.hidden ? 'eyeoff' : 'eye'} size={15} /></button>
-  </li>
-  {#if kids && !folded.includes(e.id)}
-    {#each [...kids].reverse() as c (c.id)}
-      {@render layer(c, depth + 1)}
-    {/each}
-  {/if}
-{/snippet}
-
 <aside class="side">
-  <nav class="rail">
+  <nav class="rail" aria-label="Side panel">
     {#each TABS as t}
-      <button class:on={tab === t.id} onclick={() => openTab(t.id)} data-testid="tab-{t.id}">
-        <Icon name={t.icon} size={22} />
+      <button class:on={lit === t.id} aria-pressed={lit === t.id} onclick={() => ui.rail(t.id)} data-testid="tab-{t.id}">
+        <span class="ri"><Icon name={t.icon} size={24} /></span>
         <span>{t.label}</span>
       </button>
     {/each}
   </nav>
 
-  {#if tab}
-    <div class="drawer scroll-y">
-      {#if tab === 'elements'}
-        <h3>Lines & arrows</h3>
+  {#if ui.panel}
+    <div class="drawer" class:wide={ui.panel === 'font'} data-testid="side-panel" data-text-tools>
+      {#if !ui.isRail}
+        <ToolPanels {ed} />
+      {:else}
+      <div class="sec-body scroll-y">
+      {#if ui.panel === 'elements'}
+        <form class="search" onsubmit={(e) => { e.preventDefault(); void findIcons(); }}>
+          <Icon name="search" size={18} />
+          <input placeholder="Search icons and graphics" bind:value={iconQuery} data-testid="icon-search" aria-label="Search elements" />
+        </form>
+        {#if iconState === 'loading'}<p class="hint">Searching…</p>{:else if iconState === 'error'}<p class="err">Couldn't reach the icon library.</p>{:else if iconState === 'empty'}<p class="hint">No icons found.</p>{/if}
+        {#if icons.length}
+          <h3 class="sec">Graphics</h3>
+          <div class="icons" data-testid="icon-results">
+            {#each icons as name (name)}
+              <button class="iconbtn" title={name} aria-label="Add icon {name}" disabled={busyItem === name} onclick={() => addIcon(name)}>
+                <img src={iconUrl(name)} alt={name} loading="lazy" />
+              </button>
+            {/each}
+          </div>
+          <p class="hint small">Icons from <a href="https://iconify.design" target="_blank" rel="noreferrer">Iconify</a> (open-source sets; check each set's licence).</p>
+        {/if}
+        <h3 class="sec">Lines & arrows</h3>
         <div class="shapes lines">
           {#each LINES as l}
             <button class="shape" title={l.label} aria-label="Add {l.label}" data-testid="line-{l.id}" onclick={() => ed.addLine(l)}>
@@ -271,27 +244,12 @@
           <input class="input grow" placeholder="Link or text" bind:value={qrText} data-testid="qr-text" />
           <button class="btn" data-testid="add-qr"><Icon name="qr" size={16} /> Add</button>
         </form>
-        <h3 class="sec">Icons</h3>
-        <form class="inline" onsubmit={(e) => { e.preventDefault(); void findIcons(); }}>
-          <input class="input grow" placeholder="Search icons (e.g. coffee)" bind:value={iconQuery} data-testid="icon-search" />
-          <button class="btn icon" aria-label="Search icons"><Icon name="search" size={16} /></button>
+      {:else if ui.panel === 'photos'}
+        <form class="search" onsubmit={(e) => { e.preventDefault(); void findPhotos(); }}>
+          <Icon name="search" size={18} />
+          <input placeholder="Search free photos" bind:value={photoQuery} data-testid="photo-search" aria-label="Search photos" />
         </form>
-        {#if iconState === 'loading'}<p class="hint">Searching…</p>{:else if iconState === 'error'}<p class="err">Couldn't reach the icon library.</p>{:else if iconState === 'empty'}<p class="hint">No icons found.</p>{/if}
-        {#if icons.length}
-          <div class="icons" data-testid="icon-results">
-            {#each icons as name (name)}
-              <button class="iconbtn" title={name} aria-label="Add icon {name}" disabled={busyItem === name} onclick={() => addIcon(name)}>
-                <img src={iconUrl(name)} alt={name} loading="lazy" />
-              </button>
-            {/each}
-          </div>
-          <p class="hint small">Icons from <a href="https://iconify.design" target="_blank" rel="noreferrer">Iconify</a> (open-source sets; check each set's licence).</p>
-        {/if}
-        <h3 class="sec">Photos</h3>
-        <form class="inline" onsubmit={(e) => { e.preventDefault(); void findPhotos(); }}>
-          <input class="input grow" placeholder="Search free photos" bind:value={photoQuery} data-testid="photo-search" />
-          <button class="btn icon" aria-label="Search photos"><Icon name="search" size={16} /></button>
-        </form>
+        {#if !photos.length && !photoState}<p class="hint">Search millions of CC-licensed photos from Openverse. Click one to add it, or drag it onto the page.</p>{/if}
         {#if photoState === 'loading'}<p class="hint">Searching…</p>{:else if photoState === 'error'}<p class="err">Couldn't get photos right now.</p>{:else if photoState === 'empty'}<p class="hint">No photos found.</p>{/if}
         {#if photos.length}
           <div class="assets photos" data-testid="photo-results">
@@ -304,7 +262,7 @@
           </div>
           <p class="hint small">CC-licensed photos via <a href="https://openverse.org" target="_blank" rel="noreferrer">Openverse</a>. The credit is kept with each photo (Uploads, hover).</p>
         {/if}
-      {:else if tab === 'draw'}
+      {:else if ui.panel === 'draw'}
         <h3>Draw</h3>
         <div class="brushes">
           {#each Object.entries(BRUSHES) as [b, info]}
@@ -322,18 +280,23 @@
             </label>
           </div>
         {/if}
-        <p class="hint">Draw on the page; each stroke becomes its own element you can move, resize and recolour. Close this tab (or press Esc) to stop drawing.</p>
-      {:else if tab === 'text'}
-        <h3>Text</h3>
+        <p class="hint">Draw on the page; each stroke becomes its own element you can move, resize and recolour. Close this panel (or press Esc) to stop drawing.</p>
+      {:else if ui.panel === 'text'}
+        <form class="search" onsubmit={(e) => { e.preventDefault(); searchFonts(); }}>
+          <Icon name="search" size={18} />
+          <input placeholder="Search fonts and combinations" bind:value={textQuery} data-testid="text-search" aria-label="Search fonts" />
+        </form>
+        <button class="btn primary cta" data-testid="add-textbox" onclick={() => ed.addText('body')}><Icon name="text" size={18} /> Add a text box</button>
+        <h3 class="sec">Default text styles</h3>
         <div class="texts">
           {#each Object.entries(TEXT_PRESETS) as [key, p]}
             <button class="textbtn {key}" draggable="true" data-testid="text-{key}"
               ondragstart={(e) => dragData(e, { kind: 'text', preset: key })} onclick={() => ed.addText(key as keyof typeof TEXT_PRESETS)}>{p.label}</button>
           {/each}
         </div>
-        <p class="hint">Double-click text to edit it. Select some words to style just those. Fonts, effects, curve and lists are in the panel on the right.</p>
-      {:else if tab === 'uploads'}
-        <button class="btn primary wide" onclick={upload} data-testid="upload"><Icon name="upload" size={16} /> Upload media</button>
+        <p class="hint">Double-click text to edit it. Select some words to style just those. Fonts, effects, curve and lists are in the toolbar above the page.</p>
+      {:else if ui.panel === 'uploads'}
+        <button class="btn primary cta" onclick={upload} data-testid="upload"><Icon name="upload" size={18} /> Upload files</button>
         <p class="hint">Or drop files onto the page. Images (PNG, JPG, WebP, GIF), videos (MP4, WebM, MOV) and sounds (MP3, M4A, WAV).</p>
         {#if uploadError}<p class="err">{uploadError}</p>{/if}
         {#if videos.length}
@@ -363,60 +326,63 @@
             </button>
           {/each}
         </div>
-      {:else}
-        <h3>Layers · Page {ed.pageIndex + 1}</h3>
-        {#if !layers.length}
-          <p class="hint">Nothing on this page yet.</p>
-        {/if}
-        <ul class="layers" data-testid="layers">
-          {#each layers as e (e.id)}
-            {@render layer(e, 0)}
-          {/each}
-        </ul>
       {/if}
+      </div>
+      {/if}
+      <button class="collapse" title="Close panel" aria-label="Close panel" data-testid="collapse-panel" onclick={() => (ui.panel = null)}><Icon name="left" size={14} /></button>
     </div>
   {/if}
 </aside>
 
 <style>
-  .side { display: flex; height: 100%; flex-shrink: 0; }
-  .rail { width: 72px; background: var(--rail); display: flex; flex-direction: column; align-items: stretch; padding: 8px 0; gap: 2px; }
-  .rail button { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0; border: 0; background: none; color: var(--rail-ink); font-size: 11px; font-weight: 600; }
-  .rail button:hover { color: #fff; }
-  .rail button.on { color: #fff; background: rgba(255,255,255,.08); box-shadow: inset 3px 0 0 var(--accent); }
-  .drawer { width: 300px; background: var(--panel); border-right: 1px solid var(--line); padding: 16px; }
-  h3 { margin: 0 0 12px; font-size: 14px; }
+  .side { display: flex; height: 100%; flex-shrink: 0; background: var(--rail); }
+  .rail { width: 72px; display: flex; flex-direction: column; align-items: stretch; padding: 0; overflow-y: auto; scrollbar-width: none; }
+  .rail button { display: flex; flex-direction: column; align-items: center; gap: 2px; height: 72px; padding: 0; justify-content: center; border: 0; background: none; color: var(--rail-ink); font-size: 11px; font-weight: 500; }
+  .rail .ri { width: 40px; height: 32px; display: grid; place-items: center; border-radius: 8px; }
+  .rail button:hover .ri { background: var(--hover); }
+  .rail button.on .ri { background: var(--accent-soft); color: var(--accent); }
+  .rail button.on { color: var(--rail-ink); font-weight: 600; }
+  .drawer { position: relative; width: 360px; background: var(--panel); display: flex; flex-direction: column; padding: 16px 16px 0 16px; min-height: 0; }
+  .sec-body { flex: 1; min-height: 0; margin: 0 -16px; padding: 0 16px 16px; }
+  .collapse { position: absolute; right: -14px; top: 50%; transform: translateY(-50%); width: 14px; height: 96px; border: 0; border-radius: 0 8px 8px 0; background: var(--panel); color: var(--muted); display: grid; place-items: center; padding: 0; z-index: 5; }
+  .collapse:hover { color: var(--ink); }
+  .search { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--field); color: var(--muted); margin-bottom: 14px; }
+  .search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+  .search input { flex: 1; min-width: 0; border: 0; background: none; outline: none; color: var(--ink); }
+  .cta { width: 100%; height: 40px; border-radius: 8px; font-size: 14px; }
+  h3 { margin: 0 0 12px; font-size: 14px; font-weight: 600; }
   .shapes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-  .shape { aspect-ratio: 1; display: grid; place-items: center; border: 1px solid transparent; background: #f4f5f8; border-radius: 10px; }
-  .shape:hover { border-color: var(--accent); background: var(--accent-soft); }
-  .shape svg { fill: #7c5cff; }
+  .shape { aspect-ratio: 1; display: grid; place-items: center; border: 1px solid transparent; background: var(--chip); border-radius: 8px; }
+  .shape:hover { border-color: var(--accent); }
+  .shape svg { fill: #8b3dff; }
   .texts { display: flex; flex-direction: column; gap: 8px; }
-  .textbtn { text-align: left; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
-  .textbtn:hover { border-color: var(--accent); }
-  .textbtn.heading { font-size: 24px; font-weight: 800; }
+  .textbtn { text-align: left; padding: 12px 14px; border: 0; border-radius: 8px; background: var(--chip); color: var(--ink); }
+  .textbtn:hover { background: var(--hover); }
+  .textbtn.heading { font-size: 26px; font-weight: 800; }
   .textbtn.subheading { font-size: 17px; font-weight: 700; }
   .textbtn.body { font-size: 13px; }
   .hint { color: var(--muted); font-size: 12px; line-height: 1.5; margin: 14px 0 0; }
   .hint.small { margin-top: 8px; }
+  .hint a { color: inherit; }
   h3.sec { margin-top: 22px; }
   .lines .shape svg, .shape.chart svg { fill: none; }
-  .shape.frame svg, .shape.grid svg { fill: #b9bfca; }
+  .lines .shape :global(path) { stroke: var(--ink-2); }
+  .shape.frame svg, .shape.grid svg { fill: #9aa1ad; }
   .inline { display: flex; gap: 6px; align-items: end; }
   .inline label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); font-weight: 600; width: 72px; }
   .inline .grow { flex: 1; min-width: 0; }
   .icons { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-top: 10px; }
-  .iconbtn { aspect-ratio: 1; display: grid; place-items: center; border: 1px solid transparent; background: #f4f5f8; border-radius: 8px; padding: 8px; }
+  .iconbtn { aspect-ratio: 1; display: grid; place-items: center; border: 1px solid transparent; background: #f2f3f5; border-radius: 8px; padding: 8px; }
   .iconbtn:hover { border-color: var(--accent); }
   .iconbtn img { width: 100%; height: 100%; }
   .photos { margin-top: 10px; }
   .brushes { display: flex; gap: 6px; }
   .brushes .btn.on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
   .drawopts { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
-  .drawopts input[type='range'] { width: 100%; accent-color: var(--accent); }
+  .drawopts input[type='range'] { width: 100%; }
   .err { color: var(--danger); font-size: 13px; }
-  .wide { width: 100%; height: 40px; }
   .assets { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 14px; }
-  .asset { aspect-ratio: 1; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; padding: 0; background: #f4f5f8; }
+  .asset { aspect-ratio: 1; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; padding: 0; background: var(--chip); }
   .asset img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .asset.vid { position: relative; }
   .dur { position: absolute; right: 4px; bottom: 4px; background: rgba(0,0,0,.65); color: #fff; font-size: 11px; padding: 1px 5px; border-radius: 4px; }
@@ -424,13 +390,4 @@
   .sound { display: flex; align-items: center; gap: 6px; font-size: 13px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 6px; }
   .sound span { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .sound em { font-style: normal; color: var(--muted); font-size: 12px; }
-  .layers { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-  .layers li { display: flex; align-items: center; gap: 2px; border-radius: 8px; border: 1px solid var(--line); background: #fff; padding-right: 4px; }
-  .layers li.sel { border-color: var(--accent); background: var(--accent-soft); }
-  .layers li.hidden .lname { opacity: .45; }
-  .lname { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; border: 0; background: none; padding: 9px 10px; text-align: left; }
-  .lname span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-  .lbtn { width: 28px; height: 28px; display: grid; place-items: center; border: 0; background: none; border-radius: 6px; color: var(--muted); }
-  .lbtn:hover { background: rgba(0,0,0,.06); color: var(--ink); }
-  .lbtn.fold { width: 22px; margin-left: 4px; }
 </style>

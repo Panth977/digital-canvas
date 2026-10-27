@@ -9,10 +9,12 @@
   import { exportPdf } from '@digital-canvas/render';
   import Canvas from './Canvas.svelte';
   import SidePanel from './SidePanel.svelte';
-  import Properties from './Properties.svelte';
+  import ContextToolbar from './ContextToolbar.svelte';
+  import BottomBar from './BottomBar.svelte';
+  import FileMenu from './FileMenu.svelte';
+  import { ui } from '../lib/ui.svelte.ts';
   import Timeline from './Timeline.svelte';
   import ResizeDialog from './ResizeDialog.svelte';
-  import ViewMenu from './ViewMenu.svelte';
   import { view } from '../lib/view.svelte.ts';
   import { isVideo } from '@digital-canvas/scene';
   import { exportMp4 } from '../lib/mp4.ts';
@@ -26,9 +28,11 @@
   let canvas = $state<Canvas>();
   let showDownload = $state(false);
   let showResize = $state(false);
+  let showFile = $state(false);
   let dl = $state({ format: 'png' as 'png' | 'jpeg' | 'pdf' | 'pdfv' | 'svg' | 'mp4', dpi: 300, scale: 1, transparent: false, pages: 'current' as 'current' | 'all' });
 
   onMount(() => {
+    ui.reset();
     let cancelled = false;
     (async () => {
       try {
@@ -81,7 +85,8 @@
     else if (k === 'delete' || k === 'backspace') { stop(); ed.deleteSelection(); }
     else if (ed.croppingId && (k === 'escape' || k === 'enter')) { stop(); ed.stopCrop(); }
     else if (k === 'escape') {
-      if (ed.tool || ed.framePanId) { ed.tool = null; ed.framePanId = null; }
+      if (ui.pop) ui.pop = null;
+      else if (ed.tool || ed.framePanId) { ed.tool = null; ed.framePanId = null; }
       else ed.select([]);
     }
     else if (k === 'enter' && ed.selected.length === 1 && ed.selected[0]!.type === 'text') { stop(); ed.startEditing(ed.selected[0]!.id); }
@@ -175,9 +180,10 @@
   }
 
   const SAVE_TEXT = { saved: 'Saved', saving: 'Saving…', unsaved: 'Unsaved changes', error: 'Save failed' } as const;
+  const SAVE_TIP = { saved: 'All changes saved', saving: 'Saving…', unsaved: 'Unsaved changes', error: 'Save failed' } as const;
 </script>
 
-<svelte:window onkeydown={onKeydown} onkeyup={onKeyup} onpaste={onPaste} onclick={() => { showDownload = false; showResize = false; }} />
+<svelte:window onkeydown={onKeydown} onkeyup={onKeyup} onpaste={onPaste} onclick={() => { showDownload = false; showResize = false; showFile = false; }} />
 
 {#if error}
   <div class="center">
@@ -191,28 +197,33 @@
   <div class="editor">
     <header class="top">
       <div class="left">
-        <button class="btn ghost light" onclick={() => router.go({ name: 'home' })} data-testid="home"><Icon name="home" size={17} /> Home</button>
-        <span class="sep"></span>
-        <button class="btn ghost light icon" title="Undo (⌘Z)" aria-label="Undo" disabled={!ed.canUndo} onclick={() => ed!.undo()} data-testid="undo"><Icon name="undo" /></button>
-        <button class="btn ghost light icon" title="Redo (⇧⌘Z)" aria-label="Redo" disabled={!ed.canRedo} onclick={() => ed!.redo()} data-testid="redo"><Icon name="redo" /></button>
-        <span class="save" class:err={ed.saveState === 'error'} title={ed.saveError || `Saving to ${store.label}`} data-testid="save-state">
-          <Icon name={ed.saveState === 'error' ? 'alert' : ed.saveState === 'saved' ? 'check' : 'cloud'} size={16} />
-          {SAVE_TEXT[ed.saveState]} · {store.label}
-        </span>
+        <button class="hb icon" title="Home" aria-label="Home" onclick={() => router.go({ name: 'home' })} data-testid="home"><Icon name="home" size={22} /></button>
         <div class="dl-wrap">
-          <button class="btn ghost light" onclick={(e) => { e.stopPropagation(); showResize = !showResize; }} data-testid="resize"><Icon name="resize" size={16} /> Resize</button>
+          <button class="hb" class:open={showFile} onclick={(e) => { e.stopPropagation(); showResize = false; showDownload = false; showFile = !showFile; }} data-testid="file-menu">File</button>
+          {#if showFile}<FileMenu {ed} bleed={ed.doc.bleed} onclose={() => (showFile = false)} ondownload={() => { showFile = false; showDownload = true; }} />{/if}
+        </div>
+        <div class="dl-wrap">
+          <button class="hb" class:open={showResize} onclick={(e) => { e.stopPropagation(); showFile = false; showResize = !showResize; }} data-testid="resize">Resize</button>
           {#if showResize}<ResizeDialog ed={ed} onclose={() => (showResize = false)} />{/if}
         </div>
+        <span class="sep"></span>
+        <button class="hb icon" title="Undo (⌘Z)" aria-label="Undo" disabled={!ed.canUndo} onclick={() => ed!.undo()} data-testid="undo"><Icon name="undo" size={20} /></button>
+        <button class="hb icon" title="Redo (⇧⌘Z)" aria-label="Redo" disabled={!ed.canRedo} onclick={() => ed!.redo()} data-testid="redo"><Icon name="redo" size={20} /></button>
+        <span class="save hb icon" class:err={ed.saveState === 'error'} class:busy={ed.saveState !== 'saved' && ed.saveState !== 'error'} title="{ed.saveError || SAVE_TIP[ed.saveState]} · {store.label}" data-testid="save-state">
+          <Icon name={ed.saveState === 'error' ? 'alert' : ed.saveState === 'saved' ? 'cloudok' : 'cloud'} size={22} />
+          <span class="sr-only">{SAVE_TEXT[ed.saveState]} · {store.label}</span>
+        </span>
       </div>
-      <input class="title" value={ed.doc.title} aria-label="Design title" data-testid="title"
-        onchange={(e) => ed!.rename((e.currentTarget as HTMLInputElement).value)}
-        onkeydown={(e) => e.key === 'Enter' && (e.currentTarget as HTMLInputElement).blur()} />
       <div class="right">
+        <input class="title" value={ed.doc.title} aria-label="Design title" data-testid="title" size={Math.max(8, Math.min(40, ed.doc.title.length + 1))}
+          onchange={(e) => ed!.rename((e.currentTarget as HTMLInputElement).value)}
+          onkeydown={(e) => e.key === 'Enter' && (e.currentTarget as HTMLInputElement).blur()} />
         <div class="dl-wrap">
-          <button class="btn primary" onclick={(e) => { e.stopPropagation(); showDownload = !showDownload; }} data-testid="download"><Icon name="download" size={16} /> Download</button>
+          <button class="share" onclick={(e) => { e.stopPropagation(); showFile = false; showDownload = !showDownload; }} data-testid="download"><Icon name="download" size={18} /> Download</button>
           {#if showDownload}
             <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
             <div class="dl" onclick={(e) => e.stopPropagation()}>
+              <h4>Download</h4>
               <label class="field">File type
                 <select class="input" bind:value={dl.format} data-testid="dl-format" onchange={() => { if (dl.format === 'pdf' || dl.format === 'pdfv') dl.pages = 'all'; }}><option value="png">PNG</option><option value="jpeg">JPG</option><option value="pdfv">PDF (vector)</option><option value="pdf">PDF (print, flattened)</option><option value="svg">SVG</option>{#if isVideo(ed.doc)}<option value="mp4">MP4 video</option>{/if}</select>
               </label>
@@ -248,56 +259,44 @@
 
     <div class="body">
       <SidePanel {ed} />
-      <div class="center-col">
+      <main class="work">
+        <div class="ctxrow"><ContextToolbar {ed} /></div>
         <Canvas {ed} bind:zoom bind:this={canvas} {fitRequest} />
         {#if isVideo(ed.doc)}<Timeline {ed} />{/if}
-        <footer class="bottom">
-          <div class="foot-left">
-            <ViewMenu bleed={ed.doc.bleed} />
-            <span class="pages">Page {ed.pageIndex + 1} / {ed.doc.pages.length}</span>
-          </div>
-          <div class="zoom">
-            <input type="range" min="0.05" max="4" step="0.01" value={zoom} aria-label="Zoom" oninput={(e) => canvas?.setZoom(Number((e.currentTarget as HTMLInputElement).value))} />
-            <span data-testid="zoom">{Math.round(zoom * 100)}%</span>
-            <button class="btn ghost icon" title="Fit (⌘0)" aria-label="Fit page" onclick={() => fitRequest++}><Icon name="fit" /></button>
-          </div>
-        </footer>
-      </div>
-      <Properties {ed} />
+        <BottomBar {ed} {zoom} onzoom={(z) => canvas?.setZoom(z)} onfit={() => fitRequest++} />
+      </main>
     </div>
   </div>
 {/if}
 
 <style>
-  .center { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--muted); }
-  .spinner { width: 28px; height: 28px; border-radius: 50%; border: 3px solid #ddd; border-top-color: var(--accent); animation: spin 0.8s linear infinite; }
+  .center { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--muted); background: var(--stage); }
+  .spinner { width: 28px; height: 28px; border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--accent); animation: spin 0.8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .editor { height: 100%; display: flex; flex-direction: column; }
-  .top { height: 56px; flex-shrink: 0; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px; padding: 0 12px;
-    background: linear-gradient(90deg, #5b3df5, #7c5cff 45%, #0fb5c0); color: #fff; }
+  .editor { height: 100%; display: flex; flex-direction: column; background: var(--rail); }
+  .top { height: 57px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 8px 0 12px; background: var(--header); color: #fff; }
   .left, .right { display: flex; align-items: center; gap: 4px; min-width: 0; }
-  .right { justify-content: flex-end; }
-  .light { color: #fff; }
-  .light:hover:not(:disabled) { background: rgba(255,255,255,.16); }
-  .sep { width: 1px; height: 22px; background: rgba(255,255,255,.3); margin: 0 6px; }
-  .save { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; opacity: .9; margin-left: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .save.err { color: #ffd2d2; opacity: 1; }
-  .title { width: min(360px, 34vw); height: 34px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: #fff; text-align: center; font-weight: 700; padding: 0 10px; }
-  .title:hover { border-color: rgba(255,255,255,.35); }
-  .title:focus { background: rgba(0,0,0,.18); outline: none; border-color: rgba(255,255,255,.6); }
+  .hb { height: 40px; padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 0; border-radius: 12px; background: transparent; color: #fff; font-size: 14px; font-weight: 600; white-space: nowrap; }
+  .hb.icon { width: 40px; padding: 0; }
+  .hb:hover:not(:disabled), .hb.open { background: rgba(255,255,255,.15); }
+  .hb:disabled { opacity: .45; cursor: default; }
+  .sep { width: 1px; height: 24px; background: rgba(255,255,255,.35); margin: 0 6px; }
+  .save { cursor: default; }
+  .save.busy { opacity: .7; }
+  .save.err { color: #ffd2d2; }
+  .title { height: 40px; max-width: 360px; border-radius: 12px; border: 1px solid transparent; background: transparent; color: #fff; font-weight: 600; font-size: 14px; padding: 0 12px; text-align: right; }
+  .title:hover { border-color: rgba(255,255,255,.4); }
+  .title:focus { background: rgba(0,0,0,.18); outline: none; border-color: rgba(255,255,255,.7); text-align: left; }
   .dl-wrap { position: relative; }
-  .btn.primary { background: #fff; color: var(--accent); }
-  .dl { position: absolute; right: 0; top: 42px; width: 280px; background: #fff; color: var(--ink); border-radius: 12px; box-shadow: var(--shadow); padding: 14px; display: flex; flex-direction: column; gap: 10px; z-index: 20; border: 1px solid var(--line); }
-  .dl .btn.primary { background: linear-gradient(135deg, var(--accent), #9b7bff); color: #fff; }
+  .share { height: 40px; padding: 0 16px; display: inline-flex; align-items: center; gap: 8px; border: 0; border-radius: 12px; background: rgba(255,255,255,.9); color: #0d1216; font-size: 14px; font-weight: 600; margin-left: 8px; }
+  .share:hover { background: #fff; }
+  .dl { position: absolute; right: 0; top: 48px; width: 320px; background: var(--pop); color: var(--ink); border-radius: 12px; box-shadow: var(--shadow); padding: 16px; display: flex; flex-direction: column; gap: 12px; z-index: 50; border: 1px solid var(--line); }
+  .dl h4 { margin: 0; font-size: 16px; }
+  .dl .btn.primary { height: 40px; }
   .dims { font-size: 12px; color: var(--muted); margin-top: -6px; }
   .check { display: flex; gap: 8px; align-items: center; font-size: 13px; }
   .note { font-size: 12px; color: var(--muted); margin: 0; }
   .body { flex: 1; display: flex; min-height: 0; }
-  .center-col { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-  .bottom { height: 40px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; background: #fff; border-top: 1px solid var(--line); font-size: 13px; }
-  .pages { color: var(--muted); font-weight: 600; }
-  .foot-left { display: flex; align-items: center; gap: 8px; }
-  .zoom { display: flex; align-items: center; gap: 8px; }
-  .zoom input { width: 140px; accent-color: var(--accent); }
-  .zoom span { width: 44px; text-align: right; font-variant-numeric: tabular-nums; }
+  .work { position: relative; flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--stage); border-top-left-radius: 16px; overflow: hidden; }
+  .ctxrow { position: relative; z-index: 30; height: 64px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 </style>

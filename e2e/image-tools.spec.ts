@@ -107,6 +107,7 @@ test('adjust: saturation slider turns the photo grey; undo restores it', async (
   const cx = img.x + img.w / 2, cy = img.y + img.h / 2;
   expect((await pixel(page, cx, cy))[0]).toBeGreaterThan(240);
 
+  await page.getByTestId('edit-image').click();
   await page.getByTestId('imgtab-adjust').click();
   await slide(page.getByTestId('adj-saturation'), -100);
   expect((await el0(page)).adjust).toEqual({ saturation: -100 });
@@ -127,6 +128,7 @@ test('filters: previews, Mono at full and zero intensity', async ({ page }) => {
   await newDesign(page);
   const img = await upload(page, await png(page, 200, 200, '#ff2020'));
   const cx = img.x + img.w / 2, cy = img.y + img.h / 2;
+  await page.getByTestId('edit-image').click();
   await page.getByTestId('imgtab-filters').click();
   await expect(page.locator('[data-testid^="filter-"] img')).toHaveCount(13); // None + 12
   await page.getByTestId('filter-mono').click();
@@ -149,6 +151,7 @@ test('effects: drop shadow paints below-right of the image', async ({ page }) =>
   const px = img.x + img.w + 6, py = img.y + img.h + 6;
   expect(await pixel(page, px, py)).toEqual([255, 255, 255, 255]);
 
+  await page.getByTestId('edit-image').click();
   await page.getByTestId('imgtab-effects').click();
   await page.getByTestId('img-effect').selectOption('shadow');
   expect((await el0(page)).effect.type).toBe('shadow');
@@ -180,6 +183,7 @@ test('background remover (stub model): new PNG asset, original kept, restore and
       return new Uint8Array(await (await c.convertToBlob({ type: 'image/png' })).arrayBuffer());
     };
   });
+  await page.getByTestId('edit-image').click();
   await page.getByTestId('remove-bg').click();
   await expect.poll(async () => (await el0(page)).asset).not.toBe(img.asset);
   const el = await el0(page);
@@ -206,6 +210,7 @@ test('set an image as the page background', async ({ page }) => {
   await upload(page, await png(page, 300, 100, '#20a020'));
   const before = await elements(page);
   expect(before.map((e) => e.type)).toEqual(['shape', 'image']);
+  await page.getByTestId('more-btn').click();
   await page.getByTestId('set-bg').click();
   const d = await doc(page);
   const [bg] = await elements(page);

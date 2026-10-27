@@ -98,12 +98,12 @@
 </div>
 
 <style>
-  .resize { position: absolute; left: 0; top: 42px; width: 360px; background: #fff; color: var(--ink); border-radius: 12px; box-shadow: var(--shadow); padding: 14px; display: flex; flex-direction: column; gap: 10px; z-index: 20; border: 1px solid var(--line); }
+  .resize { position: absolute; left: 0; top: 42px; width: 360px; background: var(--pop); color: var(--ink); border-radius: 12px; box-shadow: var(--shadow); padding: 14px; display: flex; flex-direction: column; gap: 10px; z-index: 20; border: 1px solid var(--line); }
   .head { display: flex; align-items: center; justify-content: space-between; }
   .search { display: flex; align-items: center; gap: 6px; color: var(--muted); }
   .list { list-style: none; margin: 0; padding: 0; max-height: 280px; border: 1px solid var(--line); border-radius: 8px; }
   .list li label { display: flex; align-items: center; gap: 8px; padding: 6px 8px; cursor: pointer; font-size: 13px; }
-  .list li label:hover { background: #f4f5f8; }
+  .list li label:hover { background: var(--hover); }
   .list .n { flex: 1; }
   .list .s { color: var(--muted); font-size: 12px; white-space: nowrap; }
   .none { padding: 10px; color: var(--muted); font-size: 13px; }

@@ -84,6 +84,7 @@ test('frames: a photo goes into a circle frame and can be repositioned', async (
   const moved = (await elements(page))[0] as any;
   expect(moved.x).toBeCloseTo(filled.x, 1); // the frame stays
   expect(moved.crop.x).toBeLessThan(filled.crop.x); // the photo slid right
+  await page.getByTestId('edit-frame').click();
   await page.getByTestId('frame-zoom').fill('200');
   expect(((await elements(page))[0] as any).crop.w).toBeCloseTo(filled.crop.w / 2, 2);
 });
@@ -117,6 +118,7 @@ test('tables: add, type in a cell, add a row and colour a cell', async ({ page }
   expect(t2.cells[1][0].text).toBe('Espresso\nDouble shot');
   expect(t2.cells[1][1].text).toBe('€3.50');
   expect(t2.h).toBeGreaterThan(t!.h); // the row grew for two lines
+  await page.getByTestId('edit-table').click();
   await page.getByTestId('row-add').click();
   const [t3] = (await elements(page)) as any[];
   expect(t3.rows).toHaveLength(3);
@@ -131,6 +133,7 @@ test('charts: add a column chart, edit data, switch to donut', async ({ page }) 
   await page.getByTestId('chart-column').click();
   const [c] = (await elements(page)) as any[];
   expect(c.type).toBe('chart');
+  await page.getByTestId('edit-chart').click();
   await page.getByTestId('chart-value-0-0').fill('42');
   await page.getByTestId('chart-add-row').click();
   const [c2] = (await elements(page)) as any[];
@@ -148,6 +151,7 @@ test('QR code: generate, then change its text', async ({ page }) => {
   expect(q.type).toBe('path');
   expect(q.qr).toBe('https://digital-canvas-p977.web.app');
   expect(q.paths.at(-1).d.length).toBeGreaterThan(200);
+  await page.getByTestId('edit-qr').click();
   await page.getByTestId('qr-edit').fill('hello');
   await page.getByRole('button', { name: 'Update QR code' }).click();
   const [q2] = (await elements(page)) as any[];
@@ -171,6 +175,7 @@ test('icons: search Iconify (mocked) and insert a recolourable vector icon', asy
   expect(ic.name).toBe('mdi:home');
   expect(ic.viewBox).toEqual({ x: 0, y: 0, w: 24, h: 24 });
   expect(ic.paths[0].fill).toEqual({ type: 'solid', color: '#1f2328' });
+  await page.getByTestId('graphic-swatch-0').click();
   await page.getByTestId('graphic-color-0').fill('#ff0000');
   expect(((await elements(page))[0] as any).paths[0].fill.color).toBe('#ff0000');
 });
@@ -183,6 +188,7 @@ test('photos: search Openverse (mocked) and add a photo with its credit', async 
   }));
   await page.route('https://photos.example/green.png', (r) => r.fulfill({ body: png, contentType: 'image/png' }));
   await page.route('https://api.openverse.org/v1/images/abc/thumb/', (r) => r.fulfill({ body: png, contentType: 'image/png' }));
+  await page.getByTestId('tab-photos').click();
   await page.getByTestId('photo-search').fill('field');
   await page.getByTestId('photo-search').press('Enter');
   await page.getByTestId('photo-results').locator('button').first().click();
