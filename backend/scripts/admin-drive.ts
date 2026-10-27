@@ -60,7 +60,10 @@ if (cmd === 'list') {
     const fonts = new FontLibrary(ck);
     await fonts.loadBundled(new URL('../../apps/web/public/fonts/', import.meta.url).href, async (u) => readFileSync(new URL(u)).buffer as ArrayBuffer);
     const r = new Renderer(ck, fonts);
-    for (const [id, b] of file.assets) r.setImage(id, b);
+    for (const f of file.doc.fonts ?? []) { const b = file.assets.get(f.asset); if (b) fonts.add(f.family, b); }
+    // page 1's pictures only (a big design's don't all fit in WASM memory)
+    const json = JSON.stringify(file.doc.pages[0]);
+    for (const [id, b] of file.assets) if (json.includes(`"${id}"`) || (json.includes(`"${id.replace(/\.poster$/, '')}"`) && id.endsWith('.poster'))) r.setImage(id, b);
     file.thumbnail = r.exportPage(file.doc, file.doc.pages[0]!, { scale: Math.min(1, 480 / Math.max(file.doc.width, file.doc.height)) });
   }
   await store.save(file);
