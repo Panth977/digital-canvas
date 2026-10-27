@@ -17,28 +17,39 @@ import { createRequire } from 'node:module';
 import type { CanvasKit, Image } from 'canvaskit-wasm';
 import { FontLibrary, Renderer } from '@digital-canvas/render';
 import { join } from 'node:path';
-import { FORMAT, VERSION, newId, DEFAULT_TEXT_STYLE, type Doc, type Element, type Page, type TextAlign, type TextElement, type TextStyle } from '@digital-canvas/scene';
+import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import { FORMAT, VERSION, newId, line as lineElement, DEFAULT_TEXT_STYLE, type Doc, type Element, type Fill, type Page, type PathPart, type TextAlign, type TextElement, type TextStyle } from '@digital-canvas/scene';
 import { googleFontFull } from './google-fonts.ts';
 import { pack } from '@digital-canvas/storage';
 
+interface CanvaMedia { type?: 'image' | 'video'; mediaId?: string; videoId?: string; imageBox?: { top: number; left: number; width: number; height: number }; recoloring?: Record<string, string> }
+interface CanvaColor { color?: { type?: string; color?: string } }
+interface CanvaLineEnd { marker?: string; top: number; left: number }
+
 interface CanvaEl {
   id: string;
-  type: 'shape' | 'rect' | 'text' | 'group';
+  type: 'shape' | 'rect' | 'text' | 'group' | 'line' | 'unsupported';
   top: number;
   left: number;
   width: number;
   height: number;
   rotation: number;
   opacity: number;
-  paths?: { d: string; fill?: { color?: { color: string }; media?: { mediaId: string } } }[];
-  fill?: { media?: { mediaId: string; imageBox: { top: number; left: number; width: number; height: number }; recoloring?: Record<string, string> }; flipX?: boolean; flipY?: boolean };
+  paths?: { d: string; fill?: { color?: { color: string }; media?: CanvaMedia }; stroke?: { weight: number } & CanvaColor }[];
+  viewBox?: { top: number; left: number; width: number; height: number };
+  fill?: { media?: CanvaMedia; color?: { color: string }; flipX?: boolean; flipY?: boolean };
+  stroke?: { weight: number } & CanvaColor;
+  geometry?: 'straight' | 'curved' | 'elbowed';
+  start?: CanvaLineEnd;
+  end?: CanvaLineEnd;
   textRegions?: { characters: string; formatting: { fontSize: number; fontWeight: string; fontStyle: string; color: string; textAlign: string; decoration: string; strikethrough: string; lineHeight: number; letterSpacing: number; fontRef: string } }[];
   children?: CanvaEl[];
 }
 
 interface CanvaPage {
   dimensions: { width: number; height: number };
-  background?: { color?: { color: string }; media?: { mediaId: string } };
+  background?: { color?: { type?: string; color?: string; stops?: { color: string; position: number; opacity?: number }[]; rotation?: number }; media?: CanvaMedia; flipX?: boolean; flipY?: boolean };
   elements: CanvaEl[];
 }
 
@@ -47,6 +58,9 @@ const fontsAt = argv.indexOf('--fonts');
 const fontsFile = fontsAt >= 0 ? argv.splice(fontsAt, 2)[1] : undefined;
 const cropsAt = argv.indexOf('--crops');
 const cropsDir = cropsAt >= 0 ? argv.splice(cropsAt, 2)[1] : undefined;
+/** Canva's original assets (`<mediaId>.png`, `<videoId>.mp4`), exported one per page from Canva. */
+const exactAt = argv.indexOf('--exact');
+const exactDir = exactAt >= 0 ? argv.splice(exactAt, 2)[1] : undefined;
 const [pagesArg, assetsDir, out, title = 'Imported from Canva'] = argv;
 if (!pagesArg || !assetsDir || !out) {
   console.error('usage: tsx tools/canva-import.ts <page.json>[,…] <assets-dir> <out.dcanvas> [title]');
@@ -57,6 +71,78 @@ const gaps = new Map<string, number>();
 const gap = (what: string) => gaps.set(what, (gaps.get(what) ?? 0) + 1);
 const assets = new Map<string, Uint8Array>();
 const assetMeta: Doc['assets'] = {};
+
+const EXT: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'video/mp4': 'mp4', 'font/ttf': 'ttf' };
+/** Content-hash id, the same as `assetId` in the app (so Drive can share assets between designs). */
+function hashId(bytes: Uint8Array, mime: string): string {
+  return `${createHash('sha256').update(bytes).digest('hex').slice(0, 20)}.${EXT[mime] ?? 'bin'}`;
+}
+function addAsset(bytes: Uint8Array, mime: string, meta: Omit<Doc['assets'][string], 'mime'> = {}): string {
+  const id = hashId(bytes, mime);
+  if (!assets.has(id)) {
+    assets.set(id, bytes);
+    assetMeta[id] = { mime, ...meta };
+  }
+  return id;
+}
+
+/** An exact Canva image asset (recoloured like Canva when the element says so), or null. */
+function exactImage(m: CanvaMedia): string | null {
+  const mid = m.mediaId;
+  if (!exactDir || !mid) return null;
+  const file = join(exactDir, `${mid}.png`);
+  if (!existsSync(file)) return null;
+  let bytes: Uint8Array = new Uint8Array(readFileSync(file));
+  if (m.recoloring && Object.keys(m.recoloring).length) {
+    bytes = recolour(bytes, m.recoloring);
+    gap('recoloured graphics');
+  }
+  return addAsset(bytes, 'image/png', { ...pngSize(bytes), name: mid });
+}
+
+const probed = new Map<string, { id: string; duration: number }>();
+/** An exact Canva video asset with its poster frame, or null. */
+function exactVideo(m: CanvaMedia): { id: string; duration: number } | null {
+  const vid = m.videoId;
+  if (!exactDir || !vid) return null;
+  if (probed.has(vid)) return probed.get(vid)!;
+  const file = join(exactDir, `${vid}.mp4`);
+  if (!existsSync(file)) return null;
+  const bytes = new Uint8Array(readFileSync(file));
+  const info = JSON.parse(execFileSync('ffprobe', ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', file]).toString());
+  const vs = info.streams.find((x: { codec_type: string }) => x.codec_type === 'video');
+  const duration = Number(info.format.duration) || 0;
+  const id = addAsset(bytes, 'video/mp4', { width: vs?.width, height: vs?.height, duration, name: vid });
+  const poster = new Uint8Array(execFileSync('ffmpeg', ['-v', 'error', '-ss', '0.05', '-i', file, '-frames:v', '1', '-f', 'image2', '-vcodec', 'png', '-']));
+  assets.set(`${id}.poster`, poster);
+  assetMeta[`${id}.poster`] = { mime: 'image/png', ...pngSize(poster), name: `${vid} (poster)` };
+  const r = { id, duration };
+  probed.set(vid, r);
+  return r;
+}
+
+/** Which part of an image fills the element box, from Canva's imageBox (relative to the box). */
+function cropOf(box: { width: number; height: number }, ib?: { top: number; left: number; width: number; height: number }) {
+  if (!ib) return { x: 0, y: 0, w: 1, h: 1 };
+  return { x: -ib.left / ib.width, y: -ib.top / ib.height, w: box.width / ib.width, h: box.height / ib.height };
+}
+
+const solid = (c?: { color?: string }): Fill | null => (c?.color ? { type: 'solid', color: c.color } : null);
+
+/** Line end markers as small paths in page coordinates, pointing along (dx, dy). */
+function marker(kind: string | undefined, x: number, y: number, dx: number, dy: number, w: number): PathPart[] {
+  const k = (kind ?? 'NONE').toUpperCase();
+  if (k === 'NONE') return [];
+  const len = Math.hypot(dx, dy) || 1, ux = dx / len, uy = dy / len, px = -uy, py = ux;
+  const s = Math.max(3, w) * 3;
+  const pt = (a: number, b: number) => `${(x + ux * a + px * b).toFixed(2)} ${(y + uy * a + py * b).toFixed(2)}`;
+  if (k === 'ARROW') return [{ d: `M${pt(-s, s * 0.6)}L${pt(0, 0)}L${pt(-s, -s * 0.6)}`, fill: null, stroke: null }];
+  if (k === 'TRIANGLE') return [{ d: `M${pt(0, 0)}L${pt(-s, s * 0.55)}L${pt(-s, -s * 0.55)}Z`, fill: { type: 'solid', color: '#000' }, stroke: null }];
+  if (k === 'BAR') return [{ d: `M${pt(0, s * 0.5)}L${pt(0, -s * 0.5)}`, fill: null, stroke: null }];
+  if (k.includes('CIRCLE')) return [{ d: `M${pt(-s * 0.4, 0)}a${s * 0.4} ${s * 0.4} 0 1 0 ${(ux * s * 0.8).toFixed(2)} ${(uy * s * 0.8).toFixed(2)}a${s * 0.4} ${s * 0.4} 0 1 0 ${(-ux * s * 0.8).toFixed(2)} ${(-uy * s * 0.8).toFixed(2)}Z`, fill: k.startsWith('OPEN') ? null : { type: 'solid', color: '#000' }, stroke: null }];
+  if (k.includes('SQUARE') || k.includes('DIAMOND')) return [{ d: `M${pt(0, 0)}L${pt(-s * 0.5, s * 0.5)}L${pt(-s, 0)}L${pt(-s * 0.5, -s * 0.5)}Z`, fill: k.startsWith('OPEN') ? null : { type: 'solid', color: '#000' }, stroke: null }];
+  return [];
+}
 
 function pngSize(b: Uint8Array): { width: number; height: number } {
   const v = new DataView(b.buffer, b.byteOffset, b.byteLength);
@@ -94,6 +180,8 @@ let cropN = 0;
 /** Text boxes of the current page in Canva's drawing order, for scrubbing their pixels out of photo crops. */
 let pageTexts: { order: number; x: number; y: number; w: number; h: number; color: number[] }[] = [];
 let leafOrder = 0;
+/** Longest video clip on the page being converted (its duration in a video design). */
+let videoOnPage = 0;
 /** Plate mode (with --crops): Canva's text is painted out of its export, every picture is cut from that clean plate. */
 const plateMode = !!cropsDir;
 /** Area of the page being converted (px²). */
@@ -311,10 +399,67 @@ function convert(el: CanvaEl): Element[] {
   const myOrder = el.type === 'group' ? -1 : leafOrder++;
   const base = { id: newId('e_'), x: el.left, y: el.top, w: el.width, h: el.height, rotation: el.rotation ?? 0, opacity: el.opacity ?? 1 };
   if (el.type === 'group') {
-    gap('groups flattened (no group element yet)');
-    return (el.children ?? []).flatMap(convert);
+    const children = (el.children ?? []).flatMap(convert);
+    if (!exactDir || children.length < 2) {
+      gap('groups flattened');
+      return children;
+    }
+    // Canva groups stay groups (children keep page coordinates, like ours).
+    return [{ ...base, type: 'group', children }];
   }
-  if (plateMode && pageShot && (el.type === 'rect' && el.fill?.media || el.type === 'shape' && el.paths?.some((p) => p.fill?.media))) {
+  if (exactDir && el.type === 'rect' && el.fill?.media) {
+    const m = el.fill.media;
+    if (m.type === 'video') {
+      const v = exactVideo(m);
+      if (v) {
+        videoOnPage = Math.max(videoOnPage, v.duration);
+        return [{ ...base, type: 'video', asset: v.id, radius: 0, crop: cropOf(el, m.imageBox), flipX: el.fill.flipX || undefined, flipY: el.fill.flipY || undefined }];
+      }
+    } else {
+      const id = exactImage(m);
+      if (id) return [{ ...base, type: 'image', asset: id, radius: 0, crop: cropOf(el, m.imageBox), flipX: el.fill.flipX || undefined, flipY: el.fill.flipY || undefined }];
+    }
+    gap('assets not exported from Canva (cut from its render instead)');
+  }
+  if (exactDir && el.type === 'shape' && el.paths?.length && !el.paths.some((p) => p.fill?.media)) {
+    const vb = el.viewBox ?? { top: 0, left: 0, width: el.width, height: el.height };
+    const paths: PathPart[] = el.paths.map((p) => ({
+      d: p.d,
+      fill: solid(p.fill?.color),
+      stroke: p.stroke && p.stroke.weight > 0 && p.stroke.color?.color ? { color: p.stroke.color.color, width: p.stroke.weight } : null,
+    }));
+    if (!paths.some((p) => p.fill || p.stroke)) return [];
+    return [{ ...base, type: 'path', viewBox: { x: vb.left, y: vb.top, w: vb.width, h: vb.height }, paths }];
+  }
+  if (exactDir && el.type === 'rect' && el.fill?.color) {
+    return [{ ...base, type: 'shape', shape: 'rect', fill: { type: 'solid', color: el.fill.color.color }, stroke: null, radius: 0 }];
+  }
+  if (exactDir && el.type === 'line' && el.start && el.end) {
+    // A real (editable) line: Canva's ends, weight, colour, markers and route.
+    const mk = (m?: string) => (({ ARROW: 'arrow', TRIANGLE: 'triangle', BAR: 'bar', CIRCLE: 'circle', OPEN_CIRCLE: 'circle', SQUARE: 'square', OPEN_SQUARE: 'square', DIAMOND: 'square', OPEN_DIAMOND: 'square' } as Record<string, 'arrow' | 'triangle' | 'bar' | 'circle' | 'square'>)[(m ?? '').toUpperCase()] ?? 'none');
+    const route = el.geometry === 'curved' ? 'curved' : el.geometry === 'elbowed' ? 'elbow' : 'straight';
+    if (route !== 'straight') gap('curved/elbow lines (route shape approximated)');
+    const ln = lineElement({ x: el.start.left, y: el.start.top }, { x: el.end.left, y: el.end.top }, {
+      stroke: { color: el.stroke?.color?.color ?? '#000000', width: el.stroke?.weight ?? 2 },
+      route, start: mk(el.start.marker), end: mk(el.end.marker),
+    });
+    return [{ ...ln, opacity: base.opacity }];
+  }
+  if (exactDir && el.type === 'shape' && el.paths?.length === 1 && el.paths[0]!.fill?.media) {
+    // A picture inside a shape (Canva frame): the image, masked by the shape's path.
+    const p0 = el.paths[0]!;
+    const id = exactImage(p0.fill!.media!);
+    if (id) {
+      const vb = el.viewBox ?? { top: 0, left: 0, width: el.width, height: el.height };
+      const img: Element = { ...base, type: 'image', asset: id, radius: 0, crop: cropOf(el, p0.fill!.media!.imageBox), mask: { d: p0.d, viewBox: { x: vb.left, y: vb.top, w: vb.width, h: vb.height } } };
+      const out: Element[] = [img];
+      if (p0.stroke && p0.stroke.weight > 0 && p0.stroke.color?.color) {
+        out.push({ ...base, id: newId('e_'), type: 'path', viewBox: { x: vb.left, y: vb.top, w: vb.width, h: vb.height }, paths: [{ d: p0.d, fill: null, stroke: { color: p0.stroke.color.color, width: p0.stroke.weight } }] });
+      }
+      return out;
+    }
+  }
+  if (plateMode && pageShot && (el.type === 'rect' && el.fill?.media || el.type === 'shape' && el.paths?.some((p) => p.fill?.media) || exactDir && (el.type === 'line' || el.type === 'unsupported'))) {
     // Every picture comes from the text-free plate (it already holds Canva's own pixels, opacity included).
     const r = ((el.rotation ?? 0) * Math.PI) / 180;
     const cx = el.left + el.width / 2, cy = el.top + el.height / 2;
@@ -510,6 +655,7 @@ function makePlate(cp: CanvaPage): void {
       }
     }
     textById.set(e.id, t);
+    elementMap[e.id] = t.id;
   }
   const surface = ck.MakeSurface(W, H)!;
   const c = surface.getCanvas();
@@ -572,6 +718,9 @@ const first = canvaPages[0]!;
     }
   }
 }
+const pageDurations: number[] = [];
+/** Canva text element id → our element id (for tools/canva-align.ts). */
+const elementMap: Record<string, string> = {};
 const pages: Page[] = canvaPages.map((cp, i) => {
   if (process.env.DEBUG) console.error(`page ${i + 1}`, process.memoryUsage().rss >> 20, "MB rss");
   const shotFile = cropsDir ? join(cropsDir, `page${i + 1}.png`) : '';
@@ -600,12 +749,31 @@ const pages: Page[] = canvaPages.map((cp, i) => {
   pageTexts.forEach((t, i) => (t.order = i));
   pageTexts = pageTexts.filter((t) => t.color.length);
   leafOrder = 0;
-  return {
+  videoOnPage = 0;
+  const bg = cp.background;
+  const bgFill: Fill = bg?.color?.type === 'linear_gradient' && bg.color.stops?.length
+    ? { type: 'linear', angle: bg.color.rotation ?? 90, stops: bg.color.stops.map((st) => ({ offset: st.position, color: st.color })) }
+    : { type: 'solid', color: bg?.color?.color ?? '#ffffff' };
+  const page: Page = {
     id: newId('p_'),
-    background: { type: 'solid', color: cp.background?.color?.color ?? '#ffffff' },
+    background: bgFill,
     // Text always on top: substituted fonts run wider than the originals and must not hide under photos.
     elements: (() => {
       const els = cp.elements.flatMap(convert);
+      // The page's own picture or video (Canva's background media), under everything.
+      if (exactDir && bg?.media) {
+        const box = { width: cp.dimensions.width, height: cp.dimensions.height };
+        const common = { id: newId('e_'), name: 'Background', x: 0, y: 0, w: box.width, h: box.height, rotation: 0, opacity: 1, radius: 0, locked: true, crop: cropOf(box, bg.media.imageBox), flipX: bg.flipX || undefined, flipY: bg.flipY || undefined };
+        if (bg.media.type === 'video') {
+          const v = exactVideo(bg.media);
+          if (v) { videoOnPage = Math.max(videoOnPage, v.duration); els.unshift({ ...common, type: 'video', asset: v.id }); }
+        } else {
+          const id = exactImage(bg.media);
+          if (id) els.unshift({ ...common, type: 'image', asset: id });
+        }
+        if (els[0]?.name === 'Background') return els;
+      }
+      if (exactDir) return els; // exact assets keep Canva's stacking order
       // A background picture: the plate under everything (Canva's page background is not a plain colour).
       if (plateMode && cp.background?.media && pageShot) {
         const bytes = cropShot(0, 0, cp.dimensions.width, cp.dimensions.height, -1, false);
@@ -627,7 +795,11 @@ const pages: Page[] = canvaPages.map((cp, i) => {
       return [...kept.filter((e) => e.type !== 'text'), ...kept.filter((e) => e.type === 'text')];
     })(),
   };
+  pageDurations[i] = videoOnPage;
+  return page;
 });
+// A design with video clips is a video: each page lasts as long as its longest clip (Canva's default 5 s otherwise).
+if (pageDurations.some((d) => d > 0)) pages.forEach((p, i) => (p.duration = Math.round((pageDurations[i]! || 5) * 1000) / 1000));
 const now = new Date().toISOString();
 const doc: Doc = {
   format: FORMAT, version: VERSION, id: newId('d_'), title, unit: 'px',
@@ -635,5 +807,6 @@ const doc: Doc = {
   pages, assets: assetMeta, ...(embedded.length ? { fonts: embedded } : {}), createdAt: now, updatedAt: now,
 };
 writeFileSync(out, pack({ doc, assets }));
+writeFileSync(`${out}.map.json`, JSON.stringify(elementMap));
 console.log(`wrote ${out}: ${pages.length} page(s), ${pages.reduce((n, p) => n + p.elements.length, 0)} elements, ${assets.size} images`);
 for (const [g, n] of gaps) console.log(`  gap: ${g} ×${n}`);

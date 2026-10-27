@@ -180,6 +180,18 @@ export interface ImageElement extends ElementBase, ImageLook {
   crop?: { x: number; y: number; w: number; h: number };
   /** The asset before its background was removed (kept so it can be restored). */
   original?: string;
+  /**
+   * Frame: the image shows only inside this shape (a shape kind, or SVG path
+   * `d` in `viewBox` units scaled to the box). An empty `asset` is an empty
+   * frame waiting for a photo.
+   */
+  mask?: ShapeKind | MaskPath;
+}
+
+/** A frame outline in its own units, stretched over the element's box. */
+export interface MaskPath {
+  d: string;
+  viewBox: { x: number; y: number; w: number; h: number };
 }
 
 /** A video clip on the page. Plays while its page is on screen (from the page's start). */
@@ -204,6 +216,8 @@ export interface PathPart {
   d: string;
   fill: Fill | null;
   stroke: Stroke | null;
+  /** Fill with the even-odd rule (SVG `fill-rule="evenodd"`). */
+  evenOdd?: boolean;
 }
 
 /**
@@ -214,10 +228,103 @@ export interface PathElement extends ElementBase {
   type: 'path';
   viewBox: { x: number; y: number; w: number; h: number };
   paths: PathPart[];
+  /** A QR code: the text it encodes (so it can be changed later). */
+  qr?: string;
 }
 
-export type Element = ShapeElement | TextElement | ImageElement | VideoElement | PathElement;
+/**
+ * Elements that move, resize and rotate together. `children` are stored in
+ * **page coordinates** (like any top-level element), so hit testing, snapping
+ * and drawing need no extra transform. The group's own box is the frame the
+ * children were laid out in: changing it (`updateElements`) transforms the
+ * children with it, and changing a child refits the box. The renderer draws
+ * the children as they are and applies only the group's `opacity`.
+ */
+export interface GroupElement extends ElementBase {
+  type: 'group';
+  children: Element[];
+}
+
+
+// ---- lines, connectors, tables, charts (M6) ----
+
+export type LineMarker = 'none' | 'arrow' | 'triangle' | 'circle' | 'square' | 'bar';
+export type LineRoute = 'straight' | 'elbow' | 'curved';
+
+/** A connector end stuck to an element: `point` is a spot in its box as fractions (0.5, 0.5 = centre). */
+export interface Attach {
+  elementId: string;
+  point: { x: number; y: number };
+}
+
+export interface LineEnd {
+  /** Relative to the line's box top-left, px. */
+  x: number;
+  y: number;
+  marker: LineMarker;
+  /** Connector: the end follows this element. */
+  attach?: Attach;
+}
+
+/** A line or arrow between two points; the box is the bounds of the two ends. */
+export interface LineElement extends ElementBase {
+  type: 'line';
+  start: LineEnd;
+  end: LineEnd;
+  stroke: Stroke;
+  route: LineRoute;
+}
+
+export interface TableCell {
+  text: string;
+  fill?: Color;
+  /** Overrides the table's text style for this cell. */
+  style?: Partial<TextStyle>;
+}
+
+export interface TableElement extends ElementBase {
+  type: 'table';
+  /** Column widths and row heights as fractions of the box (each list sums to 1). */
+  cols: number[];
+  rows: number[];
+  /** `cells[row][col]`. */
+  cells: TableCell[][];
+  style: TextStyle;
+  border: Stroke | null;
+  /** Space inside each cell, px. */
+  padding: number;
+}
+
+export type ChartKind = 'column' | 'bar' | 'line' | 'area' | 'pie' | 'donut';
+
+export interface ChartSeries {
+  name: string;
+  /** One value per label. */
+  values: number[];
+}
+
+export interface ChartElement extends ElementBase {
+  type: 'chart';
+  chart: ChartKind;
+  labels: string[];
+  series: ChartSeries[];
+  /** Series colours (slice colours for pie and donut); repeated when short. */
+  colors: Color[];
+  style: { fontFamily: string; fontSize: number; color: Color };
+  legend: boolean;
+  grid: boolean;
+  /** Write each value on its bar, point or slice. */
+  values?: boolean;
+}
+
+export type Element = ShapeElement | TextElement | ImageElement | VideoElement | PathElement | LineElement | TableElement | ChartElement | GroupElement;
 export type ElementType = Element['type'];
+
+/** A ruler guide: a vertical line at `x = pos` (axis 'x') or a horizontal one at `y = pos`, page px. */
+export interface Guide {
+  axis: 'x' | 'y';
+  pos: number;
+}
 
 export interface Page {
   id: string;
@@ -227,6 +334,8 @@ export interface Page {
   elements: Element[];
   /** Seconds this page shows in a video or presentation (default 5). */
   duration?: number;
+  /** Ruler guides on this page (elements snap to them). */
+  guides?: Guide[];
 }
 
 /** A sound on the design's timeline (music, voice-over). */

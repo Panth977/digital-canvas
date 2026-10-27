@@ -1,9 +1,14 @@
 import {
   History, newId, addAudio, addElements, pageDuration, removeAudio, totalDuration, updateAudio, video, addPage, arrange, commonStyle, duplicateElements, duplicatePage, findElement, image, movePage,
-  normalizeRuns, pruneAssets, pruneFonts, removeElements, removePage, setAsBackground, setTitle, shape, styleRange, text, updateElements, updatePage,
+  normalizeRuns, pruneAssets, pruneFonts, removeElements, removePage, setAsBackground, setTitle, shape, styleRange, text, updateElements, updatePage, lineEnds, pathElement,
   type Arrange, type ImageLook, type AudioClip, type Doc, type Element, type ElementPatch, type EmbeddedFont, type Page, type ShapeKind, type TextElement, type TextRun, type TextStyle,
+  childrenOf, cloneElement, distribute, groupElements, resizeDoc, tidyUp, ungroupElements, walk, type ResizeTarget,
 } from '@digital-canvas/scene';
-import { Renderer } from '@digital-canvas/render';
+import { Renderer, exportSvg, exportVectorPdf } from '@digital-canvas/render';
+import {
+  chart, coverCrop, followConnectors, frame, FRAMES, freehand, grid, isFrame, line, parseSvg, qrCode, qrUpdate, setLineEnds, table, tableCellText, tableFitRows,
+  tableSetCell, type Attach, type Brush, type ChartKind, type LineElement, type LineMarker, type LineRoute, type Stroke, type TableElement,
+} from '@digital-canvas/scene';
 import { assetId, type ProjectFile, type ProjectStore } from '@digital-canvas/storage';
 import type { Engine } from './engine.ts';
 import { isImage } from './files.ts';
@@ -97,6 +102,7 @@ export class EditorState {
 
   /** Apply a new doc. Same `key` as the last commit = same undo step (drags, sliders). */
   commit(next: Doc, key: string | null = null): void {
+    next = followConnectors(next); // connectors keep up with what they are stuck to
     if (next === this.doc) return;
     this.history.push(next, key);
     this.doc = next;
@@ -145,6 +151,9 @@ export class EditorState {
     }
     if (this.editingTextId && !ids.includes(this.editingTextId)) this.stopEditing();
     if (this.croppingId && !ids.includes(this.croppingId)) this.stopCrop();
+    if (this.framePanId && !ids.includes(this.framePanId)) this.framePanId = null;
+    if (this.cell && !ids.includes(this.cell.id)) this.cell = null;
+    if (this.editingCell && !ids.includes(this.editingCell.id)) this.stopCellEdit();
   }
 
   selectAll(): void {
@@ -304,7 +313,7 @@ export class EditorState {
   // ---- fonts ----
 
   private registerFont(f: EmbeddedFont, bytes: Uint8Array): void {
-    this.engine.fonts.addOnce(f.family, f.asset, bytes, f.subset);
+    this.engine.fonts.addOnce(f.family, f.asset, bytes, f.subset, { weight: f.weight, italic: f.italic });
     addCssFace(f.family, f.asset, bytes, f.weight ?? 400, f.italic ?? false);
   }
 
@@ -348,7 +357,7 @@ export class EditorState {
   /** Re-measure text boxes (after fonts load). */
   refitText(): void {
     const ids: string[] = [];
-    for (const p of this.doc.pages) for (const e of p.elements) if (e.type === 'text' && Math.abs(this.renderer.fitText(e).h - e.h) > 0.5) ids.push(e.id);
+    for (const p of this.doc.pages) for (const e of walk(p.elements)) if (e.type === 'text' && Math.abs(this.renderer.fitText(e).h - e.h) > 0.5) ids.push(e.id);
     if (ids.length) this.commit(updateElements(this.doc, ids, (e) => (e.type === 'text' ? this.fitPatch(e) : {})), 'refit');
   }
 
@@ -522,7 +531,7 @@ export class EditorState {
 
   paste(): void {
     if (!this.clipboard.length) return;
-    const copies = this.clipboard.map((e) => ({ ...structuredClone(e), id: newId('e_'), x: e.x + 20, y: e.y + 20 }));
+    const copies = this.clipboard.map((e) => cloneElement(e, 20, 20));
     this.clipboard = copies;
     this.commit(addElements(this.doc, this.pageId, copies));
     this.seal();
@@ -556,6 +565,50 @@ export class EditorState {
         case 'bottom': return { y: box.b - e.h };
       }
     }));
+  }
+
+  // ---- layout: groups, distribute, tidy up, resize ----
+
+  /** Group the selection (Cmd+G). The elements must share a list: the page, or one group. */
+  group(): void {
+    const r = groupElements(this.doc, this.selection);
+    if (!r) return;
+    this.commit(r.doc);
+    this.seal();
+    this.select([r.id]);
+  }
+
+  /** Ungroup the selected groups (Cmd+Shift+G); their children become the selection. */
+  ungroup(): void {
+    const ids = this.selected.filter((e) => childrenOf(e)).map((e) => e.id);
+    if (!ids.length) return;
+    const r = ungroupElements(this.doc, ids);
+    this.commit(r.doc);
+    this.seal();
+    this.select(r.ids);
+  }
+
+  distribute(axis: 'x' | 'y'): void {
+    this.commit(distribute(this.doc, this.selection, axis));
+    this.seal();
+  }
+
+  tidyUp(): void {
+    this.commit(tidyUp(this.doc, this.selection));
+    this.seal();
+  }
+
+  /** Copies of this design at other sizes ("Resize"), saved to the same store. Returns them. */
+  async resizeCopies(targets: ResizeTarget[]): Promise<Doc[]> {
+    const out: Doc[] = [];
+    for (const t of targets) {
+      const doc = resizeDoc(pruneAssets(pruneFonts(this.doc)), t);
+      const scale = Math.min(1, 480 / Math.max(doc.width, doc.height));
+      const thumbnail = this.renderer.exportPage(doc, doc.pages[0]!, { format: 'png', scale });
+      await this.store.save({ doc, assets: this.assets, thumbnail });
+      out.push(doc);
+    }
+    return out;
   }
 
   startEditing(id: string): void {
@@ -621,7 +674,224 @@ export class EditorState {
     }
   }
 
+  // ---- M6 elements: lines, frames, grids, tables, charts, QR, icons, photos, drawing ----
+
+  /** The freehand drawing tool, while it is on. */
+  tool = $state<DrawTool | null>(null);
+  /** The table cell picked for styling (and the one being typed in). */
+  cell = $state<{ id: string; r: number; c: number } | null>(null);
+  editingCell = $state<{ id: string; r: number; c: number } | null>(null);
+  /** A frame whose photo is being moved inside it. */
+  framePanId = $state<string | null>(null);
+
+  /** A size relative to the page, so new elements look right on any design. */
+  private unit(f: number): number {
+    return Math.round(Math.min(this.doc.width, this.doc.height) * f);
+  }
+
+  addLine(preset: LinePreset, at?: { x: number; y: number }): void {
+    const len = this.unit(0.4);
+    const c = at ?? { x: this.doc.width / 2, y: this.doc.height / 2 };
+    const bent = preset.route !== 'straight';
+    const a = { x: c.x - len / 2, y: c.y - (bent ? len / 4 : 0) }, b = { x: c.x + len / 2, y: c.y + (bent ? len / 4 : 0) };
+    const width = Math.max(2, this.unit(0.006));
+    this.add(line(a, b, { route: preset.route, start: preset.start, end: preset.end, stroke: { color: '#1f2328', width, dash: preset.dash ?? 'solid' } }));
+  }
+
+  /** Move one end of a line to page point `p`, sticking it to an element (`attach`) or letting go (null). */
+  setLineEnd(id: string, which: 'start' | 'end', p: { x: number; y: number }, attach: Attach | null, key: string | null = null): void {
+    this.update((e) => {
+      if (e.type !== 'line') return {};
+      const [a, b] = lineEnds(e);
+      return which === 'start' ? setLineEnds(e, p, b, { start: attach }) : setLineEnds(e, a, p, { end: attach });
+    }, key, [id]);
+  }
+
+  updateLine(patch: Partial<Pick<LineElement, 'stroke' | 'route'>> & { startMarker?: LineMarker; endMarker?: LineMarker }, key: string | null = null): void {
+    this.update((e) => {
+      if (e.type !== 'line') return {};
+      const { startMarker, endMarker, ...rest } = patch;
+      return {
+        ...rest,
+        ...(startMarker ? { start: { ...e.start, marker: startMarker } } : {}),
+        ...(endMarker ? { end: { ...e.end, marker: endMarker } } : {}),
+      };
+    }, key);
+  }
+
+  addFrame(id: string, at?: { x: number; y: number }): void {
+    const f = FRAMES.find((x) => x.id === id) ?? FRAMES[0]!;
+    const size = this.unit(0.4);
+    const box = this.placeBox(size * (f.ratio ?? 1), size, at);
+    if (f.id === 'polaroid') {
+      // a white card with the photo frame inset (bigger margin at the bottom)
+      const m = box.w * 0.06;
+      const card = { ...shape('rect', box, { type: 'solid', color: '#ffffff' }), stroke: { color: '#e3e6eb', width: 1 }, name: 'Polaroid' };
+      const photo = frame('rect', { x: box.x + m, y: box.y + m, w: box.w - 2 * m, h: box.h - m * 4.2 });
+      this.commit(addElements(this.doc, this.pageId, [card, photo]));
+      this.seal();
+      this.select([card.id, photo.id], this.pageId);
+      return;
+    }
+    this.add(frame(f.mask, box, '', (f.radius ?? 0) * Math.min(box.w, box.h)));
+  }
+
+  /** A photo grid filling the page. */
+  addGrid(id: string): void {
+    const gap = Math.max(4, this.unit(0.012));
+    const frames = grid(id, { x: 0, y: 0, w: this.doc.width, h: this.doc.height }, gap);
+    this.commit(addElements(this.doc, this.pageId, frames));
+    this.seal();
+    this.select(frames.map((f) => f.id), this.pageId);
+  }
+
+  /** Put an image asset into a frame (cover-fit, centred). */
+  fillFrame(frameId: string, assetId: string): void {
+    const meta = this.doc.assets[assetId];
+    const hit = findElement(this.doc, frameId);
+    if (!meta || !hit || !isFrame(hit.element)) return;
+    const el = hit.element;
+    this.commit(updateElements(this.doc, [frameId], { asset: assetId, crop: coverCrop(meta.width ?? el.w, meta.height ?? el.h, el.w, el.h) }));
+    this.seal();
+    this.select([frameId]);
+  }
+
+  /** Zoom the photo inside a frame: 1 = cover-fit, 3 = three times closer. Keeps the middle in place. */
+  zoomFrame(id: string, zoom: number, key: string | null = null): void {
+    const hit = findElement(this.doc, id);
+    if (!hit || hit.element.type !== 'image') return;
+    const el = hit.element, meta = this.doc.assets[el.asset];
+    if (!meta) return;
+    const base = coverCrop(meta.width ?? el.w, meta.height ?? el.h, el.w, el.h);
+    const cur = el.crop ?? base;
+    const w = base.w / zoom, h = base.h / zoom;
+    const cx = cur.x + cur.w / 2, cy = cur.y + cur.h / 2;
+    const crop = { w, h, x: Math.max(0, Math.min(1 - w, cx - w / 2)), y: Math.max(0, Math.min(1 - h, cy - h / 2)) };
+    this.update({ crop }, key, [id]);
+  }
+
+  addTable(rows: number, cols: number): void {
+    const w = this.unit(0.7), fs = Math.max(10, this.unit(0.022));
+    const h = rows * fs * 2.6;
+    this.add(table(rows, cols, { x: (this.doc.width - w) / 2, y: (this.doc.height - h) / 2, w, h }, { fontSize: fs }));
+  }
+
+  /** Apply a table operation (add a row, set a fill…) to one table. */
+  tableOp(id: string, fn: (t: TableElement) => Partial<TableElement>, key: string | null = null): void {
+    this.update((e) => (e.type === 'table' ? fn(e) : {}), key, [id]);
+  }
+
+  /** Grow rows that are too short for their text. */
+  fitTable(id: string, key: string | null = null): void {
+    const hit = findElement(this.doc, id);
+    if (hit?.element.type !== 'table') return;
+    const t = hit.element;
+    const need = t.rows.map((_, r) => Math.max(...t.cols.map((__, c) => {
+      const cell = tableCellText(t, r, c);
+      const pad = (t.rows[r]! * t.h - cell.h);
+      return cell.text ? this.renderer.textHeight(cell) + pad : 0;
+    })));
+    const patch = tableFitRows(t, need);
+    if (patch) this.update(patch, key, [id]);
+  }
+
+  setCellText(id: string, r: number, c: number, value: string): void {
+    const key = `cell:${id}:${r},${c}`;
+    this.tableOp(id, (t) => tableSetCell(t, r, c, { text: value }), key);
+    this.fitTable(id, key);
+  }
+
+  editCell(id: string, r: number, c: number): void {
+    const hit = findElement(this.doc, id);
+    if (hit?.element.type !== 'table' || hit.element.locked) return;
+    this.select([id]);
+    this.cell = { id, r, c };
+    this.editingCell = { id, r, c };
+  }
+
+  stopCellEdit(): void {
+    if (!this.editingCell) return;
+    this.editingCell = null;
+    this.seal();
+  }
+
+  addChart(kind: ChartKind): void {
+    const w = this.unit(0.6), h = Math.round(w * 0.7);
+    this.add(chart(kind, { x: (this.doc.width - w) / 2, y: (this.doc.height - h) / 2, w, h }));
+  }
+
+  addQr(text: string): void {
+    const s = this.unit(0.3);
+    this.add(qrCode(text, { x: (this.doc.width - s) / 2, y: (this.doc.height - s) / 2, w: s, h: s }));
+  }
+
+  updateQr(id: string, text: string): void {
+    this.update((e) => (e.type === 'path' && e.qr !== undefined ? qrUpdate(e, text) : {}), null, [id]);
+    this.seal();
+  }
+
+  /** Insert an SVG icon as a vector graphic. Returns false when the SVG has nothing we can draw. */
+  addSvg(svg: string, name: string, color = '#1f2328'): boolean {
+    const parsed = parseSvg(svg, color);
+    if (!parsed) return false;
+    const size = this.unit(0.25);
+    const vb = parsed.viewBox;
+    const s = size / Math.max(vb.w, vb.h);
+    const box = this.placeBox(vb.w * s, vb.h * s);
+    // stroke widths come in icon units; ours are page px
+    const paths = parsed.paths.map((p) => (p.stroke ? { ...p, stroke: { ...p.stroke, width: p.stroke.width * s } } : p));
+    this.add({ ...pathElement(paths, vb, box), name });
+    return true;
+  }
+
+  /** Add a downloaded photo (stock search) to the page. */
+  async addPhoto(bytes: Uint8Array, mime: string, name: string): Promise<boolean> {
+    const id = await this.addAsset(bytes, mime, name);
+    if (!id) return false;
+    this.addImageAsset(id);
+    return true;
+  }
+
+  /** Recolour a vector graphic: every fill or stroke of colour `from` becomes `to`. */
+  recolor(from: string, to: string, key: string | null = null): void {
+    const swap = (c: string) => (c.slice(0, 7).toLowerCase() === from.slice(0, 7).toLowerCase() ? to + c.slice(7) : c);
+    this.update((e) => {
+      if (e.type !== 'path') return {};
+      return {
+        paths: e.paths.map((p) => ({
+          ...p,
+          fill: p.fill?.type === 'solid' ? { type: 'solid', color: swap(p.fill.color) } : p.fill,
+          stroke: p.stroke ? { ...p.stroke, color: swap(p.stroke.color) } : null,
+        })),
+      };
+    }, key);
+  }
+
+  /** Finish a freehand stroke drawn on page `pageId` (points in page px). */
+  addStroke(pageId: string, points: { x: number; y: number }[]): void {
+    const t = this.tool;
+    if (!t || !points.length) return;
+    const el = freehand(points, { color: t.color, size: t.size, brush: t.brush });
+    if (!el) return;
+    el.opacity = t.opacity;
+    this.commit(addElements(this.doc, pageId, [el]));
+    this.seal();
+    this.pageId = pageId;
+  }
+
   // ---- export & save ----
+
+  /** One page as SVG text. */
+  exportSvg(pageId: string): string {
+    const page = this.doc.pages.find((p) => p.id === pageId) ?? this.page;
+    return exportSvg(this.renderer, this.doc, page, { assets: this.assets });
+  }
+
+  /** Pages as a vector PDF. */
+  exportVectorPdf(pageIds: string[]): Promise<Uint8Array> {
+    return exportVectorPdf(this.renderer, this.doc, { assets: this.assets, pages: pageIds });
+  }
+
 
   exportPage(pageId: string, format: 'png' | 'jpeg', scale: number, transparent = false): Uint8Array {
     const page = this.doc.pages.find((p) => p.id === pageId) ?? this.page;
@@ -671,6 +941,42 @@ export class EditorState {
     this.renderer.dispose();
   }
 }
+
+export interface DrawTool {
+  brush: Brush;
+  color: string;
+  /** Stroke width, px. */
+  size: number;
+  /** 0..1 */
+  opacity: number;
+}
+
+export const BRUSHES: Record<Brush, { label: string; size: number; opacity: number; color: string }> = {
+  pen: { label: 'Pen', size: 6, opacity: 1, color: '#1f2328' },
+  marker: { label: 'Marker', size: 16, opacity: 1, color: '#7c5cff' },
+  highlighter: { label: 'Highlighter', size: 28, opacity: 0.4, color: '#facc15' },
+};
+
+export interface LinePreset {
+  id: string;
+  label: string;
+  route: LineRoute;
+  start: LineMarker;
+  end: LineMarker;
+  dash?: Stroke['dash'];
+}
+
+export const LINES: LinePreset[] = [
+  { id: 'line', label: 'Line', route: 'straight', start: 'none', end: 'none' },
+  { id: 'dashed', label: 'Dashed line', route: 'straight', start: 'none', end: 'none', dash: 'dashed' },
+  { id: 'dotted', label: 'Dotted line', route: 'straight', start: 'none', end: 'none', dash: 'dotted' },
+  { id: 'arrow', label: 'Arrow', route: 'straight', start: 'none', end: 'arrow' },
+  { id: 'triangle', label: 'Solid arrow', route: 'straight', start: 'none', end: 'triangle' },
+  { id: 'double', label: 'Double arrow', route: 'straight', start: 'arrow', end: 'arrow' },
+  { id: 'dots', label: 'Circle ends', route: 'straight', start: 'circle', end: 'circle' },
+  { id: 'elbow', label: 'Elbow connector', route: 'elbow', start: 'none', end: 'triangle' },
+  { id: 'curved', label: 'Curved connector', route: 'curved', start: 'none', end: 'triangle' },
+];
 
 export const SHAPES: { kind: ShapeKind; label: string }[] = [
   { kind: 'rect', label: 'Square' },

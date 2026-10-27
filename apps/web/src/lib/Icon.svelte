@@ -59,6 +59,21 @@
     wand: 'M4 20L15 9M13 7l2-2 4 4-2 2zM18 2v2M22 6h-2M21 3l-1.5 1.5M9 3v2M8 4h2',
     picker: 'M14 4l6 6M17 7l-9.5 9.5L4 20l3.5-3.5M12 6l6 6',
     sliders: 'M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M14 4v4M8 10v4M16 16v4',
+    distx: 'M4 3v18M20 3v18M9.5 8h5v8h-5z',
+    disty: 'M3 4h18M3 20h18M8 9.5h8v5H8z',
+    tidy: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z',
+    group: 'M3 3h4M17 3h4v4M21 17v4h-4M7 21H3v-4M3 7V3M7 7h6v6H7zM11 11h6v6h-6z',
+    ungroup: 'M4 4h8v8H4zM12 12h8v8h-8z',
+    link: 'M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1',
+    unlink: 'M10 14a4 4 0 005.7 0M14 10a4 4 0 00-5.7 0M4 4l16 16',
+    ruler: 'M3 17L17 3l4 4L7 21zM7 13l2 2M10 10l2 2M13 7l2 2',
+    resize: 'M4 14v6h6M20 10V4h-6M4 20l7-7M20 4l-7 7',
+    pen: 'M4 20l4-1L19 8l-3-3L5 16l-1 4zM14 7l3 3',
+    line: 'M4 20L20 4',
+    table: 'M3 5h18v14H3zM3 10h18M3 15h18M9 5v14M15 5v14',
+    chart: 'M4 20V11M10 20V5M16 20v-7M2 20h20',
+    qr: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 18h2v2h-2zM14 18h2M18 14h2',
+    frame: 'M12 3a9 9 0 110 18 9 9 0 010-18zM7 16l3-4 2 2 2-3 3 5',
   } as const;
   export type IconName = keyof typeof ICONS;
 </script>

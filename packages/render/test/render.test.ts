@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { CanvasKit } from 'canvaskit-wasm';
-import { addElements, createDoc, shape, text, image, updatePage } from '@digital-canvas/scene';
+import { addElements, createDoc, groupElements, shape, text, image, updateElements, updatePage } from '@digital-canvas/scene';
 import { FontLibrary, Renderer } from '../src/index.ts';
 
 const require = createRequire(import.meta.url);
@@ -173,5 +173,38 @@ describe('text features (M3)', () => {
     expect(fonts.chain('Test')).toEqual(['Test␟latin-ext']);
     expect([...fonts.families]).toEqual(['Test']);
     fonts.dispose();
+  });
+
+  it('draws groups: children in place, group opacity, moved with the group', () => {
+    let doc = createDoc({ width: 200, height: 100 });
+    const page = doc.pages[0]!.id;
+    const a = shape('rect', { x: 0, y: 0, w: 50, h: 50 }, { type: 'solid', color: '#ff0000' });
+    const b = shape('rect', { x: 60, y: 0, w: 50, h: 50 }, { type: 'solid', color: '#00ff00' });
+    doc = addElements(doc, page, [a, b]);
+    const g = groupElements(doc, [a.id, b.id])!;
+    doc = updateElements(g.doc, [g.id], (e) => ({ y: e.y + 40, opacity: 0.5 }));
+    const p = pixels(renderer.exportPage(doc, doc.pages[0]!));
+    expect(p.at(25, 20)).toEqual([255, 255, 255, 255]); // moved away
+    const red = p.at(25, 70);
+    expect(red[0]).toBe(255);
+    expect(red[1]).toBeGreaterThan(110); // half over white
+    expect(red[1]).toBeLessThan(140);
+    expect(p.at(85, 70)[1]).toBe(255);
+  });
+
+  it('draws the bleed area when asked', () => {
+    let doc = createDoc({ width: 100, height: 100 });
+    doc = updatePage(doc, doc.pages[0]!.id, { background: { type: 'solid', color: '#0000ff' } });
+    const surface = ck.MakeSurface(120, 120)!;
+    const c = surface.getCanvas();
+    c.clear(ck.WHITE);
+    c.translate(10, 10);
+    renderer.drawPage(c, doc, doc.pages[0]!, { bleed: 5 });
+    const img = surface.makeImageSnapshot();
+    const p = pixels(img.encodeToBytes()!);
+    img.delete();
+    surface.delete();
+    expect(p.at(7, 7)).toEqual([0, 0, 255, 255]); // inside the bleed
+    expect(p.at(3, 3)).toEqual([255, 255, 255, 255]); // beyond it
   });
 });

@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { CanvasKit } from 'canvaskit-wasm';
 import { addElements, createDoc, image, type ImageElement } from '@digital-canvas/scene';
-import { applyMatrix, colorMatrix, FontLibrary, IDENTITY, Renderer } from '../src/index.ts';
+import { applyMatrix, colorMatrix, exportSvg, FontLibrary, IDENTITY, Renderer } from '../src/index.ts';
 
 const require = createRequire(import.meta.url);
 const fontDir = new URL('../../../apps/web/public/fonts/', import.meta.url);
@@ -182,5 +182,29 @@ describe('image look (rendered)', () => {
     const p = render('grey', { radius: 40, adjust: { brightness: -50 } });
     expect(p.at(1, 1)).toEqual([255, 255, 255, 255]);
     expect(p.at(50, 50)[0]).toBeLessThan(110);
+  });
+});
+
+describe('image look with M6 frames and vector export', () => {
+  it('a masked (framed) image keeps its look and its frame shape', () => {
+    const p = render('grey', { mask: 'ellipse', adjust: { brightness: -50 } });
+    expect(p.at(2, 2)).toEqual([255, 255, 255, 255]); // outside the circle: page
+    expect(p.at(50, 50)[0]).toBeLessThan(110); // inside: darkened
+  });
+
+  it('a shadow on a framed image follows the frame', () => {
+    const p = render('grey', { mask: 'ellipse', effect: { type: 'shadow', color: '#000000', offset: 100, direction: 0, blur: 0, transparency: 0 } }, { w: 140, h: 140 }, { x: 20, y: 20, w: 100, h: 100 });
+    expect(p.at(130, 70)[0]).toBeLessThan(60); // the circle's shadow, 15 px to the right
+    expect(p.at(37, 22)).toEqual([255, 255, 255, 255]); // where a box's shadow would be: still page
+  });
+
+  it('SVG export draws an image with a look as a picture of that element', () => {
+    let doc = createDoc({ width: 100, height: 100 });
+    doc = addElements(doc, doc.pages[0]!.id, [{ ...image('grey', { x: 0, y: 0, w: 100, h: 100 }), adjust: { saturation: -100 } }]);
+    doc = { ...doc, assets: { grey: { mime: 'image/png' } } };
+    const greyPng = renderer.exportPage(createDoc({ width: 1, height: 1 }), createDoc({ width: 1, height: 1 }).pages[0]!, { format: 'png' });
+    const svg = exportSvg(renderer, doc, doc.pages[0]!, { assets: new Map([['grey', greyPng]]) });
+    expect(svg).toContain('data:image/png;base64,');
+    expect(svg).not.toContain('clip-path'); // rastered, not the plain vector picture
   });
 });

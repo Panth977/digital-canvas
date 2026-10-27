@@ -1,4 +1,6 @@
 import type { Element, Page } from './types.ts';
+import { hitPath } from './tree.ts';
+import { lineDistance } from './line.ts';
 
 export interface Point { x: number; y: number }
 export interface Rect { x: number; y: number; w: number; h: number }
@@ -53,13 +55,19 @@ export function contains(e: Rect & { rotation: number }, p: Point, pad = 0): boo
   return local.x >= e.x - pad && local.x <= e.x + e.w + pad && local.y >= e.y - pad && local.y <= e.y + e.h + pad;
 }
 
-/** Topmost visible element under `p`, or null. */
+/** Topmost visible top-level element under `p` (a group is hit through its children), or null. */
 export function hitTest(page: Page, p: Point, pad = 0): Element | null {
-  for (let i = page.elements.length - 1; i >= 0; i--) {
-    const e = page.elements[i]!;
-    if (!e.hidden && contains(e, p, pad)) return e;
-  }
-  return null;
+  return hitPath(page.elements, p, pad, hits)?.[0] ?? null;
+}
+
+/** A line is hit near its stroke, not anywhere in its (maybe large, diagonal) box. */
+function hits(e: Element, p: Point, pad: number): boolean {
+  return e.type === 'line' ? lineDistance(e, p) <= Math.max(e.stroke.width / 2, 3) + pad * 3 : contains(e, p, pad);
+}
+
+/** Like hitTest, but the chain from the top-level element down to the innermost one hit. */
+export function hitTestPath(page: Page, p: Point, pad = 0): Element[] | null {
+  return hitPath(page.elements, p, pad, hits);
 }
 
 export function intersects(a: Rect, b: Rect): boolean {

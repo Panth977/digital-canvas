@@ -1,5 +1,5 @@
 import type { Doc, Element, ImageAdjust, ImageAdjustKey, ImageEffect, ImageEffectType, ImageElement, ImageLook, VideoElement } from './types.ts';
-import { findElement } from './doc.ts';
+import { findElement, removeElements } from './doc.ts';
 import { rotatePoint, type Point } from './geometry.ts';
 
 /**
@@ -206,13 +206,16 @@ export function cropPatch(el: Placed, frame: Box, img: Box): { x: number; y: num
  */
 export function setAsBackground(doc: Doc, id: string): Doc {
   const hit = findElement(doc, id);
-  if (!hit || (hit.element.type !== 'image' && hit.element.type !== 'video')) return doc;
+  if (!hit || (hit.element.type !== 'image' && hit.element.type !== 'video') || !hit.element.asset) return doc;
   const el = hit.element as ImageElement | VideoElement;
   const meta = doc.assets[el.asset];
   const W = doc.width, H = doc.height;
   const crop = meta?.width && meta.height ? coverCrop(meta.width, meta.height, W, H) : undefined;
   const next = { ...el, x: 0, y: 0, w: W, h: H, rotation: 0, radius: 0, locked: true, crop } as Element;
   if (!crop) delete (next as ImageElement).crop;
-  const pages = doc.pages.map((p) => (p.id === hit.page.id ? { ...p, elements: [next, ...p.elements.filter((e) => e.id !== id)] } : p));
-  return { ...doc, pages, updatedAt: new Date().toISOString() };
+  if (next.type === 'image') delete next.mask; // a frame's photo fills the whole page
+  // out of wherever it was (the page or a group), then to the very back of the page
+  const rest = removeElements(doc, [id]);
+  const pages = rest.pages.map((p) => (p.id === hit.page.id ? { ...p, elements: [next, ...p.elements] } : p));
+  return { ...rest, pages, updatedAt: new Date().toISOString() };
 }

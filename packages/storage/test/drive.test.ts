@@ -99,6 +99,32 @@ describe('DriveStore', () => {
     expect(docs[0]!.trashed).toBe(true);
   });
 
+  it('keeps assets once in the shared assets folder; design files stay small', async () => {
+    const drive = fakeDrive();
+    vi.stubGlobal('fetch', drive.handler);
+    const cache = new Map<string, Uint8Array>();
+    const store = new DriveStore(async () => 't0k', 'Digital Canvas', { get: async (k) => cache.get(k), set: async (k, v) => void cache.set(k, v) });
+    const img = new Uint8Array(5000).fill(7);
+    const a = { ...createDoc({ width: 100, height: 100, title: 'A' }), assets: { '0123456789abcdef0123.png': { mime: 'image/png' } } };
+    const b = { ...createDoc({ width: 100, height: 100, title: 'B' }), assets: { '0123456789abcdef0123.png': { mime: 'image/png' } } };
+    await store.save({ doc: a, assets: new Map([['0123456789abcdef0123.png', img]]) });
+    await store.save({ doc: b, assets: new Map([['0123456789abcdef0123.png', img]]) });
+    await store.save({ doc: { ...a, title: 'A2' }, assets: new Map([['0123456789abcdef0123.png', img]]) });
+    const all = [...drive.files.values()];
+    const assetFiles = all.filter((f) => f.appProperties.dcAsset);
+    expect(assetFiles).toHaveLength(1); // uploaded once, shared
+    expect(all.find((f) => f.id === assetFiles[0]!.parents[0])!.name).toBe('assets');
+    const designs = all.filter((f) => f.appProperties.dcDocId);
+    expect(designs).toHaveLength(2);
+    for (const d of designs) expect(unpack(d.body!).assets.size).toBe(0); // no bytes inside the design
+
+    // another device opens it: the asset comes from the assets folder
+    const other = new DriveStore(async () => 't0k');
+    const opened = await other.open(a.id);
+    expect(opened.assets.get('0123456789abcdef0123.png')).toEqual(img);
+    expect((await other.list()).map((m) => m.title).sort()).toEqual(['A2', 'B']);
+  });
+
   it('retries once with a fresh token on 401', async () => {
     const drive = fakeDrive();
     vi.stubGlobal('fetch', drive.handler);

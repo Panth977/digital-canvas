@@ -22,11 +22,15 @@ export function parseDoc(input: unknown): Doc {
   if (!Array.isArray(input.pages) || input.pages.length === 0) throw new DocFormatError('document has no pages');
   input.pages.forEach((p, i) => {
     if (!isObj(p) || typeof p.id !== 'string' || !Array.isArray(p.elements)) throw new DocFormatError(`page ${i + 1} is malformed`);
-    p.elements.forEach((e, j) => {
-      if (!isObj(e) || typeof e.id !== 'string' || !['shape', 'text', 'image', 'video', 'path'].includes(e.type as string))
-        throw new DocFormatError(`page ${i + 1}, element ${j + 1}: unknown element`);
-      for (const k of ['x', 'y', 'w', 'h']) if (!num(e[k])) throw new DocFormatError(`page ${i + 1}, element ${j + 1}: bad ${k}`);
+    const check = (els: unknown[], where: string): void => els.forEach((e, j) => {
+      if (!isObj(e) || typeof e.id !== 'string' || !['shape', 'text', 'image', 'video', 'path', 'group', 'line', 'table', 'chart'].includes(e.type as string))
+        throw new DocFormatError(`${where}element ${j + 1}: unknown element`);
+      for (const k of ['x', 'y', 'w', 'h']) if (!num(e[k])) throw new DocFormatError(`${where}element ${j + 1}: bad ${k}`);
+      // containers (groups) hold elements too
+      if (e.type === 'group' && !Array.isArray(e.children)) throw new DocFormatError(`${where}element ${j + 1}: group without children`);
+      if (Array.isArray(e.children)) check(e.children, `${where}element ${j + 1}, `);
     });
+    check(p.elements, `page ${i + 1}, `);
   });
   const doc = input as unknown as Doc;
   return {

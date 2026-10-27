@@ -10,6 +10,15 @@ export function color(ck: CanvasKit, hex: Color, alpha = 1): Float32Array {
   return ck.Color4f(n(0) || 0, n(2) || 0, n(4) || 0, a * alpha);
 }
 
+/** One font file the library holds (kept so exports can embed it). */
+export interface FontFace {
+  family: string;
+  bytes: Uint8Array;
+  weight: number;
+  italic: boolean;
+  subset?: string;
+}
+
 /** Fonts the renderer can draw with. Several faces may share a family. */
 export class FontLibrary {
   readonly provider: TypefaceFontProvider;
@@ -19,6 +28,8 @@ export class FontLibrary {
   version = 0;
   /** family → the provider names to try in order (the family itself, then its script subsets). */
   private chains = new Map<string, string[]>();
+  /** Every face added, with its bytes (for SVG and PDF export). */
+  readonly faces: FontFace[] = [];
 
   constructor(private ck: CanvasKit) {
     this.provider = ck.TypefaceFontProvider.Make();
@@ -27,10 +38,10 @@ export class FontLibrary {
   private seen = new Set<string>();
 
   /** Register a face once (keyed by `key`, e.g. its asset id) — safe to call for every opened file. */
-  addOnce(family: string, key: string, bytes: ArrayBuffer | Uint8Array, subset?: string): void {
+  addOnce(family: string, key: string, bytes: ArrayBuffer | Uint8Array, subset?: string, face?: { weight?: number; italic?: boolean }): void {
     if (this.seen.has(key)) return;
     this.seen.add(key);
-    this.add(family, bytes, subset);
+    this.add(family, bytes, subset, face);
   }
 
   has(key: string): boolean {
@@ -42,9 +53,10 @@ export class FontLibrary {
    * Google Fonts' latin / latin-ext files) is registered under its own name
    * and tried after the family's other faces.
    */
-  add(family: string, bytes: ArrayBuffer | Uint8Array, subset?: string): void {
+  add(family: string, bytes: ArrayBuffer | Uint8Array, subset?: string, face?: { weight?: number; italic?: boolean }): void {
     const name = subset ? `${family}\u241f${subset}` : family;
     this.provider.registerFont(bytes, name);
+    this.faces.push({ family, bytes: bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes), weight: face?.weight ?? 400, italic: face?.italic ?? false, subset });
     this.families.add(family);
     const chain = this.chains.get(family) ?? [];
     if (!chain.includes(name)) {
@@ -66,7 +78,7 @@ export class FontLibrary {
   async loadBundled(baseUrl: string, fetcher: (url: string) => Promise<ArrayBuffer> = defaultFetch): Promise<void> {
     const faces = ['Inter-Regular', 'Inter-Bold', 'Inter-Italic', 'Inter-BoldItalic'];
     const bytes = await Promise.all(faces.map((f) => fetcher(`${baseUrl}${f}.ttf`)));
-    bytes.forEach((b) => this.add('Inter', b));
+    bytes.forEach((b, i) => this.add('Inter', b, undefined, { weight: i % 2 ? 700 : 400, italic: i >= 2 }));
   }
 
   dispose(): void {

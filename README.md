@@ -26,7 +26,7 @@ Node 22+. The first `npm run e2e` may need `npx playwright install chromium`.
 | Path | What |
 | --- | --- |
 | `packages/scene` | The document format (`types.ts`), pure operations, geometry, undo history, presets, validation |
-| `packages/render` | CanvasKit renderer: pages, shapes, text (Skia Paragraph), images with adjustments/filters/effects (colour matrices, SkSL), PNG/JPG export — no DOM, runs in Node too |
+| `packages/render` | CanvasKit renderer: pages, shapes, text (Skia Paragraph), images with adjustments/filters/effects (colour matrices, SkSL), PNG/JPG, SVG and PDF (raster or vector) export — no DOM, runs in Node too |
 | `packages/storage` | `.dcanvas` pack/unpack and project stores: Google Drive (`drive.file`, one app folder), this browser (IndexedDB), a local folder (File System Access API) |
 | `backend` | IceBase config (schema, API, rules) and two Cloud Functions: `googleSignIn` (code → custom token, keeps the encrypted Drive refresh token) and `driveToken` |
 | `tools` | `canva-import.ts` (Canva connector JSON → `.dcanvas`, for comparisons) and `render.ts` (render a page to PNG in Node) |
@@ -55,7 +55,7 @@ assets/<hash>    image bytes, named by content hash (stored once)
 thumbnail.png    preview of page 1
 ```
 
-All lengths are CSS pixels (96 per inch); `unit` only says how sizes are shown. Elements are `shape`, `text` and `image`, each with `x, y, w, h, rotation, opacity`. See `packages/scene/src/types.ts`.
+All lengths are CSS pixels (96 per inch); `unit` only says how sizes are shown. Elements are `shape`, `text`, `image` (a frame when it has a `mask`), `video`, `path` (vector graphics: drawings, icons, QR codes), `group`, `line`, `table` and `chart`, each with `x, y, w, h, rotation, opacity`. See `packages/scene/src/types.ts`.
 
 ## Roadmap (phase 1: the page editor)
 
@@ -65,8 +65,8 @@ All lengths are CSS pixels (96 per inch); `unit` only says how sizes are shown. 
 - [x] **M3** Text & fonts: rich text (style part of a box), 2,000+ Google Fonts (via Fontsource, embedded in the file), font upload, 9 text effects, curved text, lists, gradient text
 - [x] **Video (early)**: video clips, page durations, timeline playback, sounds, MP4 export (WebCodecs via [Mediabunny](https://mediabunny.dev), MPL-2.0)
 - [x] **M4** Image tools: crop mode, 11 adjustments, 12 filters with intensity, effects (shadow, glow, duotone, pixelate, outline), background remover in the browser ([MODNet](https://github.com/ZHKKKe/MODNet), Apache-2.0, via onnxruntime-web), set as page background, eyedropper — for images and video clips
-- [ ] **M5** Layout tools + ~200 presets: snapping, smart guides, rulers, bleed, groups, resize
-- [ ] **M6** Elements + export: lines, connectors, draw, frames, grids, tables, charts, QR, icons, stock photos; PDF and SVG export
+- [x] **M5** Layout tools + 270+ presets: snapping and smart guides (edges, centres, equal spacing; Alt/⌘ to place freely), rulers with draggable guides, print bleed and safe margins, groups (⌘G / ⇧⌘G, double-click into a group), distribute and tidy up, aspect-ratio lock, searchable preset picker (social, video, presentations, documents, print, marketing, web and IAB ads), resize a copy to other sizes
+- [x] **M6** Elements + export: lines & arrows, connectors that follow shapes, freehand draw (pen/marker/highlighter), 13 frames, 12 photo grids, tables, charts (column/bar/line/area/pie/donut), QR codes, icon search ([Iconify](https://iconify.design)), CC photo search ([Openverse](https://openverse.org)); SVG export and vector PDF (real text in embedded fonts)
 
 Later phases: presentations, whiteboards, video, data-bound designs (live menus), AI/MCP integration.
 

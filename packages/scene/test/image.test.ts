@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   addElements, coverCrop, cropPatch, localToPage, pageToLocal, createDoc, cropFromBoxes, effectiveAdjust, findElement, hasLook, image, imageBox, IMAGE_FILTERS, panImage,
-  resizeFrame, scaleImage, setAsBackground, shape,
+  resizeFrame, scaleImage, setAsBackground, shape, groupElements, pruneAssets, childrenOf, type ImageElement,
 } from '../src/index.ts';
 
 describe('filters and adjustments', () => {
@@ -92,5 +92,32 @@ describe('set as background', () => {
     expect(hit.index).toBe(0);
     expect(hit.element).toMatchObject({ x: 0, y: 0, w: 400, h: 200, rotation: 0, locked: true, crop: { x: 0, y: 0.25, w: 1, h: 0.5 } });
     expect(setAsBackground(doc, 'nope')).toBe(doc);
+  });
+});
+
+describe('image tools inside groups (M4 × M5)', () => {
+  it('pruneAssets keeps a grouped image\'s asset and its pre-background-removal original', () => {
+    let doc = createDoc({ width: 100, height: 100 });
+    const img: ImageElement = { ...image('cut', { x: 0, y: 0, w: 50, h: 50 }), original: 'orig' };
+    const other = shape('rect', { x: 60, y: 0, w: 10, h: 10 });
+    doc = addElements(doc, doc.pages[0]!.id, [img, other]);
+    doc = groupElements({ ...doc, assets: { cut: { mime: 'image/png' }, orig: { mime: 'image/jpeg' }, gone: { mime: 'image/png' } } }, [img.id, other.id])!.doc;
+    expect(Object.keys(pruneAssets(doc).assets).sort()).toEqual(['cut', 'orig']);
+  });
+
+  it('set as background takes the image out of its group and drops a frame mask', () => {
+    let doc = createDoc({ width: 400, height: 200 });
+    const img: ImageElement = { ...image('a', { x: 50, y: 50, w: 100, h: 100 }), mask: 'ellipse' };
+    const other = shape('rect', { x: 0, y: 0, w: 10, h: 10 });
+    doc = addElements(doc, doc.pages[0]!.id, [other, img]);
+    doc = groupElements({ ...doc, assets: { a: { mime: 'image/png', width: 100, height: 100 } } }, [img.id, other.id])!.doc;
+    const next = setAsBackground(doc, img.id);
+    const page = next.pages[0]!;
+    expect(page.elements[0]!.id).toBe(img.id);
+    expect((page.elements[0] as ImageElement).mask).toBeUndefined();
+    const group = page.elements.find((e) => childrenOf(e));
+    expect(group ? childrenOf(group)!.some((c) => c.id === img.id) : false).toBe(false);
+    // an empty frame has nothing to put on the background
+    expect(setAsBackground(doc, other.id)).toBe(doc);
   });
 });

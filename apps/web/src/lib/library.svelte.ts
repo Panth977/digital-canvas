@@ -1,4 +1,4 @@
-import { BrowserStore, DriveStore, FolderStore, type ProjectStore } from '@digital-canvas/storage';
+import { BrowserStore, DriveStore, FolderStore, browserAssetCache, type ProjectStore } from '@digital-canvas/storage';
 import { account } from './account.svelte.ts';
 
 /**
@@ -19,7 +19,7 @@ class Library {
   get store(): ProjectStore {
     const u = account.user;
     if (u) {
-      if (this.drive?.uid !== u.uid) this.drive = { uid: u.uid, store: new DriveStore(account.driveToken) };
+      if (this.drive?.uid !== u.uid) this.drive = { uid: u.uid, store: new DriveStore(account.driveToken, 'Digital Canvas', browserAssetCache()) };
       return this.drive.store;
     }
     return this.local;

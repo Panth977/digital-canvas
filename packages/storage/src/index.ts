@@ -1,6 +1,6 @@
 export * from './file.ts';
 export * from './store.ts';
-export { BrowserStore } from './browser.ts';
+export { BrowserStore, browserAssetCache } from './browser.ts';
 export { FolderStore } from './folder.ts';
-export { DriveStore, DriveError, type TokenSource } from './drive.ts';
+export { DriveStore, DriveError, isSharedAssetId, type TokenSource, type AssetCache } from './drive.ts';
 export { openDb, KV } from './idb.ts';

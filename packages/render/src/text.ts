@@ -13,11 +13,28 @@ export type TextPass =
 
 const passKey = (m: TextPass) => JSON.stringify(m);
 
+/** What a paragraph was built from (for vector export). */
+interface Source {
+  base: TextStyle;
+  runs: TextRun[];
+}
+
 interface Block {
   p: Paragraph;
   x: number;
   y: number;
-  marker?: { p: Paragraph; x: number };
+  marker?: { p: Paragraph; x: number; src?: Source };
+  src?: Source;
+}
+
+/** A word (or a run's part of one) at its place in the box: `y` is the baseline. For SVG and PDF export. */
+export interface TextPiece {
+  text: string;
+  x: number;
+  y: number;
+  /** Width Skia gave it, px. */
+  width: number;
+  style: TextStyle;
 }
 
 interface Glyph {
@@ -174,8 +191,9 @@ export class TextLayouts {
       for (const line of el.text.split('\n')) {
         const lineRuns = sliceRuns(runs, start, start + line.length);
         const align = lineRuns[0]?.style?.align ?? sliceRuns(runs, start, start + 1)[0]?.style?.align ?? el.style.align;
-        const p = keep(this.build(el, lineRuns.length ? lineRuns : sliceRuns(runs, start, start + 1).map((r) => ({ ...r, text: '' })), pass, align, el.w));
-        blocks.push({ p, x: 0, y });
+        const src = lineRuns.length ? lineRuns : sliceRuns(runs, start, start + 1).map((r) => ({ ...r, text: '' }));
+        const p = keep(this.build(el, src, pass, align, el.w));
+        blocks.push({ p, x: 0, y, src: { base: el.style, runs: src } });
         y += p.getHeight();
         start += line.length + 1;
       }
@@ -183,7 +201,7 @@ export class TextLayouts {
     }
     if (!el.list) {
       const p = keep(this.build(el, runs, pass, el.style.align, el.w));
-      return { blocks: [{ p, x: 0, y: 0 }], glyphs: [], width: el.w, height: p.getHeight(), minX: 0, minY: 0, paragraphs };
+      return { blocks: [{ p, x: 0, y: 0, src: { base: el.style, runs } }], glyphs: [], width: el.w, height: p.getHeight(), minX: 0, minY: 0, paragraphs };
     }
     // List: one paragraph per line, indented, with its marker in the gutter.
     const indent = listIndent(el);
@@ -196,10 +214,10 @@ export class TextLayouts {
       if (line.length) {
         const first = { ...el.style, ...lineRuns[0]?.style, underline: false, strike: false };
         const mp = keep(this.build({ ...el, style: first, gradient: el.gradient }, [{ text: listMarker(el.list, n) }], pass, 'right', indent - el.style.fontSize * 0.35));
-        marker = { p: mp, x: 0 };
+        marker = { p: mp, x: 0, src: { base: first, runs: [{ text: listMarker(el.list, n) }] } };
         n++;
       }
-      blocks.push({ p, x: indent, y, marker });
+      blocks.push({ p, x: indent, y, marker, src: { base: el.style, runs: lineRuns } });
       y += p.getHeight();
       start += line.length + 1;
     }
@@ -277,6 +295,51 @@ export class TextLayouts {
       canvas.drawParagraph(b.p, b.x + dx, b.y + dy);
       if (b.marker) canvas.drawParagraph(b.marker.p, b.marker.x + dx, b.y + dy);
     }
+  }
+
+  /**
+   * The text as positioned words, in box coordinates, for vector export.
+   * Curved text has none (exports draw it as an image).
+   */
+  pieces(el: TextElement): TextPiece[] {
+    const ck = this.ck;
+    const L = this.layout(el);
+    if (L.glyphs.length) return [];
+    const out: TextPiece[] = [];
+    const add = (p: Paragraph, src: Source | undefined, bx: number, by: number) => {
+      if (!src) return;
+      const lines = p.getLineMetrics();
+      const baselineAt = (yMid: number) => {
+        let best = lines[0];
+        for (const m of lines) if (yMid >= m.baseline - m.ascent - 0.5) best = m;
+        return best?.baseline ?? 0;
+      };
+      let pos = 0;
+      for (const run of src.runs) {
+        const style: TextStyle = { ...src.base, ...run.style };
+        const text = style.uppercase ? run.text.toUpperCase() : run.text;
+        for (const m of text.matchAll(/[^\s\u00a0]+/g)) {
+          const s0 = pos + m.index!, s1 = s0 + m[0].length;
+          const rects = p.getRectsForRange(s0, s1, ck.RectHeightStyle.Tight, ck.RectWidthStyle.Tight);
+          if (rects.length === 1) {
+            const r = rects[0]!.rect;
+            out.push({ text: m[0], x: bx + r[0]!, y: by + baselineAt((r[1]! + r[3]!) / 2), width: r[2]! - r[0]!, style });
+            continue;
+          }
+          // a word broken across lines: place it character by character
+          for (let i = s0; i < s1; i++) {
+            const cr = p.getRectsForRange(i, i + 1, ck.RectHeightStyle.Tight, ck.RectWidthStyle.Tight)[0]?.rect;
+            if (cr) out.push({ text: text[i - pos]!, x: bx + cr[0]!, y: by + baselineAt((cr[1]! + cr[3]!) / 2), width: cr[2]! - cr[0]!, style });
+          }
+        }
+        pos += text.length;
+      }
+    };
+    for (const b of L.blocks) {
+      add(b.p, b.src, b.x, b.y);
+      if (b.marker) add(b.marker.p, b.marker.src, b.marker.x, b.y);
+    }
+    return out;
   }
 
   /** Line boxes (for the Background effect), in box coordinates. */
