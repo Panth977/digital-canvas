@@ -315,7 +315,7 @@ test('text: a click on a selected text box puts the caret there; double-click se
   expect(await page.evaluate(() => (window as any).__dc.page.elements[0].style.uppercase)).toBe(true);
 });
 
-test('view: pinch / Cmd+wheel zooms, Cmd +/- and Cmd+0, space-drag pans', async ({ page }) => {
+test('view: pinch / Cmd+wheel zooms, Cmd +/- and Cmd+0 / Alt+Cmd+0, space-drag pans', async ({ page }) => {
   await newDesign(page);
   const zoomText = () => page.getByTestId('stage').evaluate(() => document.body.innerText.match(/(\d+)%/)?.[1]);
   const z0 = Number(await zoomText());
@@ -325,17 +325,24 @@ test('view: pinch / Cmd+wheel zooms, Cmd +/- and Cmd+0, space-drag pans', async 
   await page.mouse.wheel(0, -200);
   await page.keyboard.up('Control');
   await expect.poll(async () => Number(await zoomText())).toBeGreaterThan(z0);
+  // Canva: ⌘0 = actual size, ⌥⌘0 = fit
   await page.keyboard.press('ControlOrMeta+0');
+  await expect.poll(async () => Number(await zoomText())).toBe(100);
+  await page.keyboard.press('ControlOrMeta+Alt+0');
   await expect.poll(async () => Number(await zoomText())).toBe(z0);
   await page.keyboard.press('ControlOrMeta+=');
   await expect.poll(async () => Number(await zoomText())).toBeGreaterThan(z0);
-  await page.keyboard.press('ControlOrMeta+0');
-  // space + drag pans the view (the page header moves with it)
-  const before = (await page.getByTestId('page-header').first().boundingBox())!;
+  // space + drag pans the view; at 200% the page is wider than the workspace
+  await page.getByTestId('zoom-btn').click();
+  await page.getByTestId('zoom-menu').getByRole('menuitemradio', { name: '200%' }).click();
+  await expect.poll(async () => Number(await zoomText())).toBe(200);
+  const pan = () => page.evaluate(() => (window as any).__dcView.get() as { panX: number; panY: number });
+  const before = await pan();
   await page.keyboard.down('Space');
-  await drag(page, { x: stage.x + 100, y: stage.y + 300 }, { x: stage.x + 160, y: stage.y + 340 });
+  await drag(page, { x: stage.x + 300, y: stage.y + 300 }, { x: stage.x + 360, y: stage.y + 340 });
   await page.keyboard.up('Space');
-  const after = (await page.getByTestId('page-header').first().boundingBox())!;
-  expect(after.x - before.x).toBeCloseTo(60, 0);
+  const after = await pan();
+  expect(after.panX - before.panX).toBeCloseTo(60, 0);
+  expect(after.panY - before.panY).toBeCloseTo(40, 0);
   expect(await page.evaluate(() => (window as any).__dc.page.elements.length)).toBe(0);
 });

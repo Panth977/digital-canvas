@@ -54,3 +54,8 @@ Open-source Canva alternative. Built on TaskManager ticket **ORCH-27** (ORCH boa
 - Openverse anonymous API is slow/flaky at times; JSON answers are cached in localStorage (`dc.content.*`, 6 h).
 - Panel drops go through `handlePanelDrop()` (one line in Canvas `onDrop`). Credits are kept as the asset `name` (`creditLine()`).
 - e2e: `newDesign()` answers the content hosts with 503; tests that need results `page.route` them after it (see `e2e/content.spec.ts`).
+## Viewport (r4-view, 2026-10-27)
+
+- Canva's scroll model lives in `Canvas.svelte` (`panRange`/`clampPan`): page width fits → x centred and locked; wider → scrolls between the page edges ± 40 px. Vertically the column runs from 56 px above page 1 (its header) to 88 px below the last page ("Add page"); a shorter column is centred. Every pan goes through `clampPan()`.
+- Zoom state and commands are in `lib/view.svelte.ts` (`view.zoom`, `view.mode` 'fit'|'fill'|null, `view.zoomTo/zoomIn/zoomOut/fit/goToPage`); the canvas registers itself as `view.port`. Fit/Fill re-fit on resize until the user zooms; otherwise a resize keeps the middle of the view still. Range 10–500 %; ⌘0 100 %, ⌥⌘0 fit, ⇧⌘0 fill.
+- Right-click menu: `editor/CanvasMenu.svelte`. Dev global `window.__dcView.get()` → `{ panX, panY, zoom, vw, vh, range, mode }` (pan = screen position of page 1's top-left).

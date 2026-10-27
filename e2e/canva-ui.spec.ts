@@ -75,6 +75,8 @@ test('continuous scroll: every page has a header; scrolling changes the current 
   await page.evaluate(() => { const ed = (window as any).__dc; for (let i = 0; i < 3; i++) ed.addPage(); });
   expect((await doc(page)).pages).toHaveLength(4);
   await page.evaluate(() => { const ed = (window as any).__dc; ed.select([], ed.doc.pages[0].id); });
+  // the view scrolls (smoothly) back to page 1
+  await expect.poll(() => page.evaluate(() => (window as any).__dcView.get().panY)).toBe(56);
   // page titles and hiding (Canva: "Page 1 - Add page title", eye button)
   await page.getByTestId('page-title').first().fill('Menu');
   await page.getByTestId('page-title').first().press('Enter');

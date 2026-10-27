@@ -3,14 +3,49 @@
   import type { EditorState } from '../lib/editor.svelte.ts';
   import Icon from '../lib/Icon.svelte';
   import { ui } from '../lib/ui.svelte.ts';
+  import { view, ZOOM_MIN, ZOOM_MAX, ZOOM_PRESETS } from '../lib/view.svelte.ts';
 
   /**
    * Canva's bar under the page: Notes on the left; zoom, Pages (thumbnail
    * strip), page counter, grid view, full screen and help on the right.
    */
-  let { ed, zoom, onzoom, onfit }: { ed: EditorState; zoom: number; onzoom: (z: number) => void; onfit: () => void } = $props();
+  let { ed }: { ed: EditorState } = $props();
+  const zoom = $derived(view.zoom);
 
   let help = $state(false);
+  let zoomMenu = $state(false);
+
+  // ---- drag pages to reorder them (strip and grid view, like Canva) ----
+  let dragId = $state<string | null>(null);
+  /** Where the dragged page would land: before page `at` (0..n). */
+  let dropAt = $state<number | null>(null);
+  function dragStart(e: DragEvent, id: string): void {
+    dragId = id;
+    e.dataTransfer?.setData('application/x-dc-page', id);
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+  }
+  function dragOver(e: DragEvent, i: number, axis: 'x' | 'y' | 'grid'): void {
+    if (!dragId) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const after = axis === 'y' ? e.clientY > r.top + r.height / 2 : e.clientX > r.left + r.width / 2;
+    dropAt = i + (after ? 1 : 0);
+  }
+  function drop(e: DragEvent): void {
+    e.preventDefault();
+    const id = dragId;
+    const at = dropAt;
+    dragEnd();
+    if (!id || at === null) return;
+    const from = ed.doc.pages.findIndex((p) => p.id === id);
+    const to = at > from ? at - 1 : at;
+    if (from >= 0 && to !== from) ed.movePage(id, to - from);
+  }
+  function dragEnd(): void {
+    dragId = null;
+    dropAt = null;
+  }
 
   // ---- page thumbnails (strip and grid) ----
   /** Pages are immutable: an unchanged page keeps its object, so its picture is reused. */
@@ -52,16 +87,18 @@
   }
   const SHORTCUTS: [string, string][] = [
     ['T', 'Add a text box'], ['R', 'Add a rectangle'], ['C', 'Add a circle'], ['⌘Z / ⇧⌘Z', 'Undo / redo'], ['⌘D', 'Duplicate'], ['⌘G / ⇧⌘G', 'Group / ungroup'],
-    ['⌘] / ⌘[', 'Forward / backward'], ['⌘+ / ⌘− / ⌘0', 'Zoom in / out / fit'], ['⇧R', 'Rulers'], ['Space + drag', 'Pan'], ['Enter', 'Edit the selected text'], ['Esc', 'Deselect'],
+    ['⌘] / ⌘[', 'Forward / backward'], ['⌘+ / ⌘−', 'Zoom in / out'], ['⌘0 / ⌥⌘0 / ⇧⌘0', 'Zoom to 100% / fit / fill'], ['Page Up / Down', 'Previous / next page'], ['⇧R', 'Rulers'], ['Space + drag', 'Pan'], ['Enter', 'Edit the selected text'], ['Esc', 'Deselect'],
   ];
 </script>
 
-<svelte:window onclick={() => { help = false; }} />
+<svelte:window onclick={() => { help = false; zoomMenu = false; }} />
 
 {#if ui.gridView}
   <div class="grid scroll-y" data-testid="grid-view">
     {#each ed.doc.pages as p, i (p.id)}
-      <button class="gp" class:on={p.id === ed.pageId} onclick={() => go(p.id)} data-testid="grid-page">
+      <button class="gp" class:on={p.id === ed.pageId} class:dragging={dragId === p.id} class:before={dropAt === i && !!dragId} class:after={dropAt === i + 1 && i === ed.doc.pages.length - 1 && !!dragId}
+        draggable="true" ondragstart={(e) => dragStart(e, p.id)} ondragover={(e) => dragOver(e, i, 'grid')} ondrop={drop} ondragend={dragEnd}
+        onclick={() => go(p.id)} data-testid="grid-page">
         <span class="th" style="aspect-ratio:{ratio}">{#if thumbs[p.id]}<img src={thumbs[p.id]} alt="Page {i + 1}" />{/if}</span>
         <span class="lab">{i + 1}{p.name ? ` - ${p.name}` : ''}</span>
       </button>
@@ -76,7 +113,8 @@
 {#if ui.pagesStrip}
   <div class="strip" data-testid="pages-strip">
     {#each ed.doc.pages as p, i (p.id)}
-      <button class="sp" class:on={p.id === ed.pageId} class:hid={p.hidden} title="Page {i + 1}{p.name ? ` - ${p.name}` : ''}" onclick={() => go(p.id)} style="aspect-ratio:{ratio}">
+      <button class="sp" class:on={p.id === ed.pageId} class:hid={p.hidden} class:dragging={dragId === p.id} class:before={dropAt === i && !!dragId} class:after={dropAt === i + 1 && i === ed.doc.pages.length - 1 && !!dragId}
+        draggable="true" ondragstart={(e) => dragStart(e, p.id)} ondragover={(e) => dragOver(e, i, 'x')} ondrop={drop} ondragend={dragEnd} data-testid="strip-page" title="Page {i + 1}{p.name ? ` - ${p.name}` : ''}" onclick={() => go(p.id)} style="aspect-ratio:{ratio}">
         {#if thumbs[p.id]}<img src={thumbs[p.id]} alt="Page {i + 1}" />{/if}
         <span>{i + 1}</span>
       </button>
@@ -100,8 +138,21 @@
     </div>
   </div>
   <div class="r">
-    <input class="zr" type="range" min="0.1" max="4" step="0.01" value={zoom} aria-label="Zoom" oninput={(e) => onzoom(Number((e.currentTarget as HTMLInputElement).value))} />
-    <button class="bb pct" title="Fit to screen (⌘0)" onclick={onfit}><span data-testid="zoom">{Math.round(zoom * 100)}%</span></button>
+    <input class="zr" type="range" min={ZOOM_MIN} max={ZOOM_MAX} step="0.01" value={zoom} aria-label="Zoom"
+      oninput={(e) => view.zoomTo(Number((e.currentTarget as HTMLInputElement).value))} />
+    <div class="pw">
+      <button class="bb pct" class:on={zoomMenu} title="Zoom" aria-haspopup="menu" aria-expanded={zoomMenu} data-testid="zoom-btn" onclick={(e) => { e.stopPropagation(); zoomMenu = !zoomMenu; help = false; }}><span data-testid="zoom">{Math.round(zoom * 100)}%</span></button>
+      {#if zoomMenu}
+        <div class="pop zmenu" role="menu" data-testid="zoom-menu">
+          {#each ZOOM_PRESETS as z (z)}
+            <button role="menuitemradio" aria-checked={!view.mode && Math.abs(zoom - z) < 0.005} onclick={() => { zoomMenu = false; view.zoomTo(z); }}>{Math.round(z * 100)}%</button>
+          {/each}
+          <hr />
+          <button role="menuitemradio" aria-checked={view.mode === 'fit'} data-testid="zoom-fit" onclick={() => { zoomMenu = false; view.fit('fit'); }}>Fit</button>
+          <button role="menuitemradio" aria-checked={view.mode === 'fill'} data-testid="zoom-fill" onclick={() => { zoomMenu = false; view.fit('fill'); }}>Fill</button>
+        </div>
+      {/if}
+    </div>
     <button class="bb" class:on={ui.pagesStrip} data-testid="pages-btn" onclick={() => { ui.pagesStrip = !ui.pagesStrip; ui.gridView = false; }}><Icon name="pages" size={20} /> Pages</button>
     <button class="bb" title="Page {ed.pageIndex + 1} of {ed.doc.pages.length}" data-testid="page-counter" onclick={() => (ui.gridView = !ui.gridView)}>{ed.pageIndex + 1} / {ed.doc.pages.length}</button>
     <button class="bb icon" class:on={ui.gridView} title="Grid view" aria-label="Grid view" data-testid="grid-btn" onclick={() => { ui.gridView = !ui.gridView; ui.pagesStrip = false; }}><Icon name="gridview" size={20} /></button>
@@ -126,6 +177,16 @@
   .bb.icon { width: 36px; padding: 0; justify-content: center; }
   .bb:hover, .bb.on { background: var(--hover); color: var(--ink); }
   .pct { min-width: 56px; justify-content: center; font-variant-numeric: tabular-nums; }
+  .zmenu { right: 0; width: 140px; padding: 6px; gap: 0; }
+  .zmenu button { height: 34px; border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; font-weight: 400; text-align: left; padding: 0 12px; }
+  .zmenu button:hover { background: var(--hover); }
+  .zmenu button[aria-checked='true'] { font-weight: 700; color: var(--accent); }
+  .zmenu hr { width: 100%; margin: 4px 0; border: 0; border-top: 1px solid var(--line); }
+  .dragging { opacity: .4; }
+  .sp.before { box-shadow: -6px 0 0 -2px var(--accent); }
+  .sp.after { box-shadow: 6px 0 0 -2px var(--accent); }
+  .gp.before .th { box-shadow: -14px 0 0 -10px var(--accent); }
+  .gp.after .th { box-shadow: 14px 0 0 -10px var(--accent); }
   .zr { width: 160px; accent-color: var(--ink); margin-right: 4px; }
   .pw { position: relative; }
   .pop { position: absolute; bottom: 44px; z-index: 40; background: var(--pop); color: var(--ink); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); padding: 14px; display: flex; flex-direction: column; gap: 10px; font-weight: 400; }

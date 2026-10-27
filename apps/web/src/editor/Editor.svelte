@@ -25,7 +25,6 @@
   let ed = $state<EditorState | null>(null);
   let error = $state('');
   let zoom = $state(1);
-  let fitRequest = $state(0);
   let canvas = $state<Canvas>();
   let showDownload = $state(false);
   let showResize = $state(false);
@@ -79,9 +78,11 @@
     else if (mod && k === 'g') { stop(); e.shiftKey ? ed.ungroup() : ed.group(); }
     else if (!mod && e.shiftKey && !e.altKey && k === 'r') { stop(); view.toggle('rulers'); }
     else if (mod && k === 's') { stop(); void ed.save(); }
-    else if (mod && (k === '=' || k === '+')) { stop(); canvas?.setZoom(zoom * 1.25); }
-    else if (mod && k === '-') { stop(); canvas?.setZoom(zoom / 1.25); }
-    else if (mod && k === '0') { stop(); fitRequest++; }
+    else if (mod && (k === '=' || k === '+' || e.code === 'Equal' || e.code === 'NumpadAdd')) { stop(); view.zoomIn(); }
+    else if (mod && (k === '-' || e.code === 'Minus' || e.code === 'NumpadSubtract')) { stop(); view.zoomOut(); }
+    // Canva: ⌘0 actual size, ⌥⌘0 fit, ⇧⌘0 fill (e.code: ⌥ and ⇧ change e.key)
+    else if (mod && (e.code === 'Digit0' || e.code === 'Numpad0')) { stop(); if (e.altKey) view.fit('fit'); else if (e.shiftKey) view.fit('fill'); else view.zoomTo(1); }
+    else if (!mod && (k === 'pageup' || k === 'pagedown')) { stop(); view.goToPage(ed.pageIndex + (k === 'pageup' ? -1 : 1)); }
     else if (mod && k === ']') { stop(); ed.arrange(e.altKey ? 'front' : 'forward'); }
     else if (mod && k === '[') { stop(); ed.arrange(e.altKey ? 'back' : 'backward'); }
     else if (mod && k === 'enter') { stop(); ed.addPage(); }
@@ -279,9 +280,9 @@
       <SidePanel {ed} />
       <main class="work">
         <div class="ctxrow"><ContextToolbar {ed} /></div>
-        <Canvas {ed} bind:zoom bind:this={canvas} {fitRequest} />
+        <Canvas {ed} bind:zoom bind:this={canvas} />
         {#if isVideo(ed.doc)}<Timeline {ed} />{/if}
-        <BottomBar {ed} {zoom} onzoom={(z) => canvas?.setZoom(z)} onfit={() => fitRequest++} />
+        <BottomBar {ed} />
       </main>
     </div>
   </div>

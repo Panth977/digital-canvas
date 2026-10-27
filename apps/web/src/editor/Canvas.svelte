@@ -13,13 +13,14 @@
   import type { EditorState } from '../lib/editor.svelte.ts';
   import { TEXT_PRESETS } from '../lib/editor.svelte.ts';
   import Icon from '../lib/Icon.svelte';
-  import { view } from '../lib/view.svelte.ts';
+  import { view, clampZoom, type FitMode } from '../lib/view.svelte.ts';
+  import CanvasMenu from './CanvasMenu.svelte';
   import Rulers, { RULER } from './Rulers.svelte';
   import { ui } from '../lib/ui.svelte.ts';
   import { textShortcut } from '../lib/shortcuts.ts';
   import { flatten, getSelectionOffsets, needsRebuild, renderRich, setSelectionOffsets } from '../lib/richtext.ts';
 
-  let { ed, zoom = $bindable(1), fitRequest = 0 }: { ed: EditorState; zoom?: number; fitRequest?: number } = $props();
+  let { ed, zoom = $bindable(view.zoom) }: { ed: EditorState; zoom?: number } = $props();
 
   /** Workspace colour behind the pages, from the theme (--stage), as CanvasKit RGBA. */
   let STAGE = [0.922, 0.925, 0.941, 1];
@@ -38,6 +39,7 @@
   let dpr = 1;
   let drawQueued = false;
   let fitted = false;
+  view.mode = 'fit';
 
   // ---- layout: pages stacked vertically in world space ----
   /** Space between pages: room for the page header (about 56 screen px) at any zoom, like Canva. */
@@ -71,19 +73,74 @@
     return corners(el).map((p) => toScreen(p.x, p.y + pageTop(i)));
   }
 
-  // ---- view ----
-  export function fit(): void {
+  // ---- view: Canva's scroll model ----
+  // The workspace scrolls like a document: the page column plus a margin around it.
+  // While the (zoomed) page width fits, it is centred and cannot scroll sideways; once
+  // wider, it scrolls between its edges plus MARGIN_X. Vertically the column runs from the
+  // first page's header to the "Add page" button below the last page; a column shorter
+  // than the workspace is centred.
+  /** Workspace margin beside the page once it scrolls sideways (screen px). */
+  const MARGIN_X = 40;
+  /** Above the first page: its header (34 px) and a little air. */
+  const MARGIN_TOP = 56;
+  /** Below the last page: the "Add page" button (16 + 40 px) and a little air. */
+  const MARGIN_BOTTOM = 88;
+
+  /** Screen insets of the scrollable area (rulers and bleed take room too). */
+  function insets(): { l: number; r: number; t: number; b: number } {
+    const ruler = view.rulers ? RULER : 0;
+    const b = view.bleed ? ed.doc.bleed * zoom : 0;
+    return { l: MARGIN_X + ruler + b, r: MARGIN_X + b, t: MARGIN_TOP + ruler + b, b: MARGIN_BOTTOM + b };
+  }
+  const columnHeight = () => pageTop(ed.doc.pages.length - 1) + ed.doc.height;
+
+  /** Allowed panX / panY: [lo, hi]; lo === hi when that axis cannot scroll. */
+  function panRange(): { x: { lo: number; hi: number }; y: { lo: number; hi: number } } {
+    const ins = insets();
+    const pw = ed.doc.width * zoom, ph = columnHeight() * zoom;
+    const axis = (size: number, view: number, a: number, b: number) => {
+      if (size + a + b <= view) {
+        const c = a + (view - a - b - size) / 2;
+        return { lo: c, hi: c };
+      }
+      return { lo: view - b - size, hi: a };
+    };
+    return { x: axis(pw, vw, ins.l, ins.r), y: axis(ph, vh, ins.t, ins.b) };
+  }
+
+  function clampPan(): void {
     if (!vw || !vh) return;
+    const r = panRange();
+    panX = Math.min(r.x.hi, Math.max(r.x.lo, panX));
+    panY = Math.min(r.y.hi, Math.max(r.y.lo, panY));
+  }
+
+  /** panY that shows page i: centred when it fits, else its top under the header. */
+  function panYFor(i: number): number {
+    const ins = insets();
+    return ins.t + Math.max(0, (vh - ins.t - ins.b - ed.doc.height * zoom) / 2) - pageTop(i) * zoom;
+  }
+
+  /** Canva's Fit (whole page in view) and Fill (page width fills the workspace). */
+  function fit(mode: FitMode = 'fit', i = ed.pageIndex): void {
+    if (!vw || !vh) return;
+    stopScrollAnim();
     const W = ed.doc.width, H = ed.doc.height;
-    zoom = Math.max(0.02, Math.min(4, Math.min((vw - 96) / W, (vh - 120) / H)));
-    panX = (vw - W * zoom) / 2;
-    panY = 64 - pageTop(ed.pageIndex) * zoom;
+    const ins = insets();
+    const fw = (vw - ins.l - ins.r) / W;
+    zoom = clampZoom(mode === 'fill' ? fw : Math.min(fw, (vh - ins.t - ins.b) / H));
+    panX = 0;
+    panY = panYFor(i);
+    clampPan();
+    view.mode = mode;
     queueDraw();
   }
 
   function zoomAt(next: number, s: Point): void {
-    next = Math.max(0.02, Math.min(8, next));
-    // keep the same spot of the same page under the cursor (the gap between pages changes with zoom)
+    next = clampZoom(next);
+    stopScrollAnim();
+    // keep the same spot of the same page under the cursor (the gap between pages changes with zoom),
+    // then centre / clamp again
     const w = toWorld(s.x, s.y);
     const i = pageAt(w);
     const local = toPage(w, i);
@@ -91,53 +148,217 @@
     panX = s.x - w.x * zoom;
     panY = s.y - (local.y + pageTop(i)) * zoom;
     clampPan();
+    view.mode = null;
+    flashBars();
   }
 
   export function setZoom(next: number): void {
     zoomAt(next, { x: vw / 2, y: vh / 2 });
   }
 
-  function clampPan(): void {
-    const W = ed.doc.width * zoom;
-    const total = (pageTop(ed.doc.pages.length - 1) + ed.doc.height) * zoom;
-    panX = Math.min(vw - 80, Math.max(80 - W, panX));
-    panY = Math.min(vh - 80, Math.max(80 - total, panY));
+  /** Pan by a screen delta (wheel, trackpad, hand tool), within the clamps. */
+  function scrollBy(dx: number, dy: number): void {
+    stopScrollAnim();
+    panX -= dx;
+    panY -= dy;
+    clampPan();
+    flashBars();
+    syncCurrentPage();
   }
 
+  // Re-centre / re-clamp whenever the column or the workspace changes size (pages added or
+  // deleted, page size, rulers, bleed). A resize is handled by the observer (keeps the view stable).
   $effect(() => {
-    // only a new request re-fits (not the zoom or page that fit() reads)
-    if (fitRequest) untrack(fit);
+    void ed.doc.pages.length; void ed.doc.width; void ed.doc.height; void view.rulers; void view.bleed; void ed.doc.bleed;
+    untrack(clampPan);
   });
+  // a new page size (Resize) re-fits while in Fit / Fill
+  let sized = '';
+  $effect(() => {
+    const k = `${ed.doc.width}x${ed.doc.height}`;
+    untrack(() => {
+      if (sized && k !== sized && view.mode) fit(view.mode);
+      sized = k;
+    });
+  });
+
+  $effect(() => {
+    view.zoom = zoom;
+  });
+
+  // ---- smooth scroll to a page ----
+  let scrollAnim = 0;
+  function stopScrollAnim(): void {
+    if (scrollAnim) cancelAnimationFrame(scrollAnim);
+    scrollAnim = 0;
+  }
+  function animatePanY(target: number): void {
+    stopScrollAnim();
+    const from = panY, t0 = performance.now();
+    const step = (t: number) => {
+      const k = Math.min(1, (t - t0) / 240);
+      panY = from + (target - from) * (1 - (1 - k) ** 3);
+      clampPan();
+      scrollAnim = k < 1 ? requestAnimationFrame(step) : 0;
+    };
+    scrollAnim = requestAnimationFrame(step);
+  }
 
   // ---- continuous scroll: the page in the middle of the view is the current one (Canva) ----
   let scrolledTo = '';
-  $effect(() => {
-    // only the view moving counts (not a page picked elsewhere, which scrolls the view itself)
-    void panY; void zoom; void vh;
-    untrack(() => {
-      if (!vh || drag || ed.selection.length || ed.editingTextId || ed.croppingId) return;
-      const i = pageAt(toWorld(vw / 2, vh / 2));
-      const id = ed.doc.pages[i]?.id;
-      if (id && id !== ed.pageId) {
-        scrolledTo = id;
-        ed.pageId = id;
-      }
-    });
-  });
-  /** A page made current elsewhere (page strip, grid view, add page) is scrolled into view. */
+  /** After the user scrolls or zooms: make the page in the middle of the view current. */
+  function syncCurrentPage(): void {
+    if (!vh || drag || ed.selection.length || ed.editingTextId || ed.croppingId) return;
+    const id = ed.doc.pages[pageAt(toWorld(vw / 2, vh / 2))]?.id;
+    if (id && id !== ed.pageId) {
+      scrolledTo = id;
+      ed.pageId = id;
+    }
+  }
+  /** Scroll page i into view unless it already is (smoothly, like Canva). */
+  function revealPage(i: number): void {
+    stopScrollAnim(); // a scroll to another page still running is cancelled
+    const top = toScreen(0, pageTop(i)).y, h = ed.doc.height * zoom;
+    const ins = insets();
+    const shown = h <= vh - ins.t - ins.b ? top >= ins.t / 2 && top + h <= vh - 16 : top < vh / 2 && top + h > vh / 2;
+    if (shown) return;
+    const r = panRange();
+    animatePanY(Math.min(r.y.hi, Math.max(r.y.lo, panYFor(i))));
+  }
+  /** A page made current elsewhere (page strip, grid view, add / duplicate page, Page Up/Down) is scrolled into view. */
   $effect(() => {
     const id = ed.pageId;
     if (!vh || id === scrolledTo) return;
     scrolledTo = id;
-    const i = pageIndexOf(id);
-    if (i < 0) return;
-    const top = toScreen(0, pageTop(i)).y, bottom = top + ed.doc.height * zoom;
-    if (bottom < 60 || top > vh - 60) {
-      // a page shorter than the view is centred, a taller one starts near the top
-      panY = Math.min(64, (vh - ed.doc.height * zoom) / 2) - pageTop(i) * zoom;
-      clampPan();
-    }
+    untrack(() => {
+      const i = pageIndexOf(id);
+      if (i >= 0) revealPage(i);
+    });
   });
+
+  // ---- overlay scrollbars (thin, shown while scrolling or hovered, like Canva) ----
+  let barsShown = $state(false);
+  let barsTimer = 0;
+  function flashBars(): void {
+    barsShown = true;
+    clearTimeout(barsTimer);
+    barsTimer = window.setTimeout(() => (barsShown = false), 900);
+  }
+  const SB_PAD = 4, SB_MIN = 32;
+  /** Thumb geometry per axis, or null when that axis cannot scroll. */
+  const scrollbars = $derived.by(() => {
+    void panX; void panY;
+    if (!vw || !vh) return { x: null, y: null };
+    const r = panRange();
+    const one = (lo: number, hi: number, pan: number, len: number) => {
+      if (hi - lo < 0.5) return null;
+      const track = len - 2 * SB_PAD - 12;
+      const size = Math.max(SB_MIN, (track * len) / (len + hi - lo));
+      const at = ((hi - pan) / (hi - lo)) * (track - size);
+      return { size, at: SB_PAD + Math.max(0, Math.min(track - size, at)), track, lo, hi };
+    };
+    return { x: one(r.x.lo, r.x.hi, panX, vw), y: one(r.y.lo, r.y.hi, panY, vh) };
+  });
+  let barDrag: { axis: 'x' | 'y'; start: number; pan: number } | null = null;
+  function barDown(axis: 'x' | 'y', e: PointerEvent): void {
+    e.stopPropagation();
+    e.preventDefault();
+    const b = scrollbars[axis];
+    if (!b) return;
+    const el = e.currentTarget as HTMLElement;
+    el.setPointerCapture(e.pointerId);
+    const pos = axis === 'x' ? localPoint(e).x : localPoint(e).y;
+    if (!(e.target as HTMLElement).classList.contains('thumb')) {
+      // a click on the track jumps there (thumb centred on the pointer)
+      const k = Math.max(0, Math.min(1, (pos - SB_PAD - b.size / 2) / (b.track - b.size)));
+      if (axis === 'x') panX = b.hi - k * (b.hi - b.lo);
+      else panY = b.hi - k * (b.hi - b.lo);
+      clampPan();
+      syncCurrentPage();
+    }
+    barDrag = { axis, start: pos, pan: axis === 'x' ? panX : panY };
+    flashBars();
+  }
+  function barMove(e: PointerEvent): void {
+    if (!barDrag) return;
+    e.stopPropagation();
+    const b = scrollbars[barDrag.axis];
+    if (!b) return;
+    const pos = barDrag.axis === 'x' ? localPoint(e).x : localPoint(e).y;
+    const per = (b.hi - b.lo) / Math.max(1, b.track - b.size);
+    if (barDrag.axis === 'x') panX = barDrag.pan - (pos - barDrag.start) * per;
+    else panY = barDrag.pan - (pos - barDrag.start) * per;
+    clampPan();
+    flashBars();
+    syncCurrentPage();
+  }
+  function barUp(e: PointerEvent): void {
+    barDrag = null;
+    const el = e.currentTarget as HTMLElement;
+    if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
+  }
+
+  // ---- auto-scroll while dragging an element near the workspace edge (Canva) ----
+  let lastMove: PointerEvent | null = null;
+  let autoRaf = 0;
+  const EDGE = 40, EDGE_SPEED = 18;
+  function autoScroll(): void {
+    autoRaf = 0;
+    if (!drag || !lastMove || (drag.mode !== 'move' && drag.mode !== 'resize')) return;
+    if (drag.mode === 'move' && !drag.moved) return;
+    const s = localPoint(lastMove);
+    const speed = (d: number) => (d < EDGE ? EDGE_SPEED * Math.min(1, (EDGE - d) / EDGE) : 0);
+    const dx = speed(s.x) - speed(vw - s.x), dy = speed(s.y) - speed(vh - s.y);
+    if (!dx && !dy) return;
+    const x0 = panX, y0 = panY;
+    panX += dx;
+    panY += dy;
+    clampPan();
+    if (panX !== x0 || panY !== y0) {
+      flashBars();
+      onPointerMove(lastMove);
+    }
+    autoRaf = requestAnimationFrame(autoScroll);
+  }
+
+  view.port = {
+    zoomTo: (z) => setZoom(z),
+    fit: (mode) => fit(mode),
+    goToPage: (i) => {
+      const p = ed.doc.pages[Math.max(0, Math.min(ed.doc.pages.length - 1, i))];
+      if (!p) return;
+      if (p.id === ed.pageId) revealPage(pageIndexOf(p.id));
+      else ed.select([], p.id);
+    },
+  };
+
+  // ---- canvas context menu (right-click) ----
+  let menu = $state.raw<{ x: number; y: number; kind: 'element' | 'page'; pageId: string } | null>(null);
+  function onContextMenu(e: MouseEvent): void {
+    e.preventDefault();
+    if (drag || ed.croppingId) return;
+    if (ed.editingTextId) ed.stopEditing();
+    const s = localPoint(e);
+    const hit = elementAt(s);
+    if (hit) {
+      // Canva: right-click on an element outside the selection selects it first
+      if (!ed.selection.includes(hit.el.id)) ed.select([hit.el.id]);
+      menu = { x: s.x, y: s.y, kind: 'element', pageId: ed.doc.pages[hit.i]!.id };
+      return;
+    }
+    if (multiBox && onSelection(s, null)) {
+      menu = { x: s.x, y: s.y, kind: 'element', pageId: ed.pageId };
+      return;
+    }
+    const w = toWorld(s.x, s.y);
+    const i = pageAt(w);
+    const p = toPage(w, i);
+    const onPage = p.x >= 0 && p.y >= 0 && p.x <= ed.doc.width && p.y <= ed.doc.height;
+    const pageId = ed.doc.pages[i]!.id;
+    ed.select([], onPage ? pageId : undefined);
+    ed.pageSelected = onPage;
+    menu = { x: s.x, y: s.y, kind: 'page', pageId: onPage ? pageId : ed.pageId };
+  }
 
   // ---- drawing ----
   function makeSurface(): void {
@@ -211,17 +432,34 @@
 
   onMount(() => {
     readStage();
+    // for tests and the console: the viewport (pan = screen position of page 1's top-left corner)
+    (window as unknown as { __dcView?: unknown }).__dcView = { get: () => ({ panX, panY, zoom, vw, vh, range: panRange(), mode: view.mode }) };
     const scheme = matchMedia('(prefers-color-scheme: dark)');
     const onScheme = () => { readStage(); queueDraw(); };
     scheme.addEventListener('change', onScheme);
     const ro = new ResizeObserver(() => {
       const r = host.getBoundingClientRect();
+      // keep the view stable: the spot in the middle of the workspace stays in the middle
+      let anchor: { x: number; y: number; i: number } | null = null;
+      if (vw && vh) {
+        const w = toWorld(vw / 2, vh / 2);
+        const i = pageAt(w);
+        anchor = { x: w.x, y: toPage(w, i).y, i };
+      }
       vw = r.width;
       vh = r.height;
       makeSurface();
-      if (!fitted && vw > 0) {
+      if (!fitted && vw > 0 && vh > 0) {
         fitted = true;
-        fit();
+        fit('fit');
+      } else if (fitted && view.mode) {
+        // Fit / Fill keep fitting until the user zooms (Canva)
+        fit(view.mode, anchor?.i ?? ed.pageIndex);
+      } else if (anchor) {
+        stopScrollAnim();
+        panX = vw / 2 - anchor.x * zoom;
+        panY = vh / 2 - (anchor.y + pageTop(anchor.i)) * zoom;
+        clampPan();
       }
       queueDraw();
     });
@@ -229,6 +467,10 @@
     return () => {
       scheme.removeEventListener('change', onScheme);
       ro.disconnect();
+      view.port = null;
+      stopScrollAnim();
+      if (autoRaf) cancelAnimationFrame(autoRaf);
+      clearTimeout(barsTimer);
       surface?.delete();
       surface = null;
     };
@@ -461,7 +703,9 @@
   }
 
   function onPointerDown(e: PointerEvent): void {
+    menu = null;
     if (e.button === 2) return;
+    if (e.button === 1) e.preventDefault(); // no browser auto-scroll: middle-drag pans
     host.setPointerCapture(e.pointerId);
     const s = localPoint(e);
     if (e.button === 1 || spaceDown) {
@@ -607,10 +851,15 @@
       return;
     }
     const w = toWorld(s.x, s.y);
+    lastMove = e;
+    if ((drag.mode === 'move' || drag.mode === 'resize') && !autoRaf) autoRaf = requestAnimationFrame(autoScroll);
     switch (drag.mode) {
       case 'pan':
         panX = drag.panX + (s.x - drag.start.x);
         panY = drag.panY + (s.y - drag.start.y);
+        clampPan();
+        flashBars();
+        syncCurrentPage();
         break;
       case 'press': {
         // a drag that starts on an unselected element draws a selection box (Canva)
@@ -790,6 +1039,9 @@
 
   function onPointerUp(e: PointerEvent): void {
     if (host.hasPointerCapture(e.pointerId)) host.releasePointerCapture(e.pointerId);
+    if (autoRaf) cancelAnimationFrame(autoRaf);
+    autoRaf = 0;
+    lastMove = null;
     if (drag?.mode === 'pan') cursor = spaceDown ? 'grab' : 'default';
     if (drag?.mode === 'guide') dropGuide(drag, localPoint(e));
     if (drag?.mode === 'draw') ed.addStroke(ed.doc.pages[drag.pageI]!.id, drag.pts);
@@ -853,13 +1105,18 @@
 
   function onWheel(e: WheelEvent): void {
     e.preventDefault();
+    menu = null;
+    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? vh : 1;
+    let dx = e.deltaX * unit, dy = e.deltaY * unit;
     if (e.ctrlKey || e.metaKey) {
-      zoomAt(zoom * Math.exp(-e.deltaY * 0.0025), localPoint(e));
-    } else {
-      panX -= e.shiftKey && !e.deltaX ? e.deltaY : e.deltaX;
-      panY -= e.shiftKey && !e.deltaX ? 0 : e.deltaY;
-      clampPan();
+      // pinch (small deltas) or ⌘/Ctrl + wheel: zoom around the pointer, then centre / clamp
+      zoomAt(zoom * Math.exp(-dy * (Math.abs(dy) < 50 ? 0.01 : 0.002)), localPoint(e));
+      syncCurrentPage();
+      return;
     }
+    // Shift + wheel scrolls sideways (only does anything once the page is wider than the workspace)
+    if (e.shiftKey && !dx) { dx = dy; dy = 0; }
+    scrollBy(dx, dy);
   }
 
   // ---- drag & drop from the side panel and the desktop ----
@@ -1122,6 +1379,7 @@
   onpointercancel={onPointerUp}
   ondblclick={onDblClick}
   onwheel={onWheel}
+  oncontextmenu={onContextMenu}
   ondragover={(e) => e.preventDefault()}
   ondrop={onDrop}
   onpointerleave={() => (ed.hoverId = null)}
@@ -1324,6 +1582,25 @@
       onblur={(e) => { if (!(e.relatedTarget as HTMLElement | null)?.closest('[data-text-tools]')) ed.stopCellEdit(); }}
     ></textarea>
   {/if}
+
+  {#if scrollbars.x}
+    {@const b = scrollbars.x}
+    <div class="sb x" class:show={barsShown} data-testid="hscroll" tabindex="-1" role="scrollbar" aria-orientation="horizontal" aria-controls="stage" aria-valuenow={Math.round(((b.hi - panX) / (b.hi - b.lo)) * 100)}
+      onpointerdown={(e) => barDown('x', e)} onpointermove={barMove} onpointerup={barUp} onpointercancel={barUp}>
+      <div class="thumb" style="left:{b.at}px;width:{b.size}px"></div>
+    </div>
+  {/if}
+  {#if scrollbars.y}
+    {@const b = scrollbars.y}
+    <div class="sb y" class:show={barsShown} data-testid="vscroll" tabindex="-1" role="scrollbar" aria-orientation="vertical" aria-controls="stage" aria-valuenow={Math.round(((b.hi - panY) / (b.hi - b.lo)) * 100)}
+      onpointerdown={(e) => barDown('y', e)} onpointermove={barMove} onpointerup={barUp} onpointercancel={barUp}>
+      <div class="thumb" style="top:{b.at}px;height:{b.size}px"></div>
+    </div>
+  {/if}
+
+  {#if menu}
+    <CanvasMenu {ed} x={menu.x} y={menu.y} kind={menu.kind} pageId={menu.pageId} {vw} {vh} onclose={() => (menu = null)} />
+  {/if}
 </div>
 
 <style>
@@ -1337,6 +1614,16 @@
     position: absolute; transform-origin: 0 0; margin: 0; border: 0; resize: none; overflow: hidden; box-sizing: border-box;
     outline: 2px solid var(--accent); background: #fff; white-space: pre-wrap; user-select: text; -webkit-user-select: text;
   }
+  .sb { position: absolute; z-index: 6; opacity: 0; transition: opacity .25s; pointer-events: auto; }
+  .sb.x { left: 0; right: 12px; bottom: 0; height: 12px; }
+  .sb.y { top: 0; bottom: 12px; right: 0; width: 12px; }
+  .sb.show, .sb:hover, .sb:active { opacity: 1; transition: opacity .05s; }
+  .sb .thumb { position: absolute; border-radius: 99px; background: rgba(127, 127, 140, .55); }
+  .sb.x .thumb { top: 3px; height: 6px; }
+  .sb.y .thumb { left: 3px; width: 6px; }
+  .sb:hover .thumb, .sb:active .thumb { background: rgba(127, 127, 140, .8); }
+  .sb.x:hover .thumb, .sb.x:active .thumb { top: 2px; height: 8px; }
+  .sb.y:hover .thumb, .sb.y:active .thumb { left: 2px; width: 8px; }
   .stage { position: relative; flex: 1; overflow: hidden; background: var(--stage); touch-action: none; user-select: none; }
   canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
   .overlay { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
