@@ -12,6 +12,24 @@ const DOC_PROP = 'dcDocId';
 /** On the shared assets folder ('assets') and on each asset file (its content-hash id). */
 const ASSETS_PROP = 'dcAssets';
 const ASSET_PROP = 'dcAsset';
+/** The original file name of an asset, and the "removed from Uploads" flag. */
+const NAME_PROP = 'dcName';
+const HIDDEN_PROP = 'dcHidden';
+
+/** One of your uploads in `Digital Canvas/assets`. */
+export interface LibraryAsset {
+  /** Content-hash asset id (as in a design's `assets`). */
+  id: string;
+  fileId: string;
+  mime: string;
+  name?: string;
+  thumbnailLink?: string;
+  size?: number;
+  createdTime?: string;
+  width?: number;
+  height?: number;
+  duration?: number;
+}
 
 /** Only content-hash ids (as `assetId` makes) are safe to share between designs. */
 export const isSharedAssetId = (id: string) => /^[0-9a-f]{20}\.[a-z0-9]+$/.test(id);
@@ -35,6 +53,12 @@ export class DriveError extends Error {
   constructor(message: string, readonly status: number) {
     super(message);
   }
+}
+
+/** Drive limits an app property's key + value to 124 bytes. */
+function shortLabel(s: string): string {
+  const b = new TextEncoder().encode(s);
+  return b.length <= 100 ? s : new TextDecoder().decode(b.slice(0, 100)).replace(/\uFFFD+$/, '');
 }
 
 function base64url(bytes: Uint8Array): string {
@@ -64,6 +88,7 @@ export class DriveStore implements ProjectStore {
   private ids = new Map<string, string>(); // doc id → Drive file id
   private assetsFolderId: string | null = null;
   private assetIds: Promise<Map<string, string>> | null = null; // asset id → Drive file id
+  private hidden = new Set<string>(); // assets removed from Uploads
 
   constructor(private token: TokenSource, private folderName = 'Digital Canvas', private cache?: AssetCache) {}
 
@@ -122,7 +147,12 @@ export class DriveStore implements ProjectStore {
         const params = new URLSearchParams({ q, fields: 'nextPageToken,files(id,appProperties)', pageSize: '1000', spaces: 'drive' });
         if (pageToken) params.set('pageToken', pageToken);
         const r = await this.json<{ files: DriveFile[]; nextPageToken?: string }>(`${API}/files?${params}`);
-        for (const f of r.files) { const a = f.appProperties?.[ASSET_PROP]; if (a) map.set(a, f.id); }
+        for (const f of r.files) {
+          const a = f.appProperties?.[ASSET_PROP];
+          if (!a) continue;
+          map.set(a, f.id);
+          if (f.appProperties?.[HIDDEN_PROP]) this.hidden.add(a);
+        }
         pageToken = r.nextPageToken ?? '';
       } while (pageToken);
       return map;
@@ -131,15 +161,81 @@ export class DriveStore implements ProjectStore {
     return this.assetIds;
   }
 
-  private async uploadAsset(id: string, bytes: Uint8Array, mime: string): Promise<void> {
+  private async uploadAsset(id: string, bytes: Uint8Array, mime: string, label?: string): Promise<void> {
     const stored = await this.stored();
-    if (stored.has(id)) return;
-    const meta = { name: id, mimeType: mime, parents: [await this.assetsFolder()], appProperties: { [ASSET_PROP]: id } };
+    if (stored.has(id)) {
+      // Used again after "Remove from Uploads": show it again.
+      if (this.hidden.has(id)) {
+        this.hidden.delete(id);
+        await this.call(`${API}/files/${stored.get(id)}?fields=id`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ appProperties: { [HIDDEN_PROP]: null } }) }).catch(() => {});
+      }
+      return;
+    }
+    const props: Record<string, string> = { [ASSET_PROP]: id };
+    if (label) props[NAME_PROP] = shortLabel(label);
+    const meta = { name: id, mimeType: mime, parents: [await this.assetsFolder()], appProperties: props };
     const boundary = `dc${Math.random().toString(36).slice(2)}`;
     const head = `--${boundary}\r\ncontent-type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${boundary}\r\ncontent-type: ${mime}\r\n\r\n`;
     const body = new Blob([head, bytes as BlobPart, `\r\n--${boundary}--`]);
     const r = await this.json<{ id: string }>(`${UPLOAD}/files?uploadType=multipart&fields=id`, { method: 'POST', headers: { 'content-type': `multipart/related; boundary=${boundary}` }, body });
     stored.set(id, r.id);
+  }
+
+  /**
+   * Your uploads: every asset in `Digital Canvas/assets`, newest first, minus
+   * the ones removed from Uploads. `fresh` lists Drive again.
+   */
+  async listAssets(fresh = false): Promise<LibraryAsset[]> {
+    if (fresh) this.assetIds = null;
+    const parent = await this.assetsFolder();
+    const out: LibraryAsset[] = [];
+    const map = new Map<string, string>();
+    this.hidden.clear();
+    const q = `'${parent}' in parents and trashed=false`;
+    let pageToken = '';
+    do {
+      const params = new URLSearchParams({ q, fields: 'nextPageToken,files(id,mimeType,size,createdTime,thumbnailLink,appProperties,imageMediaMetadata(width,height),videoMediaMetadata(width,height,durationMillis))', pageSize: '1000', spaces: 'drive', orderBy: 'createdTime desc' });
+      if (pageToken) params.set('pageToken', pageToken);
+      const r = await this.json<{ files: (DriveFile & { mimeType: string; size?: string; createdTime?: string; imageMediaMetadata?: { width?: number; height?: number }; videoMediaMetadata?: { width?: number; height?: number; durationMillis?: string } })[]; nextPageToken?: string }>(`${API}/files?${params}`);
+      for (const f of r.files) {
+        const p = f.appProperties ?? {};
+        const id = p[ASSET_PROP];
+        if (!id) continue;
+        map.set(id, f.id);
+        if (p[HIDDEN_PROP]) { this.hidden.add(id); continue; }
+        const m = f.imageMediaMetadata ?? f.videoMediaMetadata;
+        out.push({
+          id,
+          fileId: f.id,
+          mime: f.mimeType,
+          ...(p[NAME_PROP] ? { name: p[NAME_PROP] } : {}),
+          ...(f.thumbnailLink ? { thumbnailLink: f.thumbnailLink } : {}),
+          ...(f.size ? { size: Number(f.size) } : {}),
+          ...(f.createdTime ? { createdTime: f.createdTime } : {}),
+          ...(m?.width ? { width: m.width, height: m.height } : {}),
+          ...(Number(f.videoMediaMetadata?.durationMillis) ? { duration: Number(f.videoMediaMetadata!.durationMillis) / 1000 } : {}),
+        });
+      }
+      pageToken = r.nextPageToken ?? '';
+    } while (pageToken);
+    this.assetIds = Promise.resolve(map);
+    return out;
+  }
+
+  /** An uploaded asset's bytes (from the local cache when we have them). */
+  getAsset(id: string): Promise<Uint8Array | undefined> {
+    return this.downloadAsset(id);
+  }
+
+  /**
+   * Remove an asset from Uploads. The file stays in Drive (marked hidden),
+   * because designs that already use it still need it.
+   */
+  async hideAsset(id: string): Promise<void> {
+    const fileId = (await this.stored()).get(id);
+    if (!fileId) return;
+    await this.call(`${API}/files/${fileId}?fields=id`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ appProperties: { [HIDDEN_PROP]: '1' } }) });
+    this.hidden.add(id);
   }
 
   private async downloadAsset(id: string): Promise<Uint8Array | undefined> {
@@ -219,7 +315,7 @@ export class DriveStore implements ProjectStore {
     // Assets first, so a saved design never points at something Drive doesn't have.
     const queue = Object.keys(doc.assets).filter((a) => file.assets.has(a) && isSharedAssetId(a));
     await Promise.all(Array.from({ length: Math.min(4, queue.length) }, async () => {
-      for (let a = queue.shift(); a; a = queue.shift()) await this.uploadAsset(a, file.assets.get(a)!, doc.assets[a]!.mime);
+      for (let a = queue.shift(); a; a = queue.shift()) await this.uploadAsset(a, file.assets.get(a)!, doc.assets[a]!.mime, doc.assets[a]!.name);
     }));
     const fileId = await this.fileIdOf(doc.id);
     const meta: Record<string, unknown> = {

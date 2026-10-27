@@ -4,7 +4,11 @@
 //   flow, redirect_uri "postmessage"), signs the user in with a custom token and
 //   keeps the Drive refresh token, encrypted, so every other device works without
 //   connecting Drive again.
-// driveToken: a fresh Drive access token for the signed-in user.
+// driveToken: a fresh Drive access token for the signed-in user, with the scopes it carries.
+//
+// Connecting the whole Drive (browse it in Uploads) is incremental consent: the app
+// asks for drive.readonly on top of the granted scopes (include_granted_scopes) with
+// prompt=consent, and googleSignIn stores the new refresh token, which covers both.
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { HttpsError, onCall } from '@panth977/icebase-server/functions';
 import { getAdminAuth, getAdminFirestore, initializeAdminApp } from '@panth977/icebase-server/admin';
@@ -104,13 +108,13 @@ export const googleSignIn = onCall(api.googleSignIn, { secrets: SECRETS, cors: O
   }
 
   const token = await auth.createCustomToken(uid);
-  return { token, driveConnected, accessToken: t.access_token, expiresIn: t.expires_in ?? 3600 };
+  return { token, driveConnected, accessToken: t.access_token, expiresIn: t.expires_in ?? 3600, scope: t.scope ?? '' };
 });
 
 export const driveToken = onCall(api.driveToken, { secrets: SECRETS, cors: ORIGINS, region: REGION }, async (req) => {
   const uid = req.auth!.uid;
   const snap = await getDoc(driveDoc(uid));
-  const stored = snap.data() as { refreshToken?: string } | undefined;
+  const stored = snap.data() as { refreshToken?: string; scope?: string } | undefined;
   if (!stored?.refreshToken) throw new HttpsError('failed-precondition', 'drive-not-connected');
   const t = await googleToken({ refresh_token: decrypt(stored.refreshToken), grant_type: 'refresh_token' });
   if (t.error === 'invalid_grant') {
@@ -119,5 +123,6 @@ export const driveToken = onCall(api.driveToken, { secrets: SECRETS, cors: ORIGI
     throw new HttpsError('failed-precondition', 'drive-not-connected');
   }
   if (!t.access_token) throw new HttpsError('unavailable', t.error_description ?? t.error ?? 'Google token refresh failed');
-  return { accessToken: t.access_token, expiresIn: t.expires_in ?? 3600 };
+  // The scopes this token carries: drive.readonly once the user connected their whole Drive.
+  return { accessToken: t.access_token, expiresIn: t.expires_in ?? 3600, scope: t.scope ?? stored.scope ?? '' };
 });
