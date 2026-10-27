@@ -7,7 +7,7 @@ A free, open-source design editor — everything you can make in Canva, with you
 - **Open file format**: one `.dcanvas` file per design — a zip with `document.json` (plain, documented JSON) plus the images it uses. Easy for scripts and AI agents to read and write.
 - **No lock-in backend**: the server only signs you in and keeps your Drive connection (via [IceBase](https://github.com/Panth977/icebase)). Your designs never pass through it.
 
-> Status: **phase 1, milestone 3** — editor core, sign in with Google (designs saved in your Drive), text & fonts. Live: https://digital-canvas-p977.web.app (Google sign-in is in testing mode: invited test users only).
+> Status: **phase 1, milestone 4** — editor core, sign in with Google (designs saved in your Drive), text & fonts, image tools. Live: https://digital-canvas-p977.web.app (Google sign-in is in testing mode: invited test users only).
 
 ## Run it
 
@@ -26,7 +26,7 @@ Node 22+. The first `npm run e2e` may need `npx playwright install chromium`.
 | Path | What |
 | --- | --- |
 | `packages/scene` | The document format (`types.ts`), pure operations, geometry, undo history, presets, validation |
-| `packages/render` | CanvasKit renderer: pages, shapes, text (Skia Paragraph), images, PNG/JPG, SVG and PDF (raster or vector) export — no DOM, runs in Node too |
+| `packages/render` | CanvasKit renderer: pages, shapes, text (Skia Paragraph), images with adjustments/filters/effects (colour matrices, SkSL), PNG/JPG, SVG and PDF (raster or vector) export — no DOM, runs in Node too |
 | `packages/storage` | `.dcanvas` pack/unpack and project stores: Google Drive (`drive.file`, one app folder), this browser (IndexedDB), a local folder (File System Access API) |
 | `backend` | IceBase config (schema, API, rules) and two Cloud Functions: `googleSignIn` (code → custom token, keeps the encrypted Drive refresh token) and `driveToken` |
 | `tools` | `canva-import.ts` (Canva connector JSON → `.dcanvas`, for comparisons) and `render.ts` (render a page to PNG in Node) |
@@ -64,7 +64,7 @@ All lengths are CSS pixels (96 per inch); `unit` only says how sizes are shown. 
 - [ ] **M2.1** "Open with" from Drive, publish the OAuth app
 - [x] **M3** Text & fonts: rich text (style part of a box), 2,000+ Google Fonts (via Fontsource, embedded in the file), font upload, 9 text effects, curved text, lists, gradient text
 - [x] **Video (early)**: video clips, page durations, timeline playback, sounds, MP4 export (WebCodecs via [Mediabunny](https://mediabunny.dev), MPL-2.0)
-- [ ] **M4** Image tools: crop, adjust, filters, shadows, effects, background remover
+- [x] **M4** Image tools: crop mode, 11 adjustments, 12 filters with intensity, effects (shadow, glow, duotone, pixelate, outline), background remover in the browser ([MODNet](https://github.com/ZHKKKe/MODNet), Apache-2.0, via onnxruntime-web), set as page background, eyedropper — for images and video clips
 - [x] **M5** Layout tools + 270+ presets: snapping and smart guides (edges, centres, equal spacing; Alt/⌘ to place freely), rulers with draggable guides, print bleed and safe margins, groups (⌘G / ⇧⌘G, double-click into a group), distribute and tidy up, aspect-ratio lock, searchable preset picker (social, video, presentations, documents, print, marketing, web and IAB ads), resize a copy to other sizes
 - [x] **M6** Elements + export: lines & arrows, connectors that follow shapes, freehand draw (pen/marker/highlighter), 13 frames, 12 photo grids, tables, charts (column/bar/line/area/pie/donut), QR codes, icon search ([Iconify](https://iconify.design)), CC photo search ([Openverse](https://openverse.org)); SVG export and vector PDF (real text in embedded fonts)
 

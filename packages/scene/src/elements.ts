@@ -97,13 +97,6 @@ export function frame(mask: ShapeKind | MaskPath, box: Box, asset = '', radius =
 /** Is this image a frame (a photo inside a shape)? */
 export const isFrame = (e: Element): e is ImageElement => e.type === 'image' && !!e.mask;
 
-/** Crop that cover-fits an image of `iw × ih` into a `w × h` box, centred. */
-export function coverCrop(iw: number, ih: number, w: number, h: number): { x: number; y: number; w: number; h: number } {
-  const s = Math.max(w / iw, h / ih);
-  const cw = Math.min(1, w / s / iw), ch = Math.min(1, h / s / ih);
-  return { x: (1 - cw) / 2, y: (1 - ch) / 2, w: cw, h: ch };
-}
-
 /** Photo grid layouts: cells as fractions of the area (x, y, w, h). */
 export const GRIDS: { id: string; label: string; cells: [number, number, number, number][] }[] = [
   { id: '2v', label: '2 side by side', cells: [[0, 0, 0.5, 1], [0.5, 0, 0.5, 1]] },

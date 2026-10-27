@@ -9,7 +9,7 @@ import type { Color, Doc, Element, Fill, ImageElement, Page, PathElement, ShapeE
 import { dashArray, type Decomposed } from '@digital-canvas/scene';
 import type { FontFace } from './fonts.ts';
 import { shapePath, transformPath, type Renderer } from './renderer.ts';
-import { textNeedsRaster, type VectorExportOptions } from './svgexport.ts';
+import { loadPicture, pictureNeedsRaster, textNeedsRaster, type VectorExportOptions } from './svgexport.ts';
 import { pathCmds, pickFaces, rgba, type Cmd } from './vectorpath.ts';
 
 export interface VectorPdfOptions extends VectorExportOptions {
@@ -22,11 +22,12 @@ type Paint = { fill: Color | null; stroke: (Stroke & { cap?: 'butt' | 'round' | 
 
 const isLinear = (f: Fill | null | undefined) => f?.type === 'linear';
 
-/** Elements vector PDF draws as an image: text effects, curved or gradient text, gradient fills. */
+/** Elements vector PDF draws as an image: text effects, curved or gradient text, gradient fills, images with a look. */
 function needsRaster(el: Element): boolean {
   if (el.type === 'text') return textNeedsRaster(el) || !!el.gradient;
   if (el.type === 'shape') return isLinear(el.fill);
   if (el.type === 'path') return el.paths.some((p) => isLinear(p.fill));
+  if (el.type === 'image' || el.type === 'video') return pictureNeedsRaster(el);
   return false;
 }
 
@@ -237,7 +238,7 @@ export async function exportVectorPdf(renderer: Renderer, doc: Doc, opts: Vector
     }
     for (const el of flattenGroups(page.elements)) {
       if (el.hidden) continue;
-      if (needsRaster(el)) {
+      if (needsRaster(el) && ((el.type !== 'image' && el.type !== 'video') || loadPicture(renderer, el, opts.assets))) {
         const r = renderer.rasterElement(el);
         if (r) placeImage(await pdf.embedPng(r.png), r.x, r.y, r.w, r.h);
         continue;

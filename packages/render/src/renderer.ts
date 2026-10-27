@@ -1,6 +1,7 @@
-import type { Canvas, CanvasKit, Image, Paint, Path } from 'canvaskit-wasm';
-import { childrenOf, type Doc, type Element, type Fill, type ImageElement, type Page, type PathElement, type ShapeElement, type ShapeKind, type TextElement, type VideoElement } from '@digital-canvas/scene';
+import type { Canvas, CanvasKit, Image, ImageFilter, Paint, Path, RuntimeEffect, Shader } from 'canvaskit-wasm';
+import { childrenOf, cropOf, effectiveAdjust, hasLook, imageBox, type Doc, type Element, type Fill, type ImageElement, type Page, type PathElement, type ShapeElement, type ShapeKind, type TextElement, type VideoElement } from '@digital-canvas/scene';
 import { aabb, dashArray, decompose, type Decomposed, type Prim, type PrimText } from '@digital-canvas/scene';
+import { colorMatrix, LOOK_SKSL } from './look.ts';
 import { color, FontLibrary } from './fonts.ts';
 import { listIndent, TextLayouts, type TextPiece } from './text.ts';
 
@@ -227,13 +228,7 @@ export class Renderer {
       return;
     }
     canvas.save();
-    const cx = el.x + el.w / 2, cy = el.y + el.h / 2;
-    if (el.rotation) canvas.rotate(el.rotation, cx, cy);
-    if (el.flipX || el.flipY) {
-      canvas.translate(cx, cy);
-      canvas.scale(el.flipX ? -1 : 1, el.flipY ? -1 : 1);
-      canvas.translate(-cx, -cy);
-    }
+    this.transform(canvas, el);
     const layered = el.opacity < 1;
     if (layered) {
       const p = new ck.Paint();
@@ -337,18 +332,63 @@ export class Renderer {
     path.delete();
   }
 
-  private drawImage(canvas: Canvas, el: ImageElement | VideoElement): void {
-    const ck = this.ck;
+  /** The picture an image or video element shows right now, if decoded. */
+  private pictureOf(el: ImageElement | VideoElement): Image | undefined {
     // a video shows its current frame, else its poster (stored as an image under `<asset>.poster`)
-    const img = el.type === 'video' ? this.frames.get(el.asset) ?? this.images.get(`${el.asset}.poster`) : this.images.get(el.asset);
-    const dst = ck.XYWHRect(el.x, el.y, el.w, el.h);
+    return el.type === 'video' ? this.frames.get(el.asset) ?? this.images.get(`${el.asset}.poster`) : this.images.get(el.asset);
+  }
+
+  /** Pixel size of a decoded image asset (or a video's current picture). */
+  imageSize(el: ImageElement | VideoElement): { width: number; height: number } | null {
+    const img = this.pictureOf(el);
+    return img ? { width: img.width(), height: img.height() } : null;
+  }
+
+  /**
+   * Crop mode: the whole image, faded, where it lies behind the element's frame.
+   * Drawn in page coordinates with the element's rotation and flips.
+   */
+  drawCropGhost(canvas: Canvas, el: ImageElement | VideoElement, alpha = 0.4): void {
+    const ck = this.ck, img = this.pictureOf(el);
+    if (!img) return;
+    const box = imageBox(el, cropOf(el, img.width(), img.height()));
+    canvas.save();
+    this.transform(canvas, el);
+    const p = new ck.Paint();
+    p.setAlphaf(alpha);
+    canvas.drawImageRectOptions(img, ck.XYWHRect(0, 0, img.width(), img.height()), ck.XYWHRect(box.x, box.y, box.w, box.h), ck.FilterMode.Linear, ck.MipmapMode.Linear, p);
+    p.delete();
+    canvas.restore();
+  }
+
+  private lookEffect: RuntimeEffect | null | undefined;
+
+  /** The SkSL effect for sharpen, highlights/shadows and pixelate (null if this CanvasKit can't compile it). */
+  private look(): RuntimeEffect | null {
+    if (this.lookEffect === undefined) {
+      this.lookEffect = this.ck.RuntimeEffect?.Make(LOOK_SKSL, (err) => console.warn('image look shader:', err)) ?? null;
+    }
+    return this.lookEffect;
+  }
+
+  /** Clip to what an image shows through: its frame (mask), else its rounded corners, else (if `always`) its box. */
+  private clipFrame(canvas: Canvas, el: ImageElement | VideoElement, dst: Float32Array, always = false): void {
+    const ck = this.ck;
     const mask = el.type === 'image' ? this.maskPath(el) : null;
     if (mask) {
       canvas.clipPath(mask, ck.ClipOp.Intersect, true);
       mask.delete();
     } else if (el.radius > 0) canvas.clipRRect(ck.RRectXY(dst, el.radius, el.radius), ck.ClipOp.Intersect, true);
+    else if (always) canvas.clipRect(dst, ck.ClipOp.Intersect, true);
+  }
+
+  private drawImage(canvas: Canvas, el: ImageElement | VideoElement): void {
+    const ck = this.ck;
+    const img = this.pictureOf(el);
+    const dst = ck.XYWHRect(el.x, el.y, el.w, el.h);
     if (el.type === 'image' && el.mask && !img) {
       // an empty frame: grey, with a little picture sign in the middle
+      this.clipFrame(canvas, el, dst);
       this.paint.setStyle(ck.PaintStyle.Fill);
       this.paint.setColor(ck.Color4f(0.83, 0.85, 0.88, 1));
       canvas.drawRect(dst, this.paint);
@@ -363,6 +403,7 @@ export class Renderer {
       return;
     }
     if (!img) {
+      this.clipFrame(canvas, el, dst);
       // Not loaded yet (or missing): a neutral placeholder.
       this.paint.setStyle(ck.PaintStyle.Fill);
       this.paint.setColor(el.type === 'video' ? ck.Color4f(0.12, 0.13, 0.16, 1) : ck.Color4f(0.85, 0.86, 0.88, 1));
@@ -381,16 +422,131 @@ export class Renderer {
       return;
     }
     const iw = img.width(), ih = img.height();
-    let src;
-    if (el.crop) src = ck.XYWHRect(el.crop.x * iw, el.crop.y * ih, el.crop.w * iw, el.crop.h * ih);
-    else {
-      // cover-fit, centred
-      const scale = Math.max(el.w / iw, el.h / ih);
-      const sw = el.w / scale, sh = el.h / scale;
-      src = ck.XYWHRect((iw - sw) / 2, (ih - sh) / 2, sw, sh);
+    const crop = cropOf(el, iw, ih);
+    const src = ck.XYWHRect(crop.x * iw, crop.y * ih, crop.w * iw, crop.h * ih);
+    if (!hasLook(el)) {
+      this.clipFrame(canvas, el, dst);
+      this.paint.setColor(ck.BLACK);
+      canvas.drawImageRectOptions(img, src, dst, ck.FilterMode.Linear, ck.MipmapMode.Linear, this.paint);
+      return;
     }
-    this.paint.setColor(ck.BLACK);
-    canvas.drawImageRectOptions(img, src, dst, ck.FilterMode.Linear, ck.MipmapMode.Linear, this.paint);
+
+    // ---- with adjustments, a filter or an effect ----
+    const adj = effectiveAdjust(el);
+    const fx = el.effect;
+    const short = Math.min(el.w, el.h);
+    const outer = this.outerEffect(el, short);
+    if (outer) {
+      const p = new ck.Paint();
+      p.setImageFilter(outer);
+      canvas.saveLayer(p);
+      p.delete();
+      outer.delete();
+    }
+    canvas.save();
+    this.clipFrame(canvas, el, dst, true); // inside the layer, so shadow/glow/outline follow a frame's shape
+
+    const sx = el.w / (crop.w * iw), sy = el.h / (crop.h * ih);
+    const local = [sx, 0, el.x - crop.x * iw * sx, 0, sy, el.y - crop.y * ih * sy, 0, 0, 1];
+    const base = img.makeShaderOptions(ck.TileMode.Clamp, ck.TileMode.Clamp, ck.FilterMode.Linear, ck.MipmapMode.Linear, local);
+    let shader: Shader = base;
+    const cell = fx?.type === 'pixelate' ? Math.max(2, (fx.size / 100) * short * 0.08) : 0;
+    const sharpen = (adj.sharpen ?? 0) / 100, hi = (adj.highlights ?? 0) / 100, sh = (adj.shadows ?? 0) / 100;
+    const effect = cell || sharpen || hi || sh ? this.look() : null;
+    if (effect) {
+      shader = effect.makeShaderWithChildren([Math.max(sx, 1), Math.max(sy, 1), sharpen * 0.6, hi, sh, cell, el.x, el.y], [base]);
+      base.delete();
+    }
+    const p = new ck.Paint();
+    p.setAntiAlias(true);
+    p.setShader(shader);
+    const m = colorMatrix(adj, fx?.type === 'duotone' ? fx : undefined);
+    if (m) {
+      const cf = ck.ColorFilter.MakeMatrix(m);
+      p.setColorFilter(cf);
+      cf.delete();
+    }
+    if (adj.blur) {
+      const sigma = (adj.blur / 100) * Math.max(2, short * 0.04);
+      const blur = ck.ImageFilter.MakeBlur(sigma, sigma, ck.TileMode.Clamp, null);
+      p.setImageFilter(blur);
+      blur.delete();
+    }
+    canvas.drawRect(dst, p);
+    p.delete();
+    shader.delete();
+
+    if (adj.vignette) {
+      // darker (or, below 0, lighter) towards the edges, inside the frame
+      const v = adj.vignette / 100;
+      const edge = v > 0 ? ck.Color4f(0, 0, 0, 0.85 * v) : ck.Color4f(1, 1, 1, -0.85 * v);
+      const clear = v > 0 ? ck.Color4f(0, 0, 0, 0) : ck.Color4f(1, 1, 1, 0);
+      const cx = el.x + el.w / 2, cy = el.y + el.h / 2;
+      // a unit circle stretched so it passes through the frame's corners
+      const rx = el.w / Math.SQRT2, ry = el.h / Math.SQRT2;
+      const g = ck.Shader.MakeRadialGradient([0, 0], 1, [clear, clear, edge], [0, 0.45, 1], ck.TileMode.Clamp, [rx, 0, cx, 0, ry, cy, 0, 0, 1]);
+      const vp = new ck.Paint();
+      vp.setShader(g);
+      canvas.drawRect(dst, vp);
+      vp.delete();
+      g.delete();
+    }
+    canvas.restore();
+    if (outer) canvas.restore();
+  }
+
+  /** Shadow, glow and outline draw around the picture: an image filter for a layer holding it. */
+  private outerEffect(el: ImageElement | VideoElement, short: number): ImageFilter | null {
+    const ck = this.ck, fx = el.effect;
+    if (!fx) return null;
+    const tinted = (hex: string, alpha: number, input: ImageFilter) => {
+      const cf = ck.ColorFilter.MakeBlend(color(ck, hex, alpha), ck.BlendMode.SrcIn);
+      const f = ck.ImageFilter.MakeColorFilter(cf, input);
+      cf.delete();
+      return f;
+    };
+    const under = (bg: ImageFilter) => {
+      const f = ck.ImageFilter.MakeBlend(ck.BlendMode.SrcOver, bg, null);
+      bg.delete();
+      return f;
+    };
+    switch (fx.type) {
+      case 'shadow': {
+        const dist = (fx.offset / 100) * short * 0.15;
+        const rad = (fx.direction * Math.PI) / 180;
+        const sigma = (fx.blur / 100) * short * 0.08;
+        return ck.ImageFilter.MakeDropShadow(Math.cos(rad) * dist, Math.sin(rad) * dist, sigma, sigma, color(ck, fx.color, 1 - fx.transparency / 100), null);
+      }
+      case 'glow': {
+        const size = (fx.size / 100) * short * 0.06;
+        const dil = ck.ImageFilter.MakeDilate(size / 2, size / 2, null);
+        const blur = ck.ImageFilter.MakeBlur(size + 0.5, size + 0.5, ck.TileMode.Decal, dil);
+        dil.delete();
+        const t = tinted(fx.color, 1 - fx.transparency / 100, blur);
+        blur.delete();
+        return under(t);
+      }
+      case 'outline': {
+        const r = (fx.thickness / 100) * short * 0.05 + 0.5;
+        const dil = ck.ImageFilter.MakeDilate(r, r, null);
+        const t = tinted(fx.color, 1, dil);
+        dil.delete();
+        return under(t);
+      }
+      default:
+        return null;
+    }
+  }
+
+  /** Rotation and flips of an element around its centre. */
+  private transform(canvas: Canvas, el: Element): void {
+    const cx = el.x + el.w / 2, cy = el.y + el.h / 2;
+    if (el.rotation) canvas.rotate(el.rotation, cx, cy);
+    if (el.flipX || el.flipY) {
+      canvas.translate(cx, cy);
+      canvas.scale(el.flipX ? -1 : 1, el.flipY ? -1 : 1);
+      canvas.translate(-cx, -cy);
+    }
   }
 
   /** A frame's outline in page coordinates (null when the image has no mask). The caller deletes it. */
@@ -460,7 +616,9 @@ export class Renderer {
   rasterElement(el: Element, scale = 3): { png: Uint8Array; x: number; y: number; w: number; h: number } | null {
     const ck = this.ck;
     const b = aabb(el);
-    const pad = el.type === 'text' ? el.style.fontSize * 0.8 : 4 + ('stroke' in el && el.stroke ? el.stroke.width * 4 : 0);
+    const pad = el.type === 'text' ? el.style.fontSize * 0.8
+      : (el.type === 'image' || el.type === 'video') && el.effect ? 4 + Math.min(el.w, el.h) * 0.5 // shadow, glow, outline reach outside the box
+      : 4 + ('stroke' in el && el.stroke ? el.stroke.width * 4 : 0);
     const x = Math.floor(b.x - pad), y = Math.floor(b.y - pad), w = Math.ceil(b.w + 2 * pad), h = Math.ceil(b.h + 2 * pad);
     const surface = ck.MakeSurface(Math.max(1, Math.round(w * scale)), Math.max(1, Math.round(h * scale)));
     if (!surface) return null;
@@ -532,6 +690,7 @@ export class Renderer {
     this.frames.clear();
     this.images.clear();
     this.paint.delete();
+    this.lookEffect?.delete();
   }
 }
 

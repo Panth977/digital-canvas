@@ -118,7 +118,56 @@ export interface TextElement extends ElementBase {
   gradient?: Extract<Fill, { type: 'linear' }>;
 }
 
-export interface ImageElement extends ElementBase {
+/**
+ * Photo adjustments, each -100..100 like Canva's sliders (0 or absent = unchanged).
+ * `blur` and `sharpen` are 0..100; a negative `vignette` lightens the edges instead.
+ */
+export interface ImageAdjust {
+  brightness?: number;
+  contrast?: number;
+  saturation?: number;
+  /** Warm (+) or cool (-). */
+  temperature?: number;
+  /** Magenta (+) or green (-). */
+  tint?: number;
+  highlights?: number;
+  shadows?: number;
+  /** Lifts the blacks (a washed-out look). */
+  fade?: number;
+  vignette?: number;
+  blur?: number;
+  sharpen?: number;
+}
+
+export type ImageAdjustKey = keyof ImageAdjust;
+
+/** A named filter (see `IMAGE_FILTERS`) at 0..100 intensity. */
+export interface ImageFilter {
+  name: string;
+  intensity: number;
+}
+
+/**
+ * A look for the whole image. Amounts are 0..100 like Canva's sliders and
+ * scale with the image size; `direction` is in degrees (0 = right, 90 = down).
+ */
+export type ImageEffect =
+  | { type: 'shadow'; offset: number; direction: number; blur: number; transparency: number; color: Color }
+  | { type: 'glow'; size: number; transparency: number; color: Color }
+  | { type: 'duotone'; light: Color; dark: Color }
+  | { type: 'pixelate'; size: number }
+  | { type: 'outline'; thickness: number; color: Color };
+
+export type ImageEffectType = ImageEffect['type'];
+
+/** Look settings shared by images and video clips. */
+export interface ImageLook {
+  adjust?: ImageAdjust;
+  filter?: ImageFilter;
+  effect?: ImageEffect;
+}
+
+export interface ImageElement extends ElementBase, ImageLook {
   type: 'image';
   /** Key into `Doc.assets`. */
   asset: string;
@@ -129,6 +178,8 @@ export interface ImageElement extends ElementBase {
    * (0..1). Absent = cover-fit, centred.
    */
   crop?: { x: number; y: number; w: number; h: number };
+  /** The asset before its background was removed (kept so it can be restored). */
+  original?: string;
   /**
    * Frame: the image shows only inside this shape (a shape kind, or SVG path
    * `d` in `viewBox` units scaled to the box). An empty `asset` is an empty
@@ -144,7 +195,7 @@ export interface MaskPath {
 }
 
 /** A video clip on the page. Plays while its page is on screen (from the page's start). */
-export interface VideoElement extends ElementBase {
+export interface VideoElement extends ElementBase, ImageLook {
   type: 'video';
   /** Key into `Doc.assets` (video/mp4, video/webm…). */
   asset: string;

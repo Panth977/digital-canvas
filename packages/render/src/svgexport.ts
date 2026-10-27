@@ -1,5 +1,5 @@
 import type { Doc, Element, Fill, ImageElement, Page, PathElement, ShapeElement, TextElement, VideoElement } from '@digital-canvas/scene';
-import { dashArray, type Decomposed } from '@digital-canvas/scene';
+import { dashArray, hasLook, type Decomposed } from '@digital-canvas/scene';
 import type { Renderer } from './renderer.ts';
 import { shapePath } from './renderer.ts';
 import type { FontFace } from './fonts.ts';
@@ -16,10 +16,21 @@ const n = (v: number) => String(Math.round(v * 100) / 100);
 /** True when vector export can't show a text box faithfully (it is drawn as an image instead). */
 export const textNeedsRaster = (el: TextElement): boolean => !!el.effect || !!el.curve;
 
+/** True when an image or video has adjustments, a filter or an effect (vector export draws it as an image). */
+export const pictureNeedsRaster = (el: ImageElement | VideoElement): boolean => hasLook(el);
+
+/** Decode an image's (or a video poster's) bytes into the renderer so it can be drawn; its pixel size, or null. */
+export function loadPicture(renderer: Renderer, el: ImageElement | VideoElement, assets: ReadonlyMap<string, Uint8Array>): { width: number; height: number } | null {
+  const assetId = el.type === 'video' ? `${el.asset}.poster` : el.asset;
+  const bytes = assetId ? assets.get(assetId) : undefined;
+  return bytes ? renderer.setImage(assetId, bytes) : null;
+}
+
 /**
  * One page as a standalone SVG: shapes, paths, lines, tables and charts as
  * vectors, text as `<text>` (with the fonts it uses embedded as @font-face),
- * images as data URIs. Text effects and curved text become images.
+ * images as data URIs. Text effects, curved text and images with
+ * adjustments, filters or effects become images.
  */
 export function exportSvg(renderer: Renderer, doc: Doc, page: Page, opts: VectorExportOptions): string {
   const ck = renderer.ck;
@@ -145,9 +156,10 @@ export function exportSvg(renderer: Renderer, doc: Doc, page: Page, opts: Vector
     else if (el.type === 'shape') inner = shape(el);
     else if (el.type === 'path') inner = vectorPath(el);
     else if (el.type === 'line' || el.type === 'table' || el.type === 'chart') inner = pieces(renderer.vectorize(el));
+    else if (pictureNeedsRaster(el)) inner = loadPicture(renderer, el, opts.assets) ? rasterImage(el) : picture(el);
     else inner = picture(el);
     if (!inner) continue;
-    const raster = el.type === 'text' && textNeedsRaster(el);
+    const raster = (el.type === 'text' && textNeedsRaster(el)) || ((el.type === 'image' || el.type === 'video') && pictureNeedsRaster(el) && inner.startsWith('<image '));
     const cx = el.x + el.w / 2, cy = el.y + el.h / 2;
     const tf: string[] = [];
     if (!raster) {

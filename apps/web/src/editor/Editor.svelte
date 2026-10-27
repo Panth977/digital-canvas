@@ -79,6 +79,7 @@
     else if (mod && k === ']') { stop(); ed.arrange(e.altKey ? 'front' : 'forward'); }
     else if (mod && k === '[') { stop(); ed.arrange(e.altKey ? 'back' : 'backward'); }
     else if (k === 'delete' || k === 'backspace') { stop(); ed.deleteSelection(); }
+    else if (ed.croppingId && (k === 'escape' || k === 'enter')) { stop(); ed.stopCrop(); }
     else if (k === 'escape') {
       if (ed.tool || ed.framePanId) { ed.tool = null; ed.framePanId = null; }
       else ed.select([]);
