@@ -44,6 +44,7 @@
         if (cancelled) return;
         ed = new EditorState(eng, store, file);
         (window as unknown as { __dc?: EditorState }).__dc = ed; // for tests and the console
+        ed.viewProbe = probeView;
       } catch (e) {
         error = e instanceof Error ? e.message : String(e);
       }
@@ -62,6 +63,25 @@
       if (e) void e.save().finally(() => e.dispose());
     };
   });
+
+  /**
+   * The middle of what you can see of the current page, in page px (Canva puts
+   * clicked elements there). Read from the page's action bar, which sits on
+   * the page's top-left corner.
+   */
+  function probeView(): { pageId: string; x: number; y: number } | null {
+    const e = ed;
+    const stage = document.querySelector<HTMLElement>('[data-testid=stage]');
+    const bar = document.querySelector<HTMLElement>('.pagetitle.current')?.closest<HTMLElement>('[data-testid=page-header]');
+    if (!e || !stage || !bar || !zoom) return null;
+    const s = stage.getBoundingClientRect();
+    const bleed = view.bleed && e.doc.bleed ? e.doc.bleed * zoom : 0;
+    const left = s.left + parseFloat(bar.style.left), top = s.top + parseFloat(bar.style.top) + 34 + bleed;
+    const right = left + e.doc.width * zoom, bottom = top + e.doc.height * zoom;
+    const x1 = Math.max(left, s.left), x2 = Math.min(right, s.right), y1 = Math.max(top, s.top), y2 = Math.min(bottom, s.bottom);
+    if (x2 <= x1 || y2 <= y1) return null;
+    return { pageId: e.pageId, x: ((x1 + x2) / 2 - left) / zoom, y: ((y1 + y2) / 2 - top) / zoom };
+  }
 
   function typing(t: EventTarget | null): boolean {
     return t instanceof HTMLElement && !!t.closest('input, textarea, select, [contenteditable="true"]');

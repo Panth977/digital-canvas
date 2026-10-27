@@ -19,6 +19,19 @@
   const p = $derived(progress[item.key]);
 
   let hover = $state(false);
+  /** Canva's "…" on a hovered tile: add, set as background, who made it. */
+  let menu = $state(false);
+  async function asBackground(): Promise<void> {
+    menu = false;
+    const before = ed.selection;
+    if (await insertItem(ed, item)) { if (ed.selection.join() !== before.join()) ed.setAsBackground(); }
+  }
+  /** Drag ghost: the picture itself, not the whole tile. */
+  function start(e: DragEvent): void {
+    dragItem(e, item);
+    const img = (e.currentTarget as HTMLElement).querySelector('img');
+    if (img && e.dataTransfer && img.complete) e.dataTransfer.setDragImage(img, img.clientWidth / 2, img.clientHeight / 2);
+  }
   let previewSrc = $state<string | undefined>(undefined);
   let failed = $state(false);
 
@@ -32,10 +45,14 @@
   }
 </script>
 
-<button class="tile {item.kind}" class:vector class:busy={p !== undefined} {style} draggable="true"
+<svelte:window onpointerdown={(e) => { if (menu && !(e.target as HTMLElement).closest?.('.tmenu, .dots')) menu = false; }} />
+
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="wrap" class:open={menu} {style} onmouseenter={enter} onmouseleave={() => (hover = false)}>
+<button class="tile {item.kind}" class:vector class:busy={p !== undefined} draggable="true"
   title={creditLine(item.credit)} aria-label="Add {item.kind} {item.title}" data-key={item.key}
-  onclick={() => insertItem(ed, item)} ondragstart={(e) => dragItem(e, item)}
-  onmouseenter={enter} onmouseleave={() => (hover = false)} onfocus={enter} onblur={() => (hover = false)}>
+  onclick={() => insertItem(ed, item)} ondragstart={start}
+  onfocus={enter} onblur={() => (hover = false)}>
   {#if item.thumb && !failed}
     <img src={item.thumb} alt={item.title} loading="lazy" draggable="false" onerror={() => (failed = true)} />
   {:else}
@@ -54,9 +71,30 @@
     </span>
   {/if}
 </button>
+<button class="dots" aria-label="More options for {item.title}" aria-expanded={menu} data-testid="tile-more" onclick={(e) => { e.stopPropagation(); menu = !menu; }}><Icon name="more" size={16} /></button>
+{#if menu}
+  <div class="tmenu" role="menu" data-testid="tile-menu">
+    <button role="menuitem" onclick={() => { menu = false; void insertItem(ed, item); }}><Icon name="plus" size={15} /> Add to page</button>
+    {#if item.kind === 'photo' || item.kind === 'illustration'}
+      <button role="menuitem" data-testid="tile-bg" onclick={asBackground}><Icon name="image" size={15} /> Set as background</button>
+    {/if}
+    <div class="credit"><b>{item.title || 'Untitled'}</b><span>{item.credit.creator ? `by ${item.credit.creator} · ` : ''}{item.credit.license} · {item.credit.source}</span></div>
+    {#if item.credit.page}<a role="menuitem" href={item.credit.page} target="_blank" rel="noreferrer">View on {item.credit.source}</a>{/if}
+  </div>
+{/if}
+</div>
 
 <style>
-  .tile { position: relative; padding: 0; border: 0; border-radius: 6px; overflow: hidden; background: var(--chip); display: block; flex-shrink: 0; }
+  .wrap { position: relative; flex-shrink: 0; }
+  .tile { position: relative; padding: 0; border: 0; border-radius: 6px; overflow: hidden; background: var(--chip); display: block; width: 100%; height: 100%; }
+  .dots { position: absolute; top: 4px; right: 4px; width: 26px; height: 22px; display: none; place-items: center; padding: 0; border: 0; border-radius: 5px; background: rgba(255,255,255,.92); color: #0d1216; box-shadow: 0 1px 3px rgba(0,0,0,.3); }
+  .wrap:hover .dots, .wrap:focus-within .dots, .wrap.open .dots { display: grid; }
+  .tmenu { position: absolute; top: 30px; right: 0; z-index: 20; width: 220px; padding: 6px; display: flex; flex-direction: column; background: var(--pop); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); text-align: left; }
+  .tmenu button, .tmenu a { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 8px; border: 0; background: none; border-radius: 6px; color: inherit; font-size: 13px; text-decoration: none; }
+  .tmenu button:hover, .tmenu a:hover { background: var(--hover); }
+  .credit { display: flex; flex-direction: column; gap: 2px; padding: 8px; margin-top: 4px; border-top: 1px solid var(--line); font-size: 12px; }
+  .credit b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .credit span { color: var(--muted); }
   .tile:hover { outline: 2px solid var(--accent); outline-offset: -2px; }
   .tile img, .tile video { width: 100%; height: 100%; object-fit: cover; display: block; }
   .tile video { position: absolute; inset: 0; }

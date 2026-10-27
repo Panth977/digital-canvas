@@ -371,11 +371,33 @@ export class EditorState {
     if (ids.length) this.commit(updateElements(this.doc, ids, (e) => (e.type === 'text' ? this.fitPatch(e) : {})), 'refit');
   }
 
+  /**
+   * Centre of the part of the current page you can see (page px). The canvas
+   * sets it as you scroll and zoom; null = the page centre. Canva drops a
+   * clicked element there, so it never lands off screen.
+   */
+  viewCenter = $state.raw<{ pageId: string; x: number; y: number } | null>(null);
+
+  /** Where a clicked (not dropped) element goes: the visible centre of the current page. */
+  /** Fallback for `viewCenter`: asks the page on screen (set by the editor shell). */
+  viewProbe: (() => { pageId: string; x: number; y: number } | null) | null = null;
+
+  insertCenter(): { x: number; y: number } {
+    let v = this.viewCenter;
+    if (!v || v.pageId !== this.pageId) try { v = this.viewProbe?.() ?? null; } catch { v = null; }
+    if (v && v.pageId === this.pageId) return { x: Math.max(0, Math.min(this.doc.width, v.x)), y: Math.max(0, Math.min(this.doc.height, v.y)) };
+    return { x: this.doc.width / 2, y: this.doc.height / 2 };
+  }
+
   private place(w: number, h: number): { x: number; y: number; w: number; h: number } {
-    // Fit inside 60% of the page, centred.
+    // Fit inside 60% of the page, centred where you are looking.
     const max = Math.min(this.doc.width, this.doc.height) * 0.6;
     const s = Math.min(1, max / Math.max(w, h));
-    return { x: (this.doc.width - w * s) / 2, y: (this.doc.height - h * s) / 2, w: w * s, h: h * s };
+    const c = this.insertCenter();
+    const bw = w * s, bh = h * s;
+    // keep it on the page
+    const x = Math.max(0, Math.min(this.doc.width - bw, c.x - bw / 2)), y = Math.max(0, Math.min(this.doc.height - bh, c.y - bh / 2));
+    return { x, y, w: bw, h: bh };
   }
 
   private add(el: Element): void {
@@ -399,8 +421,9 @@ export class EditorState {
     const w = Math.min(this.renderer.textWidth(el) + 4, this.doc.width * 0.9);
     el = { ...el, w };
     el.h = this.renderer.textHeight(el);
-    el.x = (at?.x ?? this.doc.width / 2) - w / 2;
-    el.y = (at?.y ?? this.doc.height / 2) - el.h / 2;
+    const c = at ?? this.insertCenter();
+    el.x = c.x - w / 2;
+    el.y = c.y - el.h / 2;
     this.add(el);
   }
 
@@ -737,7 +760,7 @@ export class EditorState {
 
   addLine(preset: LinePreset, at?: { x: number; y: number }): void {
     const len = this.unit(0.4);
-    const c = at ?? { x: this.doc.width / 2, y: this.doc.height / 2 };
+    const c = at ?? this.insertCenter();
     const bent = preset.route !== 'straight';
     const a = { x: c.x - len / 2, y: c.y - (bent ? len / 4 : 0) }, b = { x: c.x + len / 2, y: c.y + (bent ? len / 4 : 0) };
     const width = Math.max(2, this.unit(0.006));
@@ -819,7 +842,8 @@ export class EditorState {
   addTable(rows: number, cols: number): void {
     const w = this.unit(0.7), fs = Math.max(10, this.unit(0.022));
     const h = rows * fs * 2.6;
-    this.add(table(rows, cols, { x: (this.doc.width - w) / 2, y: (this.doc.height - h) / 2, w, h }, { fontSize: fs }));
+    const c = this.insertCenter();
+    this.add(table(rows, cols, { x: c.x - w / 2, y: c.y - h / 2, w, h }, { fontSize: fs }));
   }
 
   /** Apply a table operation (add a row, set a fill…) to one table. */
@@ -863,12 +887,14 @@ export class EditorState {
 
   addChart(kind: ChartKind): void {
     const w = this.unit(0.6), h = Math.round(w * 0.7);
-    this.add(chart(kind, { x: (this.doc.width - w) / 2, y: (this.doc.height - h) / 2, w, h }));
+    const c = this.insertCenter();
+    this.add(chart(kind, { x: c.x - w / 2, y: c.y - h / 2, w, h }));
   }
 
   addQr(text: string): void {
     const s = this.unit(0.3);
-    this.add(qrCode(text, { x: (this.doc.width - s) / 2, y: (this.doc.height - s) / 2, w: s, h: s }));
+    const c = this.insertCenter();
+    this.add(qrCode(text, { x: c.x - s / 2, y: c.y - s / 2, w: s, h: s }));
   }
 
   updateQr(id: string, text: string): void {
