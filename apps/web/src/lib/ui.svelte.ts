@@ -6,7 +6,7 @@
  */
 
 export type RailTab = 'ai' | 'templates' | 'elements' | 'text' | 'brand' | 'uploads' | 'draw' | 'projects' | 'apps' | 'photos' | 'videos' | 'sounds';
-export type ToolPanel = 'font' | 'color' | 'effects' | 'position' | 'image' | 'table' | 'chart' | 'qr' | 'frame' | 'audio';
+export type ToolPanel = 'font' | 'color' | 'effects' | 'animate' | 'position' | 'image' | 'table' | 'chart' | 'qr' | 'frame' | 'audio';
 export type Panel = RailTab | ToolPanel;
 
 export const RAIL_TABS: readonly RailTab[] = ['ai', 'templates', 'elements', 'text', 'brand', 'uploads', 'draw', 'projects', 'apps', 'photos', 'videos', 'sounds'];
@@ -36,6 +36,8 @@ class UI {
   pagesStrip = $state(false);
   gridView = $state(false);
   notes = $state(false);
+  /** "Copy style" is armed: the next element selected gets this look. */
+  styleClip = $state.raw<{ style: import('./copystyle.ts').CopiedStyle; source: string } | null>(null);
 
   reset(): void {
     this.panel = 'elements';
@@ -45,6 +47,7 @@ class UI {
     this.pagesStrip = false;
     this.gridView = false;
     this.notes = false;
+    this.styleClip = null;
   }
 
   /** Rail click: open that section, or collapse the panel when it is already open (Canva). */

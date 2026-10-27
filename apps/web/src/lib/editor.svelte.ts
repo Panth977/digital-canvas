@@ -172,7 +172,13 @@ export class EditorState {
 
   /** Box changes that keep a text box fitted to its content (curved text keeps its centre). */
   fitPatch(e: TextElement): Partial<TextElement> {
-    if (!e.curve) return { h: this.renderer.textHeight(e) };
+    if (!e.curve) {
+      const h = this.renderer.textHeight(e);
+      // Canva's text anchor: the middle or the bottom edge stays where it is
+      if (e.anchor === 'middle' && h !== e.h) return { h, y: e.y + (e.h - h) / 2 };
+      if (e.anchor === 'bottom' && h !== e.h) return { h, y: e.y + e.h - h };
+      return { h };
+    }
     const { w, h } = this.renderer.fitText(e);
     return { w, h, x: e.x + (e.w - w) / 2, y: e.y + (e.h - h) / 2 };
   }
@@ -220,7 +226,7 @@ export class EditorState {
   }
 
   /** Change whole-box text settings (effect, curve, list, gradient), refitting the box. */
-  updateText(patch: Partial<Pick<TextElement, 'effect' | 'curve' | 'list' | 'gradient'>>, key: string | null = null): void {
+  updateText(patch: Partial<Pick<TextElement, 'effect' | 'curve' | 'list' | 'gradient' | 'anchor'>>, key: string | null = null): void {
     this.update((e) => {
       if (e.type !== 'text') return {};
       const next = { ...e, ...patch } as TextElement;

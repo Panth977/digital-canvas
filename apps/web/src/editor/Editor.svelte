@@ -16,7 +16,8 @@
   import Timeline from './Timeline.svelte';
   import ResizeDialog from './ResizeDialog.svelte';
   import { view } from '../lib/view.svelte.ts';
-  import { isVideo } from '@digital-canvas/scene';
+  import { isVideo, type Element } from '@digital-canvas/scene';
+  import { copyStyle } from '../lib/copystyle.ts';
   import DownloadMenu from './DownloadMenu.svelte';
   import VersionHistory from './VersionHistory.svelte';
   import ShortcutsDialog from './ShortcutsDialog.svelte';
@@ -75,6 +76,8 @@
     if (mod && k === 'z') { stop(); e.shiftKey ? ed.redo() : ed.undo(); }
     else if (mod && k === 'y') { stop(); ed.redo(); }
     else if (mod && k === 'd') { stop(); ed.duplicateSelection(); }
+    else if (mod && e.altKey && (k === 'c' || e.code === 'KeyC')) { stop(); if (ed.selected[0]) ui.styleClip = { style: copyStyle($state.snapshot(ed.selected[0]) as Element), source: ed.selection.join(',') }; }
+    else if (!mod && e.altKey && e.shiftKey && e.code === 'KeyL' && ed.selection.length) { stop(); const lock = !ed.selected.some((x) => x.locked); ed.update({ locked: lock }); ed.seal(); }
     else if (mod && k === 'c') { ed.copy(); }
     else if (mod && k === 'x') { ed.cut(); }
     else if (mod && k === 'a') { stop(); ed.selectAll(); }
@@ -105,7 +108,8 @@
     }
     else if (ed.croppingId && (k === 'escape' || k === 'enter')) { stop(); ed.stopCrop(); }
     else if (k === 'escape') {
-      if (ui.pop) ui.pop = null;
+      if (ui.styleClip) ui.styleClip = null;
+      else if (ui.pop) ui.pop = null;
       else if (ed.tool || ed.framePanId) { ed.tool = null; ed.framePanId = null; }
       else ed.select([]);
     }

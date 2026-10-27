@@ -130,6 +130,11 @@ export interface TextElement extends ElementBase {
   list?: ListStyle;
   /** Gradient fill for the letters; replaces the colours while set. */
   gradient?: Extract<Fill, { type: 'linear' }>;
+  /**
+   * Which edge stays put when the text grows or shrinks (Canva's "Anchor text
+   * box"). Absent = top.
+   */
+  anchor?: 'top' | 'middle' | 'bottom';
 }
 
 /**

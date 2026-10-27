@@ -14,6 +14,10 @@
   import ColorField from './ColorField.svelte';
   import NumField from './NumField.svelte';
   import FontPanel from './FontPanel.svelte';
+  import AnimatePanel from './AnimatePanel.svelte';
+  import { colorFromQuery, colorMatches, DEFAULT_GRADIENTS, paletteOf } from '../lib/uiutil.ts';
+  import { countUses, recolorDoc } from '../lib/recolor.ts';
+  import { untrack } from 'svelte';
 
   /** The contextual panels Canva opens in the left side panel from the toolbar. */
   let { ed }: { ed: EditorState } = $props();
@@ -39,6 +43,7 @@
     switch (ui.panel) {
       case 'font': return !!t0;
       case 'effects': return !!t0 && !editingSel;
+      case 'animate': return true;
       case 'color': return !!ui.color && (ui.color.owner === owner || (ui.color.kind === 'text' && !!t0));
       case 'image': return !!pic && !(fr && !fr.asset);
       case 'table': return !!tb;
@@ -54,7 +59,7 @@
   });
 
   const TITLES: Record<string, string> = {
-    font: 'Font', color: 'Colour', effects: 'Effects', position: 'Position', image: 'Edit', table: 'Table', chart: 'Chart', qr: 'QR code', frame: 'Frame', audio: 'Sounds',
+    font: 'Font', color: 'Colour', effects: 'Effects', animate: 'Animate', position: 'Position', image: 'Edit', table: 'Table', chart: 'Chart', qr: 'QR code', frame: 'Frame', audio: 'Sounds',
   };
 
   // ---- colour ----
@@ -81,8 +86,75 @@
     return [...out].slice(0, 18);
   });
   function pickSwatch(hex: string): void {
-    ui.color?.onchange(hex);
-    ui.color?.onend();
+    const c = ui.color;
+    if (!c) return;
+    // a solid swatch replaces a gradient on text, shapes and pages
+    if (c.kind === 'text' && t0?.gradient && !editingSel) ed.updateText({ gradient: undefined });
+    c.onchange(hex);
+    c.onend();
+  }
+
+  // ---- colour search, photo colours, gradients, change all ----
+  let colorQuery = $state('');
+  let pickerOpen = $state(false);
+  const qColor = $derived(colorFromQuery(colorQuery));
+  const match = (hex: string) => colorMatches(hex, colorQuery);
+  /** Colour when the panel opened for this target: "Change all" swaps it for the new one. */
+  let origColor = $state<string | null>(null);
+  $effect(() => {
+    const c = ui.color;
+    untrack(() => { origColor = c ? c.value().slice(0, 7).toLowerCase() : null; colorQuery = ''; pickerOpen = false; });
+  });
+  const nowColor = $derived(ui.panel === 'color' && ui.color ? ui.color.value().slice(0, 7).toLowerCase() : null);
+  const otherUses = $derived(origColor && nowColor && origColor !== nowColor ? countUses(ed.doc, origColor) : 0);
+  function changeAll(): void {
+    if (!origColor || !nowColor) return;
+    ed.commit(recolorDoc(ed.doc, origColor, nowColor));
+    ed.seal();
+    origColor = nowColor;
+  }
+
+  /** Main colours of the photos in the design (Canva's "Photo colours"), cached per picture. */
+  const photoCache = new Map<string, string[]>();
+  let photoColors = $state<string[]>([]);
+  const photoIds = $derived(ui.panel === 'color'
+    ? [...new Set(ed.doc.pages.flatMap((p) => [...walk(p.elements)].filter((e): e is ImageElement => e.type === 'image' && !!e.asset).map((e) => e.asset)))].slice(0, 6)
+    : []);
+  $effect(() => {
+    const ids = photoIds;
+    if (!ids.length) { photoColors = []; return; }
+    let live = true;
+    void (async () => {
+      const all: string[] = [];
+      for (const id of ids) {
+        let pal = photoCache.get(id);
+        if (!pal) {
+          const bytes = ed.assets.get(id);
+          if (!bytes) continue;
+          try {
+            const bmp = await createImageBitmap(new Blob([bytes as BlobPart], { type: ed.doc.assets[id]?.mime ?? 'image/png' }), { resizeWidth: 48, resizeHeight: 48 });
+            const cv = new OffscreenCanvas(48, 48);
+            const g = cv.getContext('2d')!;
+            g.drawImage(bmp, 0, 0);
+            pal = paletteOf(g.getImageData(0, 0, 48, 48).data, 6);
+          } catch { pal = []; }
+          photoCache.set(id, pal);
+        }
+        for (const c of pal) if (!all.includes(c)) all.push(c);
+      }
+      if (live) photoColors = all.slice(0, 18);
+    })();
+    return () => { live = false; };
+  });
+
+  /** Where a gradient can go: text, shape fills, page backgrounds (Canva). */
+  const gradTarget = $derived(ui.color?.kind === 'text' ? (t0 && !editingSel ? 'text' : null) : ui.color?.kind === 'fill' ? 'fill' : ui.color?.kind === 'page' ? 'page' : null);
+  function pickGradient(g: { from: string; to: string; angle: number }): void {
+    const fill = { type: 'linear' as const, angle: g.angle, stops: [{ offset: 0, color: g.from }, { offset: 1, color: g.to }] };
+    if (gradTarget === 'text') ed.updateText({ gradient: fill });
+    else if (gradTarget === 'fill') ed.update((e) => (e.type === 'shape' ? { fill } : {}));
+    else if (gradTarget === 'page') ed.updatePage({ background: fill });
+    end();
   }
   function setGradient(on: boolean): void {
     ed.updateText({ gradient: on ? { type: 'linear', angle: 90, stops: [{ offset: 0, color: t0?.style.color ?? '#7c3aed' }, { offset: 1, color: '#0fb5c0' }] } : undefined });
@@ -267,38 +339,71 @@
 
     {:else if ui.panel === 'color' && ui.color}
       {@const c = ui.color}
-      <div class="scroll-y body">
-        <ColorField label="Custom colour" value={c.value()} testid={c.testid} onchange={c.onchange} onend={c.onend} />
-        {#if c.kind === 'text' && t0 && !editingSel}
-          {#if t0.gradient}
-            <div class="row2">
-              <ColorField label="From" value={t0.gradient.stops[0]?.color ?? '#000000'} onchange={(hex) => patchGradient(0, { color: hex })} onend={end} />
-              <ColorField label="To" value={t0.gradient.stops[t0.gradient.stops.length - 1]?.color ?? '#000000'} onchange={(hex) => patchGradient(t0!.gradient!.stops.length - 1, { color: hex })} onend={end} />
-            </div>
-            <NumField label="Gradient angle" value={t0.gradient.angle} min={0} max={360} suffix="°" onchange={(v) => patchGradient(null, { angle: v })} onend={end} />
-            <button class="btn" onclick={() => setGradient(false)} data-testid="gradient-off">Use a solid colour</button>
-          {:else}
-            <button class="btn" onclick={() => setGradient(true)} data-testid="gradient-on">Use a gradient</button>
-          {/if}
+      <div class="scroll-y body" data-testid="color-panel">
+        <label class="csearch">
+          <Icon name="search" size={16} />
+          <input type="search" placeholder="Try &quot;blue&quot; or &quot;#00c4cc&quot;" bind:value={colorQuery} aria-label="Search colours" data-testid="color-search" />
+        </label>
+        {#if colorQuery && qColor}
+          <div class="swatches">
+            <button class="swatch" title={qColor} aria-label="Colour {qColor}" data-testid="color-search-hit" style="background:{qColor}" onclick={() => pickSwatch(qColor!)}></button>
+          </div>
+        {/if}
+        <ColorField label="Custom colour" value={c.value()} testid={c.testid} onchange={c.onchange} onend={c.onend} bind:open={pickerOpen} />
+        {#if c.kind === 'text' && t0 && !editingSel && t0.gradient}
+          <div class="row2">
+            <ColorField label="From" value={t0.gradient.stops[0]?.color ?? '#000000'} onchange={(hex) => patchGradient(0, { color: hex })} onend={end} />
+            <ColorField label="To" value={t0.gradient.stops[t0.gradient.stops.length - 1]?.color ?? '#000000'} onchange={(hex) => patchGradient(t0!.gradient!.stops.length - 1, { color: hex })} onend={end} />
+          </div>
+          <NumField label="Gradient angle" value={t0.gradient.angle} min={0} max={360} suffix="°" onchange={(v) => patchGradient(null, { angle: v })} onend={end} />
+          <button class="btn" onclick={() => setGradient(false)} data-testid="gradient-off">Use a solid colour</button>
+        {:else if c.kind === 'text' && t0 && !editingSel}
+          <button class="btn" onclick={() => setGradient(true)} data-testid="gradient-on">Use a gradient</button>
         {/if}
         {#if c.kind === 'fill' && s0?.type === 'shape'}
           <button class="btn" onclick={() => { ed.update((e) => (e.type === 'shape' ? { fill: e.fill ? null : { type: 'solid', color: '#8b5cf6' } } : {})); end(); }}>{s0.fill ? 'No fill (transparent)' : 'Add a fill'}</button>
         {/if}
-        {#if docColors.length}
-          <h4>Document colours</h4>
-          <div class="swatches">
-            {#each docColors as hex (hex)}
+        {#if otherUses > 0}
+          <button class="btn primary" data-testid="change-all" onclick={changeAll}>Change all ({otherUses})</button>
+        {/if}
+        <h4>Document colours</h4>
+        <div class="swatches">
+          <button class="swatch add" class:on={pickerOpen} title="Add a new colour" aria-label="Add a new colour" data-testid="color-add" onclick={() => (pickerOpen = !pickerOpen)}><Icon name="plus" size={16} /></button>
+          {#each docColors.filter(match) as hex (hex)}
+            <button class="swatch" class:on={c.value().slice(0, 7).toLowerCase() === hex} title={hex} aria-label="Colour {hex}" style="background:{hex}" onclick={() => pickSwatch(hex)}></button>
+          {/each}
+        </div>
+        <BrandColorRow current={c.value()} onpick={pickSwatch} />
+        {#if photoColors.filter(match).length}
+          <h4>Photo colours</h4>
+          <div class="swatches" data-testid="photo-colors">
+            {#each photoColors.filter(match) as hex (hex)}
               <button class="swatch" class:on={c.value().slice(0, 7).toLowerCase() === hex} title={hex} aria-label="Colour {hex}" style="background:{hex}" onclick={() => pickSwatch(hex)}></button>
             {/each}
           </div>
         {/if}
-        <BrandColorRow current={c.value()} onpick={pickSwatch} />
-        <h4>Default colours</h4>
-        <div class="swatches">
-          {#each DEFAULT_COLORS as hex (hex)}
-            <button class="swatch" class:on={c.value().slice(0, 7).toLowerCase() === hex} title={hex} aria-label="Colour {hex}" style="background:{hex}" onclick={() => pickSwatch(hex)}></button>
-          {/each}
-        </div>
+        {#if DEFAULT_COLORS.filter(match).length}
+          <h4>Default solid colours</h4>
+          <div class="swatches" data-testid="default-colors">
+            {#each DEFAULT_COLORS.filter(match) as hex (hex)}
+              <button class="swatch" class:on={c.value().slice(0, 7).toLowerCase() === hex} title={hex} aria-label="Colour {hex}" style="background:{hex}" onclick={() => pickSwatch(hex)}></button>
+            {/each}
+          </div>
+        {/if}
+        {#if gradTarget}
+          {@const grads = DEFAULT_GRADIENTS.filter((g) => match(g.from) || match(g.to))}
+          {#if grads.length}
+            <h4>Default gradient colours</h4>
+            <div class="swatches" data-testid="default-gradients">
+              {#each grads as g, i (i)}
+                <button class="swatch" title="{g.from} → {g.to}" aria-label="Gradient {g.from} to {g.to}" data-testid="gradient-{i}" style="background:linear-gradient({g.angle}deg, {g.from}, {g.to})" onclick={() => pickGradient(g)}></button>
+              {/each}
+            </div>
+          {/if}
+        {/if}
+        {#if colorQuery && !qColor && !docColors.some(match) && !DEFAULT_COLORS.some(match) && !photoColors.some(match)}
+          <p class="hint">No colours match “{colorQuery}”. Try a colour name or a hex code.</p>
+        {/if}
       </div>
 
     {:else if ui.panel === 'effects' && t0}
@@ -343,6 +448,9 @@
             oninput={(e) => ed.updateText({ curve: Number((e.currentTarget as HTMLInputElement).value) || undefined }, key('curve'))} onchange={end} />
         </div>
       </div>
+
+    {:else if ui.panel === 'animate'}
+      <div class="scroll-y body"><AnimatePanel {ed} /></div>
 
     {:else if ui.panel === 'position'}
       <div class="tabs" role="tablist">
@@ -632,6 +740,10 @@
   .swatch { aspect-ratio: 1; border-radius: 50%; border: 0; box-shadow: inset 0 0 0 1px rgba(127,127,127,.35); padding: 0; }
   .swatch:hover { transform: scale(1.06); }
   .swatch.on { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .swatch.add { display: grid; place-items: center; color: #fff; background: conic-gradient(#ff3131, #ffde59, #7ed957, #38b6ff, #8c52ff, #ff66c4, #ff3131); }
+  .csearch { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--field); color: var(--muted); flex-shrink: 0; }
+  .csearch:focus-within { border-color: var(--accent); }
+  .csearch input { flex: 1; min-width: 0; border: 0; background: none; outline: none; color: var(--ink); }
   .fxgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
   .fxgrid.two { grid-template-columns: repeat(3, 1fr); }
   .fx { display: flex; flex-direction: column; align-items: center; gap: 4px; border: 0; background: none; padding: 0; font-size: 12px; color: var(--ink-2); }

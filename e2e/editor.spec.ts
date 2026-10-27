@@ -78,6 +78,7 @@ test('text: add, edit in place, style, auto height', async ({ page }) => {
   await page.getByTestId('bold').click();
   expect((await elements(page))[0]!.style.bold).toBe(true);
   await page.getByTestId('font-size').fill('80');
+  await page.getByTestId('font-size').press('Enter'); // Canva applies a typed size on Enter
   const [t2] = await elements(page);
   expect(t2!.style.fontSize).toBe(80);
   expect(t2!.h).toBeGreaterThan(t1!.h);
