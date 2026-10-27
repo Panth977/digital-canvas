@@ -48,9 +48,9 @@
 <svelte:window onpointerdown={(e) => { if (menu && !(e.target as HTMLElement).closest?.('.tmenu, .dots')) menu = false; }} />
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="wrap" class:open={menu} {style} onmouseenter={enter} onmouseleave={() => (hover = false)}>
-<button class="tile {item.kind}" class:vector class:busy={p !== undefined} draggable="true"
-  title={creditLine(item.credit)} aria-label="Add {item.kind} {item.title}" data-key={item.key}
+<div class="tile {item.kind}" class:vector class:busy={p !== undefined} class:open={menu} {style} data-key={item.key} onmouseenter={enter} onmouseleave={() => (hover = false)}>
+<button class="hit" draggable="true"
+  title={creditLine(item.credit)} aria-label="Add {item.kind} {item.title}"
   onclick={() => insertItem(ed, item)} ondragstart={start}
   onfocus={enter} onblur={() => (hover = false)}>
   {#if item.thumb && !failed}
@@ -71,7 +71,8 @@
     </span>
   {/if}
 </button>
-<button class="dots" aria-label="More options for {item.title}" aria-expanded={menu} data-testid="tile-more" onclick={(e) => { e.stopPropagation(); menu = !menu; }}><Icon name="more" size={16} /></button>
+<span class="dots" role="button" tabindex="0" aria-label="More options for {item.title}" aria-expanded={menu} data-testid="tile-more"
+  onclick={(e) => { e.stopPropagation(); menu = !menu; }} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); menu = !menu; } }}><Icon name="more" size={16} /></span>
 {#if menu}
   <div class="tmenu" role="menu" data-testid="tile-menu">
     <button role="menuitem" onclick={() => { menu = false; void insertItem(ed, item); }}><Icon name="plus" size={15} /> Add to page</button>
@@ -85,20 +86,13 @@
 </div>
 
 <style>
-  .wrap { position: relative; flex-shrink: 0; }
-  .tile { position: relative; padding: 0; border: 0; border-radius: 6px; overflow: hidden; background: var(--chip); display: block; width: 100%; height: 100%; }
-  .dots { position: absolute; top: 4px; right: 4px; width: 26px; height: 22px; display: none; place-items: center; padding: 0; border: 0; border-radius: 5px; background: rgba(255,255,255,.92); color: #0d1216; box-shadow: 0 1px 3px rgba(0,0,0,.3); }
-  .wrap:hover .dots, .wrap:focus-within .dots, .wrap.open .dots { display: grid; }
-  .tmenu { position: absolute; top: 30px; right: 0; z-index: 20; width: 220px; padding: 6px; display: flex; flex-direction: column; background: var(--pop); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); text-align: left; }
-  .tmenu button, .tmenu a { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 8px; border: 0; background: none; border-radius: 6px; color: inherit; font-size: 13px; text-decoration: none; }
-  .tmenu button:hover, .tmenu a:hover { background: var(--hover); }
-  .credit { display: flex; flex-direction: column; gap: 2px; padding: 8px; margin-top: 4px; border-top: 1px solid var(--line); font-size: 12px; }
-  .credit b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .credit span { color: var(--muted); }
+  .tile { position: relative; flex-shrink: 0; border-radius: 6px; background: var(--chip); }
+  .hit { position: relative; display: block; width: 100%; height: 100%; padding: 0; border: 0; border-radius: 6px; overflow: hidden; background: none; color: inherit; }
   .tile:hover { outline: 2px solid var(--accent); outline-offset: -2px; }
-  .tile img, .tile video { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .tile video { position: absolute; inset: 0; }
-  .tile.vector { background: transparent; padding: 8px; }
+  .hit img, .hit video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .hit video { position: absolute; inset: 0; }
+  .tile.vector { background: transparent; }
+  .tile.vector .hit { padding: 8px; }
   .tile.vector:hover { background: var(--hover); outline: none; }
   .tile.vector img { object-fit: contain; }
   /* single-colour icons are drawn black: give them a light chip in dark mode */
@@ -112,4 +106,12 @@
   .bar { display: block; height: 100%; background: var(--accent); border-radius: 3px; transition: width .15s; }
   .bar.indet { animation: slide 1s ease-in-out infinite alternate; }
   @keyframes slide { from { transform: translateX(-10%); } to { transform: translateX(160%); } }
+  .dots { position: absolute; top: 4px; right: 4px; width: 26px; height: 22px; display: none; place-items: center; border-radius: 5px; background: rgba(255,255,255,.92); color: #0d1216; box-shadow: 0 1px 3px rgba(0,0,0,.3); cursor: pointer; }
+  .tile:hover .dots, .tile:focus-within .dots, .tile.open .dots { display: grid; }
+  .tmenu { position: absolute; top: 30px; right: 0; z-index: 20; width: 220px; padding: 6px; display: flex; flex-direction: column; background: var(--pop); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); text-align: left; }
+  .tmenu button, .tmenu a { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 8px; border: 0; background: none; border-radius: 6px; color: inherit; font-size: 13px; text-decoration: none; }
+  .tmenu button:hover, .tmenu a:hover { background: var(--hover); }
+  .credit { display: flex; flex-direction: column; gap: 2px; padding: 8px; margin-top: 4px; border-top: 1px solid var(--line); font-size: 12px; }
+  .credit b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .credit span { color: var(--muted); }
 </style>

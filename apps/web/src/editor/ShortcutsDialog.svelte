@@ -12,7 +12,7 @@
   ];
 </script>
 
-<svelte:window onkeydown={(e) => e.key === 'Escape' && onclose()} />
+<svelte:window onkeydowncapture={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onclose(); } }} />
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 <div class="scrim" onclick={onclose}>

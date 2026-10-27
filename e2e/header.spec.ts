@@ -93,6 +93,7 @@ test('File menu: Canva items, Settings submenu, Make a copy, Create new design, 
   await expect(page.getByTestId('shortcuts')).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('shortcuts')).toHaveCount(0);
+  await expect(page.getByTestId('context-toolbar')).toHaveAttribute('data-kind', 'page');
 });
 
 test('Move to trash asks first (no bin in this browser), goes home and says so', async ({ page }) => {

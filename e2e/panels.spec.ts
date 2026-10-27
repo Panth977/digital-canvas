@@ -15,7 +15,7 @@ test('a tile shows "…" on hover: add, set as background, credit', async ({ pag
   await newDesign(page);
   await stubPhotos(page);
   await page.getByTestId('tab-photos').click();
-  const tile = page.getByTestId('photo-results').locator('.wrap').first();
+  const tile = page.getByTestId('photo-results').locator('.tile').first();
   await expect(tile.getByTestId('tile-more')).toBeHidden();
   await tile.hover();
   await expect(tile.getByTestId('tile-more')).toBeVisible();

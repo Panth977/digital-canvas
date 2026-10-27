@@ -62,7 +62,8 @@
     btns[(n + btns.length) % btns.length]!.focus();
   }
   function panelKey(e: KeyboardEvent): void {
-    if (e.key !== 'Escape' || e.defaultPrevented) return;
+    // with something selected, Esc deselects first (the window handler)
+    if (e.key !== 'Escape' || e.defaultPrevented || ed.selection.length) return;
     const t = e.target as HTMLElement;
     // Esc in a search box with words clears it first (Canva)
     if (t instanceof HTMLInputElement && (t.type === 'search' || t.type === 'text') && t.value) return;

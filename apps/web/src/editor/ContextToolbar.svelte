@@ -241,7 +241,7 @@
       <div class="size pw">
         <button title="Decrease font size (⇧⌘,)" aria-label="Decrease font size" data-testid="font-size-down" onclick={() => bump(-1)}><Icon name="minus" size={14} /></button>
         <input type="text" inputmode="decimal" bind:value={sizeDraft} placeholder="–" aria-label="Font size" title="Font size" data-testid="font-size" role="combobox" aria-expanded={ui.pop === 'fsize'} aria-controls="fsize-list"
-          onfocus={(e) => { sizeFocused = true; (e.currentTarget as HTMLInputElement).select(); ui.pop = 'fsize'; }}
+          onfocus={(e) => { sizeFocused = true; (e.currentTarget as HTMLInputElement).select(); ui.pop = 'fsize'; requestAnimationFrame(() => document.querySelector('#fsize-list button.on')?.scrollIntoView({ block: 'center' })); }}
           onblur={() => { sizeFocused = false; commitSize(); }} onkeydown={sizeKey} />
         <button title="Increase font size (⇧⌘.)" aria-label="Increase font size" data-testid="font-size-up" onclick={() => bump(1)}><Icon name="plus" size={14} /></button>
         {#if ui.pop === 'fsize'}
@@ -521,7 +521,7 @@
   .tb.set:not(.on) { color: var(--accent); }
   .pw.gone > .ib, .tb.gone { display: none; }
   .tight .font { width: 120px; }
-  .sizes { list-style: none; margin: 0; width: 84px; max-height: 320px; overflow-y: auto; padding: 6px; gap: 0; left: 50%; transform: translateX(-50%); }
+  .pop.sizes { list-style: none; margin: 0; width: 84px; max-height: 320px; overflow-y: auto; padding: 6px; gap: 0; left: 50%; transform: translateX(-50%); }
   .sizes button { width: 100%; height: 30px; border: 0; background: none; border-radius: 6px; color: inherit; font-size: 14px; }
   .sizes button:hover { background: var(--hover); }
   .sizes button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
