@@ -19,6 +19,7 @@
   import { ui } from '../lib/ui.svelte.ts';
   import { textShortcut } from '../lib/shortcuts.ts';
   import { flatten, getSelectionOffsets, needsRebuild, renderRich, setSelectionOffsets } from '../lib/richtext.ts';
+  import { mobile } from '../lib/mobile.svelte.ts';
 
   let { ed, zoom = $bindable(view.zoom) }: { ed: EditorState; zoom?: number } = $props();
 
@@ -30,6 +31,10 @@
     if (m) STAGE = [parseInt(m[1]!, 16) / 255, parseInt(m[2]!, 16) / 255, parseInt(m[3]!, 16) / 255, 1];
   }
   const HANDLE_HIT = 11;
+  /** Fingers get bigger targets (Canva mobile). */
+  const TOUCH_HIT = 22;
+  /** The last pointer was a finger: handles grow and gestures switch to touch rules. */
+  let touchUi = $state(typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches);
 
   let host: HTMLDivElement;
   let canvasEl: HTMLCanvasElement;
@@ -90,11 +95,11 @@
   // first page's header to the "Add page" button below the last page; a column shorter
   // than the workspace is centred.
   /** Workspace margin beside the page once it scrolls sideways (screen px). */
-  const MARGIN_X = 40;
+  const MARGIN_X = $derived(mobile.on ? 12 : 40);
   /** Above the first page: its header (34 px) and a little air. */
-  const MARGIN_TOP = 56;
+  const MARGIN_TOP = $derived(mobile.on ? 20 : 56);
   /** Below the last page: the "Add page" button (16 + 40 px) and a little air. */
-  const MARGIN_BOTTOM = 88;
+  const MARGIN_BOTTOM = $derived(mobile.on ? 72 : 88);
 
   /** Screen insets of the scrollable area (rulers and bleed take room too). */
   function insets(): { l: number; r: number; t: number; b: number } {
@@ -346,9 +351,14 @@
   let menu = $state.raw<{ x: number; y: number; kind: 'element' | 'page'; pageId: string } | null>(null);
   function onContextMenu(e: MouseEvent): void {
     e.preventDefault();
+    // a finger's long press opens the menu itself (iOS sends no contextmenu at all)
+    if ((e as PointerEvent).pointerType === 'touch' || touches.size || Date.now() - lastTouch < 800) return;
     if (drag || ed.croppingId) return;
+    openMenu(localPoint(e));
+  }
+
+  function openMenu(s: Point): void {
     if (ed.editingTextId) ed.stopEditing();
-    const s = localPoint(e);
     const hit = elementAt(s);
     if (hit) {
       // Canva: right-click on an element outside the selection selects it first
@@ -462,7 +472,7 @@
       if (!fitted && vw > 0 && vh > 0) {
         fitted = true;
         fit('fit');
-      } else if (fitted && view.mode) {
+      } else if (fitted && view.mode && !ed.editingTextId) {
         // Fit / Fill keep fitting until the user zooms (Canva)
         fit(view.mode, anchor?.i ?? ed.pageIndex);
       } else if (anchor) {
@@ -471,6 +481,7 @@
         panY = vh / 2 - (anchor.y + pageTop(anchor.i)) * zoom;
         clampPan();
       }
+      if (ed.editingTextId) revealEditing();
       queueDraw();
     });
     ro.observe(host);
@@ -609,7 +620,9 @@
     | { mode: 'guide'; axis: 'x' | 'y'; pageI: number; index: number | null; key: string }
     | { mode: 'rotate'; pageI: number; orig: Element; key: string }
     | { mode: 'marquee'; start: Point; now: Point; pageI: number; base: string[] }
-    | { mode: 'pan'; start: Point; panX: number; panY: number }
+    | { mode: 'pan'; start: Point; panX: number; panY: number;
+        /** Touch: a tap (no drag) on empty space selects the page under it, or nothing. */
+        tap?: { pageId: string | undefined; onPage: boolean }; moved?: boolean }
     | { mode: 'crop-pan' | 'crop-frame' | 'crop-scale'; el: Picture; i: number; frame: Rect; img: Rect; start: Point; handle: CropHandle; key: string }
     | { mode: 'lineEnd'; id: string; which: 'start' | 'end'; pageI: number; key: string }
     | { mode: 'draw'; pageI: number; pts: Point[] }
@@ -624,8 +637,14 @@
   let spaceDown = false;
 
   function handleAt(s: Point): HandlePos | null {
-    for (const h of handles) if (Math.hypot(h.x - s.x, h.y - s.y) <= HANDLE_HIT) return h;
-    return null;
+    const r = touchUi ? TOUCH_HIT : HANDLE_HIT;
+    // the nearest handle in reach (fingers reach further, so neighbours can overlap)
+    let best: HandlePos | null = null, bd = Infinity;
+    for (const h of handles) {
+      const d = Math.hypot(h.x - s.x, h.y - s.y);
+      if (d <= r && d < bd) { best = h; bd = d; }
+    }
+    return best;
   }
 
   /**
@@ -712,9 +731,81 @@
     if (g.pos < 0 || g.pos > max || onRuler) ed.commit(removeGuide(ed.doc, page.id, d.index), d.key);
   }
 
+  // ---- touch: pinch zoom + two-finger pan, long press for the menu, double tap ----
+  /** Fingers on the stage (stage px). */
+  const touches = new Map<number, Point>();
+  let lastTouch = 0;
+  /** Two fingers down: the page spot under their midpoint stays under it while they zoom. */
+  let pinch: { d0: number; z0: number; local: Point; i: number } | null = null;
+  let pressTimer = 0;
+  let pressAt: Point | null = null;
+  let longPressed = false;
+  let lastTap: { t: number; s: Point } | null = null;
+  /** iOS opens the keyboard only for a focus inside the tap itself: focus this, then hand over to the editor. */
+  let kbProxy = $state<HTMLTextAreaElement>();
+
+  const pair = (): [Point, Point] => [...touches.values()].slice(0, 2) as [Point, Point];
+  function startPinch(): void {
+    const [a, b] = pair();
+    const w = toWorld((a.x + b.x) / 2, (a.y + b.y) / 2);
+    const i = pageAt(w);
+    stopScrollAnim();
+    pinch = { d0: Math.max(10, Math.hypot(a.x - b.x, a.y - b.y)), z0: zoom, local: toPage(w, i), i };
+  }
+  function movePinch(): void {
+    if (!pinch || touches.size < 2) return;
+    const [a, b] = pair();
+    const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    zoom = clampZoom(pinch.z0 * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d0);
+    panX = m.x - pinch.local.x * zoom;
+    panY = m.y - (pinch.local.y + pageTop(pinch.i)) * zoom;
+    clampPan();
+    view.mode = null;
+    flashBars();
+    syncCurrentPage();
+  }
+  function cancelPress(): void {
+    clearTimeout(pressTimer);
+    pressTimer = 0;
+    pressAt = null;
+  }
+  function focusKeyboard(): void {
+    if (touchUi) kbProxy?.focus({ preventScroll: true });
+  }
+
   function onPointerDown(e: PointerEvent): void {
     menu = null;
     if (e.button === 2) return;
+    touchUi = e.pointerType === 'touch';
+    if (touchUi) {
+      lastTouch = Date.now();
+      touches.set(e.pointerId, localPoint(e));
+      if (touches.size >= 2) {
+        // a second finger turns whatever the first one started into a pinch
+        cancelPress();
+        host.setPointerCapture(e.pointerId);
+        if (drag && drag.mode !== 'pan' && drag.mode !== 'press') ed.seal();
+        drag = null;
+        snapShown = null;
+        snap = null;
+        tip = null;
+        if (touches.size === 2) startPinch();
+        return;
+      }
+      longPressed = false;
+      pressAt = localPoint(e);
+      pressTimer = window.setTimeout(() => {
+        pressTimer = 0;
+        const at = pressAt;
+        pressAt = null;
+        if (!at || touches.size !== 1 || drag?.mode === 'draw' || (drag && 'moved' in drag && drag.moved)) return;
+        // long press: Canva's element / page menu
+        drag = null;
+        longPressed = true;
+        navigator.vibrate?.(10);
+        openMenu(at);
+      }, 500);
+    }
     if (e.button === 1) e.preventDefault(); // no browser auto-scroll: middle-drag pans
     host.setPointerCapture(e.pointerId);
     const s = localPoint(e);
@@ -810,6 +901,11 @@
     const pageI = pageAt(w);
     const p = toPage(w, pageI);
     const onPage = p.x >= 0 && p.y >= 0 && p.x <= ed.doc.width && p.y <= ed.doc.height;
+    if (touchUi) {
+      // a finger on empty space scrolls; a tap there selects the page (or nothing)
+      drag = { mode: 'pan', start: s, panX, panY, tap: { pageId: onPage ? ed.doc.pages[pageI]!.id : undefined, onPage }, moved: false };
+      return;
+    }
     if (!e.shiftKey) {
       ed.select([], onPage ? ed.doc.pages[pageI]!.id : undefined);
       ed.pageSelected = onPage;
@@ -844,6 +940,12 @@
 
   function onPointerMove(e: PointerEvent): void {
     const s = localPoint(e);
+    if (e.pointerType === 'touch' && touches.has(e.pointerId)) {
+      touches.set(e.pointerId, s);
+      if (pinch) return movePinch();
+      if (touches.size > 1) return;
+      if (pressAt && Math.hypot(s.x - pressAt.x, s.y - pressAt.y) > 8) cancelPress();
+    }
     if (!drag) {
       const h = handleAt(s);
       const ch = cropping ? cropHandleAt(s) : null;
@@ -865,6 +967,10 @@
     if ((drag.mode === 'move' || drag.mode === 'resize') && !autoRaf) autoRaf = requestAnimationFrame(autoScroll);
     switch (drag.mode) {
       case 'pan':
+        if (drag.tap && !drag.moved) {
+          if (Math.hypot(s.x - drag.start.x, s.y - drag.start.y) < 6) return;
+          drag.moved = true;
+        }
         panX = drag.panX + (s.x - drag.start.x);
         panY = drag.panY + (s.y - drag.start.y);
         clampPan();
@@ -873,7 +979,13 @@
         break;
       case 'press': {
         // a drag that starts on an unselected element draws a selection box (Canva)
-        if (Math.hypot(s.x - drag.start.x, s.y - drag.start.y) < 3) return;
+        if (Math.hypot(s.x - drag.start.x, s.y - drag.start.y) < (touchUi ? 6 : 3)) return;
+        if (touchUi) {
+          // a finger dragging over an unselected element scrolls (only the selection moves)
+          drag = { mode: 'pan', start: drag.start, panX, panY, moved: true };
+          onPointerMove(e);
+          return;
+        }
         ed.select([], ed.doc.pages[drag.i]!.id);
         drag = { mode: 'marquee', start: drag.start, now: drag.start, pageI: drag.i, base: [] };
         onPointerMove(e);
@@ -881,7 +993,7 @@
       }
       case 'move': {
         let dx = w.x - drag.start.x, dy = w.y - drag.start.y;
-        if (!drag.moved && Math.hypot(dx * zoom, dy * zoom) < 3) return;
+        if (!drag.moved && Math.hypot(dx * zoom, dy * zoom) < (touchUi ? 6 : 3)) return;
         if (!drag.moved && drag.alt) {
           // Alt/Option-drag: move a copy, leave the original (Canva)
           const r = duplicateElements(ed.doc, [...drag.orig.keys()], 0);
@@ -1049,6 +1161,46 @@
 
   function onPointerUp(e: PointerEvent): void {
     if (host.hasPointerCapture(e.pointerId)) host.releasePointerCapture(e.pointerId);
+    let dbl = false;
+    if (e.pointerType === 'touch') {
+      touches.delete(e.pointerId);
+      lastTouch = Date.now();
+      if (pinch || touches.size) {
+        if (touches.size < 2) {
+          pinch = null;
+          // the finger still down carries on scrolling
+          const rest = [...touches.values()][0];
+          drag = rest ? { mode: 'pan', start: rest, panX, panY, moved: true } : null;
+        }
+        return;
+      }
+      cancelPress();
+      if (longPressed) {
+        longPressed = false;
+        drag = null;
+        // the click the browser makes from this touch must not close the menu it opened
+        const eat = (ev: MouseEvent) => { ev.stopPropagation(); ev.preventDefault(); };
+        addEventListener('click', eat, { capture: true, once: true });
+        setTimeout(() => removeEventListener('click', eat, { capture: true }), 600);
+        return;
+      }
+      if (drag?.mode === 'pan' && drag.tap && !drag.moved) {
+        ed.select([], drag.tap.pageId);
+        ed.pageSelected = drag.tap.onPage;
+      }
+      // a second tap on the same spot is a double-click (crop, step into a group, edit text)
+      const s = localPoint(e);
+      if (drag?.mode === 'press' || (drag?.mode === 'move' && !drag.moved)) {
+        dbl = !!lastTap && Date.now() - lastTap.t < 350 && Math.hypot(s.x - lastTap.s.x, s.y - lastTap.s.y) < 30;
+        lastTap = dbl ? null : { t: Date.now(), s };
+      } else lastTap = null;
+      if (dbl) {
+        if (drag?.mode === 'press') ed.select([drag.el.id]);
+        drag = null;
+        dblAt(s);
+        return;
+      }
+    }
     if (autoRaf) cancelAnimationFrame(autoRaf);
     autoRaf = 0;
     lastMove = null;
@@ -1065,6 +1217,7 @@
       else if (drag.click === 'edit' && single) {
         // a click on a selected text box edits it, caret where you clicked (Canva)
         caretAt = drag.client;
+        focusKeyboard();
         ed.startEditing(single.el.id);
       }
     }
@@ -1076,12 +1229,17 @@
   }
 
   function onDblClick(e: MouseEvent): void {
+    // fingers: onPointerUp spots double taps itself
+    if (Date.now() - lastTouch < 800) return;
+    dblAt(localPoint(e));
+  }
+
+  function dblAt(s: Point): void {
     if (ed.croppingId) {
       ed.stopCrop();
       return;
     }
     if (ed.tool) return;
-    const s = localPoint(e);
     const hit = elementAt(s);
     if (!hit) return;
     // a group: step in and select the child under the pointer
@@ -1098,7 +1256,10 @@
         document.getSelection()?.addRange(all);
         const r = getSelectionOffsets(editorNode);
         if (r) ed.textSel = r; // now, not on the next selectionchange
-      } else ed.startEditing(hit.el.id);
+      } else {
+        focusKeyboard();
+        ed.startEditing(hit.el.id);
+      }
     }
     else if (hit.el.type === 'table') {
       const local = rotatePoint(toPage(toWorld(s.x, s.y), hit.i), center(hit.el), -hit.el.rotation);
@@ -1186,6 +1347,21 @@
   });
 
   let editorNode: HTMLDivElement | null = null;
+
+  /** Keep the text being edited in view when the workspace shrinks (the phone keyboard opened). */
+  function revealEditing(): void {
+    const t = editing;
+    if (!t || !vh) return;
+    const ys = screenCorners(t.el, t.i).map((p) => p.y);
+    const top = Math.min(...ys), bottom = Math.max(...ys), pad = 16;
+    let dy = 0;
+    if (bottom > vh - pad) dy = vh - pad - bottom;
+    if (top + dy < pad) dy = pad - top;
+    if (!dy) return;
+    stopScrollAnim();
+    panY += dy;
+    clampPan();
+  }
 
   /** A collapsed range at client point `at` inside the editor, if the point is over its text. */
   function caretRange(node: HTMLElement, at: Point): Range | null {
@@ -1395,6 +1571,7 @@
   onpointerleave={() => (ed.hoverId = null)}
 >
   <canvas bind:this={canvasEl} data-testid="canvas"></canvas>
+  <textarea class="kbproxy" bind:this={kbProxy} tabindex="-1" aria-hidden="true"></textarea>
 
   <svg class="overlay" width={vw} height={vh}>
     {#each visiblePages as { p, i, o } (p.id)}
@@ -1464,14 +1641,14 @@
     {/if}
     {#each handles as h (h.h)}
       {#if h.h === 'start' || h.h === 'end'}
-        <circle cx={h.x} cy={h.y} r="7" class="handle lineend" data-testid="handle-{h.h}" />
+        <circle cx={h.x} cy={h.y} r={touchUi ? 10 : 7} class="handle lineend" data-testid="handle-{h.h}" />
       {:else if h.h === 'rot'}
-        <g class="rot" transform="translate({h.x},{h.y})">
+        <g class="rot" transform="translate({h.x},{h.y}) scale({touchUi ? 1.3 : 1})" data-testid="handle-rot">
           <circle r="10" />
           <path d="M-4 -1a4.5 4.5 0 1 0 1.5-3.5M-2.5-4.5h-2.5v-2.5" transform="translate(1,2)" />
         </g>
       {:else if h.h.length === 2}
-        <circle cx={h.x} cy={h.y} r="5.5" class="handle" />
+        <circle cx={h.x} cy={h.y} r={touchUi ? 9 : 5.5} class="handle" data-testid="handle-{h.h}" />
       {:else}
         <rect x={h.x - (h.h === 'e' || h.h === 'w' ? 3.5 : 9)} y={h.y - (h.h === 'e' || h.h === 'w' ? 9 : 3.5)} width={h.h === 'e' || h.h === 'w' ? 7 : 18} height={h.h === 'e' || h.h === 'w' ? 18 : 7} rx="3.5" class="handle" />
       {/if}
@@ -1635,6 +1812,7 @@
   .sb.x:hover .thumb, .sb.x:active .thumb { top: 2px; height: 8px; }
   .sb.y:hover .thumb, .sb.y:active .thumb { left: 2px; width: 8px; }
   .stage { position: relative; flex: 1; overflow: hidden; background: var(--stage); touch-action: none; user-select: none; }
+  .kbproxy { position: absolute; left: 0; top: 0; width: 1px; height: 1px; opacity: 0; border: 0; padding: 0; resize: none; pointer-events: none; font-size: 16px; }
   canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
   .overlay { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
   .hover { fill: none; stroke: var(--accent); stroke-width: 2; }
@@ -1642,6 +1820,8 @@
   .sel.locked { stroke: #f59e0b; }
   .dashed { stroke-dasharray: 5 4; stroke-width: 1.5; }
   .handle { fill: #fff; stroke: rgba(15, 17, 21, .25); stroke-width: 1; filter: drop-shadow(0 1px 2px rgba(0,0,0,.25)); }
+  /* phones: Android WebView (124, GPU-less) drops small filtered SVG shapes entirely; an outline reads as well */
+  :global(.m-editor) .handle { filter: none; stroke: rgba(15, 17, 21, .4); stroke-width: 1.2; }
   .rot circle { fill: #fff; stroke: rgba(15, 17, 21, .2); filter: drop-shadow(0 1px 2px rgba(0,0,0,.25)); }
   .rot path { fill: none; stroke: var(--ink); stroke-width: 1.6; stroke-linecap: round; }
   .cropframe { fill: none; stroke: #fff; stroke-width: 2; filter: drop-shadow(0 0 1px rgba(0,0,0,.6)); }
@@ -1659,6 +1839,8 @@
   .guide { stroke: #00b8c4; stroke-width: 1; }
   .trim { fill: none; stroke: #e5484d; stroke-width: 1; stroke-dasharray: 6 4; }
   .margin { fill: none; stroke: #7c5cff; stroke-width: 1; stroke-dasharray: 3 3; opacity: .8; }
+  /* phones: the page actions live in the Pages sheet */
+  :global(.m-editor) .pagebar { display: none; }
   .pagebar { position: absolute; display: flex; align-items: center; justify-content: space-between; gap: 6px; height: 30px; pointer-events: auto; color: var(--bar-ink); }
   .pagetitle { display: flex; align-items: center; min-width: 0; flex: 1; font-size: 14px; overflow: hidden; }
   .pagename { border: 0; background: none; font-weight: 600; color: inherit; font-size: 14px; padding: 4px 0; white-space: nowrap; }

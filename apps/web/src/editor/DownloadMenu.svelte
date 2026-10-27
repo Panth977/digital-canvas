@@ -17,7 +17,8 @@
   import { zipSync } from 'fflate';
   import { exportPdf } from '@digital-canvas/render';
   import type { EditorState } from '../lib/editor.svelte.ts';
-  import { download } from '../lib/files.ts';
+  import { download, shareAll } from '../lib/files.ts';
+  import { isNative } from '../lib/native/platform.ts';
   import { exportMp4 } from '../lib/mp4.ts';
   import { toast } from '../lib/toast.svelte.ts';
   import Icon from '../lib/Icon.svelte';
@@ -78,11 +79,15 @@
     return new Uint8Array(await (await c.convertToBlob({ type: 'image/png' })).arrayBuffer());
   }
 
-  /** One file per page; several pages come as one zip (Canva). */
-  function deliver(files: { name: string; bytes: Uint8Array }[], mime: string): void {
+  /** In the app, exports open the share sheet (Save to Photos/Files, AirDrop…). */
+  const native = isNative();
+
+  /** One file per page; several pages come as one zip (Canva), or all at once to the share sheet in the app. */
+  async function deliver(files: { name: string; bytes: Uint8Array }[], mime: string): Promise<void> {
     if (files.length === 1) return download(files[0]!.bytes, files[0]!.name, mime);
+    if (native) return shareAll(files.map((f) => ({ bytes: f.bytes, name: f.name, mime })));
     const zip = zipSync(Object.fromEntries(files.map((f) => [f.name, [f.bytes, { level: 0 }]])) as Parameters<typeof zipSync>[0]);
-    download(zip, `${title()}.zip`, 'application/zip');
+    await download(zip, `${title()}.zip`, 'application/zip');
   }
 
   async function go(): Promise<void> {
@@ -93,16 +98,16 @@
     try {
       if (dl.format === 'mp4') {
         ed.player.pause();
-        download(await exportMp4(ed, { onProgress: (f) => (progress = f) }), `${title()}.mp4`, 'video/mp4');
+        await download(await exportMp4(ed, { onProgress: (f) => (progress = f) }), `${title()}.mp4`, 'video/mp4');
       } else if (dl.format === 'gif') {
         const { exportGif } = await import('../lib/gif.ts');
-        download(await exportGif(ed, { pages: ids, scale: Math.min(1, dl.scale), onProgress: (f: number) => (progress = f) }), `${title()}.gif`, 'image/gif');
+        await download(await exportGif(ed, { pages: ids, scale: Math.min(1, dl.scale), onProgress: (f: number) => (progress = f) }), `${title()}.gif`, 'image/gif');
       } else if (dl.format === 'pdfv') {
-        download(await ed.exportVectorPdf(ids), `${title()}.pdf`, 'application/pdf');
+        await download(await ed.exportVectorPdf(ids), `${title()}.pdf`, 'application/pdf');
       } else if (dl.format === 'pdf') {
-        download(await exportPdf(ed.renderer, ed.doc, { dpi: dl.dpi, pages: ids }), `${title()}.pdf`, 'application/pdf');
+        await download(await exportPdf(ed.renderer, ed.doc, { dpi: dl.dpi, pages: ids }), `${title()}.pdf`, 'application/pdf');
       } else if (dl.format === 'svg') {
-        deliver(chosen.map((p) => ({ name: nameOf(ed.doc.pages.indexOf(p), 'svg'), bytes: new TextEncoder().encode(ed.exportSvg(p.id)) })), 'image/svg+xml');
+        await deliver(chosen.map((p) => ({ name: nameOf(ed.doc.pages.indexOf(p), 'svg'), bytes: new TextEncoder().encode(ed.exportSvg(p.id)) })), 'image/svg+xml');
       } else {
         const files = [];
         for (const p of chosen) {
@@ -112,7 +117,7 @@
           if (dl.format === 'png' && dl.compress) bytes = await compressPng(bytes);
           files.push({ name: nameOf(ed.doc.pages.indexOf(p), dl.format === 'png' ? 'png' : 'jpg'), bytes });
         }
-        deliver(files, dl.format === 'png' ? 'image/png' : 'image/jpeg');
+        await deliver(files, dl.format === 'png' ? 'image/png' : 'image/jpeg');
       }
       onclose();
     } catch (e) {
@@ -181,9 +186,9 @@
 
   <label class="check small"><input type="checkbox" bind:checked={remember} data-testid="dl-remember" /> Save download settings</label>
   <button class="btn primary go" onclick={go} disabled={busy || !chosen.length} data-testid="do-download">
-    {busy ? (progress ? `Preparing… ${Math.round(progress * 100)}%` : 'Preparing…') : 'Download'}
+    {busy ? (progress ? `Preparing… ${Math.round(progress * 100)}%` : 'Preparing…') : native ? 'Share' : 'Download'}
   </button>
-  {#if raster && chosen.length > 1}<p class="note">{chosen.length} pages download as one .zip file.</p>{/if}
+  {#if raster && chosen.length > 1}<p class="note">{chosen.length} pages {native ? 'are shared together' : 'download as one .zip file'}.</p>{/if}
 </div>
 
 <style>

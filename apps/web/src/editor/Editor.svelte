@@ -21,6 +21,8 @@
   import DownloadMenu from './DownloadMenu.svelte';
   import VersionHistory from './VersionHistory.svelte';
   import ShortcutsDialog from './ShortcutsDialog.svelte';
+  import MobileEditor from './mobile/MobileEditor.svelte';
+  import { mobile } from '../lib/mobile.svelte.ts';
 
   let { id, store }: { id: string; store: ProjectStore } = $props();
 
@@ -190,6 +192,8 @@
   </div>
 {:else if !ed}
   <div class="center"><div class="spinner"></div><p>Loading editor…</p></div>
+{:else if mobile.on}
+  <MobileEditor {ed} {store} />
 {:else}
   <div class="editor">
     <header class="top" data-tips>

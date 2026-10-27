@@ -65,3 +65,9 @@ Open-source Canva alternative. Built on TaskManager ticket **ORCH-27** (ORCH boa
 - Scene gained `ElementBase.timing` (captions; `animateAt` hides outside the window), `Page.transition` + `frameAt`/`transitionLayers`, `AudioClip.fadeIn/fadeOut`. The MCP exporter renders all three; the web player/MP4 export render timing but not yet transitions or audio fades.
 - Gradient `angle` is CSS (90 = left→right, 180 = top→bottom).
 - Remote: `packages/mcp/src/remote` (OAuth 2.1 AS + stateless JSON `/mcp`), deployed by `npm run deploy:mcp` as functions `mcp` + `mcpExport` (codebase `mcp`, `backend/mcp`); hosting rewrites in `backend/icebase.config.ts`.
+## Phone layout (r5-mobile, 2026-10-28)
+
+- `< 768px` (`lib/mobile.svelte.ts`, `mobile.on`): `Editor.svelte` renders `editor/mobile/MobileEditor.svelte` (top bar, Canvas, `MobileToolbar`, `MobileSheet`). Desktop markup is untouched. The editor box follows `visualViewport` (`mobile.vh/top`) so the toolbar and edited text stay above the keyboard; Canvas keeps its zoom and calls `revealEditing()` on resize while editing.
+- Sheets: `ui.panel` (rail sections via `PanelBody.svelte`, tool panels via `ToolPanels`) or `mobile.sheet` (small tools in `MobileTools.svelte`, Download/Resize/menu). On phones `ui.close()`/toggle go to `null`, not `lastRail`.
+- Touch in Canvas: `touches` map → pinch (page spot under the midpoint stays put) and two-finger pan; one finger on empty space or an unselected element scrolls; a tap selects; long press (500 ms) opens `CanvasMenu` and eats the following click; double tap = dblclick; `TOUCH_HIT` 22 px handles. iOS keyboard: `focusKeyboard()` focuses a hidden textarea inside the tap, the rich editor then takes focus.
+- e2e: `e2e/mobile.spec.ts` runs only in projects `iphone-15` and `pixel-8` (both Chromium; fingers are CDP `Input.dispatchTouchEvent`). The desktop `chromium` project ignores it.

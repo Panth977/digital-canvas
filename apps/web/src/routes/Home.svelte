@@ -333,6 +333,9 @@
     </div>
   {/if}
 
+  <!-- phones: Canva's floating create button (the header's popover opens as a bottom sheet) -->
+  <button class="fab" aria-label="Create a design" data-testid="m-create" onclick={(e) => { e.stopPropagation(); showCreate = !showCreate; }}><Icon name="plus" size={26} /></button>
+
   <section class="hero">
     <h1>What will you design today?</h1>
     <label class="bigsearch">
@@ -574,4 +577,31 @@
   .err { color: var(--danger); display: flex; gap: 6px; align-items: center; }
   footer { margin-top: 40px; color: var(--muted); font-size: 12px; text-align: center; }
   footer a { color: inherit; }
+  .fab { display: none; }
+
+  /* ---- phones: Canva mobile's home ---- */
+  @media (max-width: 767px) {
+    .home { padding: 0 14px calc(96px + env(safe-area-inset-bottom)); }
+    header { margin: 0 -14px 12px; padding: calc(8px + env(safe-area-inset-top)) 14px 10px !important; gap: 8px; }
+    .where { width: 100%; gap: 6px; }
+    .where .label { display: none; }
+    .create-wrap > .create { display: none; }
+    .create-pop {
+      position: fixed; left: 0; right: 0; bottom: 0; top: auto; width: auto; max-height: 82vh; z-index: 60;
+      border-radius: 16px 16px 0 0; padding-bottom: calc(14px + env(safe-area-inset-bottom)); box-shadow: 0 -8px 30px rgba(0, 0, 0, .25);
+    }
+    .fab {
+      display: grid; place-items: center; position: fixed; right: 18px; bottom: calc(18px + env(safe-area-inset-bottom)); z-index: 50;
+      width: 58px; height: 58px; border-radius: 50%; border: 0; background: var(--accent); color: #fff; box-shadow: 0 6px 18px rgba(139, 61, 255, .45);
+    }
+    .hero { padding: 20px 14px 14px; border-radius: 14px; }
+    .hero h1 { font-size: 22px; margin-bottom: 12px; }
+    .shortcuts { flex-wrap: nowrap; justify-content: flex-start; overflow-x: auto; gap: 4px; margin: 14px -14px 0; padding: 0 10px 4px; scrollbar-width: none; }
+    .sc { width: 76px; flex-shrink: 0; font-size: 11px; }
+    section { margin-top: 18px; }
+    .tpls { grid-auto-columns: 140px; gap: 10px; }
+    .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .presets { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .row-head { flex-wrap: wrap; gap: 8px; }
+  }
 </style>
