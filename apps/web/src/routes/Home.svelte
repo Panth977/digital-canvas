@@ -212,7 +212,7 @@
     {/if}
   </section>
 
-  <footer>Digital Canvas · Apache-2.0 · <a href="https://github.com/Panth977/digital-canvas" target="_blank" rel="noreferrer">GitHub</a></footer>
+  <footer>Digital Canvas · Apache-2.0 · <a href="https://github.com/Panth977/digital-canvas" target="_blank" rel="noreferrer">GitHub</a> · <a href="/privacy.html">Privacy</a> · <a href="/terms.html">Terms</a></footer>
 </div>
 
 <style>
