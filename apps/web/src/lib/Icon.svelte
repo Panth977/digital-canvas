@@ -55,6 +55,12 @@
     pause: 'M7 4h3.5v16H7zM13.5 4H17v16h-3.5z',
     music: 'M9 18V5l11-2v13M9 18a3 3 0 11-6 0 3 3 0 016 0zM20 16a3 3 0 11-6 0 3 3 0 016 0z',
     video: 'M3 6h12v12H3zM15 10l6-3v10l-6-3',
+    pen: 'M4 20l4-1L19 8l-3-3L5 16l-1 4zM14 7l3 3',
+    line: 'M4 20L20 4',
+    table: 'M3 5h18v14H3zM3 10h18M3 15h18M9 5v14M15 5v14',
+    chart: 'M4 20V11M10 20V5M16 20v-7M2 20h20',
+    qr: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 18h2v2h-2zM14 18h2M18 14h2',
+    frame: 'M12 3a9 9 0 110 18 9 9 0 010-18zM7 16l3-4 2 2 2-3 3 5',
   } as const;
   export type IconName = keyof typeof ICONS;
 </script>

@@ -23,7 +23,7 @@ export function parseDoc(input: unknown): Doc {
   input.pages.forEach((p, i) => {
     if (!isObj(p) || typeof p.id !== 'string' || !Array.isArray(p.elements)) throw new DocFormatError(`page ${i + 1} is malformed`);
     p.elements.forEach((e, j) => {
-      if (!isObj(e) || typeof e.id !== 'string' || !['shape', 'text', 'image', 'video', 'path'].includes(e.type as string))
+      if (!isObj(e) || typeof e.id !== 'string' || !['shape', 'text', 'image', 'video', 'path', 'line', 'table', 'chart'].includes(e.type as string))
         throw new DocFormatError(`page ${i + 1}, element ${j + 1}: unknown element`);
       for (const k of ['x', 'y', 'w', 'h']) if (!num(e[k])) throw new DocFormatError(`page ${i + 1}, element ${j + 1}: bad ${k}`);
     });

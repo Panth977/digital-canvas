@@ -1,4 +1,5 @@
 import type { Element, Page } from './types.ts';
+import { lineDistance } from './line.ts';
 
 export interface Point { x: number; y: number }
 export interface Rect { x: number; y: number; w: number; h: number }
@@ -57,7 +58,9 @@ export function contains(e: Rect & { rotation: number }, p: Point, pad = 0): boo
 export function hitTest(page: Page, p: Point, pad = 0): Element | null {
   for (let i = page.elements.length - 1; i >= 0; i--) {
     const e = page.elements[i]!;
-    if (!e.hidden && contains(e, p, pad)) return e;
+    if (e.hidden) continue;
+    // a line is hit near its stroke, not anywhere in its (maybe large, diagonal) box
+    if (e.type === 'line' ? lineDistance(e, p) <= Math.max(e.stroke.width / 2, 3) + pad * 3 : contains(e, p, pad)) return e;
   }
   return null;
 }

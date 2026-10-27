@@ -1,5 +1,5 @@
 import { FORMAT, VERSION } from './types.ts';
-import type { AudioClip, Doc, Element, Fill, Page, PathElement, ShapeElement, ShapeKind, TextElement, TextStyle, ImageElement, Unit, VideoElement } from './types.ts';
+import type { AudioClip, ChartElement, Doc, Element, Fill, Page, PathElement, ShapeElement, ShapeKind, TableElement, TextElement, TextStyle, ImageElement, LineElement, Unit, VideoElement } from './types.ts';
 import { toPx, MIN_SIDE, MAX_SIDE } from './units.ts';
 
 /**
@@ -115,7 +115,8 @@ export function addElements(doc: Doc, pageId: string, elements: Element[]): Doc 
   return mapPage(doc, pageId, (p) => ({ ...p, elements: [...p.elements, ...elements] }));
 }
 
-export type ElementPatch = Partial<Omit<ShapeElement, 'id' | 'type'>> | Partial<Omit<TextElement, 'id' | 'type'>> | Partial<Omit<ImageElement, 'id' | 'type'>> | Partial<Omit<VideoElement, 'id' | 'type'>> | Partial<Omit<PathElement, 'id' | 'type'>>;
+export type ElementPatch = Partial<Omit<ShapeElement, 'id' | 'type'>> | Partial<Omit<TextElement, 'id' | 'type'>> | Partial<Omit<ImageElement, 'id' | 'type'>> | Partial<Omit<VideoElement, 'id' | 'type'>> | Partial<Omit<PathElement, 'id' | 'type'>>
+  | Partial<Omit<LineElement, 'id' | 'type'>> | Partial<Omit<TableElement, 'id' | 'type'>> | Partial<Omit<ChartElement, 'id' | 'type'>>;
 
 /** Patch several elements; `patch` may be a function of the old element. */
 export function updateElements(doc: Doc, ids: string[], patch: ElementPatch | ((e: Element) => ElementPatch)): Doc {
@@ -227,10 +228,10 @@ export function setTitle(doc: Doc, title: string): Doc {
   return touch(doc, { title });
 }
 
-/** Assets no image element or embedded font uses are dropped. */
+/** Assets no image element or embedded font uses are dropped (an empty frame uses none). */
 export function pruneAssets(doc: Doc): Doc {
   const used = new Set<string>();
-  for (const p of doc.pages) for (const e of p.elements) if (e.type === 'image' || e.type === 'video') used.add(e.asset);
+  for (const p of doc.pages) for (const e of p.elements) if ((e.type === 'image' || e.type === 'video') && e.asset) used.add(e.asset);
   for (const a of doc.audio ?? []) used.add(a.asset);
   for (const k of [...used]) used.add(`${k}.poster`); // a video's poster frame
   for (const f of doc.fonts ?? []) used.add(f.asset);
@@ -247,6 +248,8 @@ export function pruneFonts(doc: Doc): Doc {
   if (!doc.fonts?.length) return doc;
   const used = new Set<string>();
   for (const p of doc.pages) for (const e of p.elements) {
+    if (e.type === 'table') for (const row of e.cells) for (const c of row) used.add(c.style?.fontFamily ?? e.style.fontFamily);
+    if (e.type === 'chart') used.add(e.style.fontFamily);
     if (e.type !== 'text') continue;
     used.add(e.style.fontFamily);
     for (const r of e.runs ?? []) if (r.style?.fontFamily) used.add(r.style.fontFamily);

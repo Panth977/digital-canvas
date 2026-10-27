@@ -6,3 +6,7 @@ export * from './geometry.ts';
 export * from './history.ts';
 export * from './parse.ts';
 export * from './text.ts';
+export * from './line.ts';
+export * from './elements.ts';
+export * from './vector.ts';
+export * from './svg.ts';
