@@ -8,7 +8,7 @@ import {
   ALL_FORMATS, AudioBufferSource, BlobSource, BufferTarget, CanvasSource, Input, Mp4OutputFormat, Output, QUALITY_HIGH,
   VideoSampleSink, getFirstEncodableAudioCodec, getFirstEncodableVideoCodec,
 } from 'mediabunny';
-import { clipTime, pageDuration, pageStart, totalDuration, type Doc, type VideoElement } from '@digital-canvas/scene';
+import { clipTime, pageDuration, pageStart, totalDuration, walk, type Doc, type VideoElement } from '@digital-canvas/scene';
 import type { EditorState } from './editor.svelte.ts';
 
 export interface Mp4Options {
@@ -27,7 +27,7 @@ async function mixAudio(doc: Doc, assets: Map<string, Uint8Array>, total: number
   const srcs: Src[] = (doc.audio ?? []).map((a) => ({ asset: a.asset, at: a.start, offset: a.offset, dur: a.duration, volume: a.volume ?? 1 }));
   for (const p of doc.pages) {
     if (p.hidden) continue;
-    for (const e of p.elements) {
+    for (const e of walk(p.elements)) {
       if (e.type !== 'video' || e.muted || e.hidden || (e.volume ?? 1) === 0) continue;
       const fileDur = doc.assets[e.asset]?.duration ?? 0;
       const a = e.trimStart ?? 0, b = Math.min(e.trimEnd ?? fileDur, fileDur);
@@ -116,7 +116,7 @@ export async function exportMp4(ed: EditorState, opts: Mp4Options = {}): Promise
       const first = i, last = Math.min(frames, Math.round(end * fps));
       // one sample iterator per clip on this page, fed the clip times of this page's frames
       const clips: { el: VideoElement; it: AsyncGenerator<unknown> | null; times: number[] }[] = [];
-      for (const el of page.elements) {
+      for (const el of walk(page.elements)) {
         if (el.type !== 'video' || el.hidden) continue;
         const sink = await sinkFor(el.asset);
         const fileDur = doc.assets[el.asset]?.duration ?? Infinity;

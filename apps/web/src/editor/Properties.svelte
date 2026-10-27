@@ -56,6 +56,10 @@
   const s0 = $derived(shapes[0]);
   const locked = $derived(sel.some((e) => e.locked));
 
+  /** Width and height change together (Position panel). */
+  let ratio = $state(false);
+  const groups = $derived(sel.filter((e) => e.type === 'group'));
+
   const key = (k: string) => `prop:${k}:${ed.selection.join(',')}`;
   const end = () => ed.seal();
 
@@ -63,6 +67,8 @@
     if (!one) return;
     if (k === 'w' && one.type === 'text') {
       ed.update({ w: v, h: ed.renderer.textHeight({ ...one, w: v }) }, key(k));
+    } else if (ratio && (k === 'w' || k === 'h') && one.w > 0 && one.h > 0) {
+      ed.update(k === 'w' ? { w: v, h: (v * one.h) / one.w } : { h: v, w: (v * one.w) / one.h }, key('wh'));
     } else ed.update({ [k]: k === 'rotation' ? ((v % 360) + 360) % 360 : v } as Partial<Element>, key(k));
   }
 
@@ -122,7 +128,7 @@
     {/if}
     <p class="hint">Click an element to edit it. Drag on empty space to select several. Hold Space and drag to pan, ⌘/Ctrl + scroll to zoom.</p>
   {:else}
-    <h3>{one ? (one.type === 'text' ? 'Text' : one.type === 'image' ? 'Image' : one.type === 'video' ? 'Video' : 'Shape') : `${sel.length} elements`}</h3>
+    <h3>{one ? (one.type === 'text' ? 'Text' : one.type === 'image' ? 'Image' : one.type === 'video' ? 'Video' : one.type === 'group' ? 'Group' : 'Shape') : `${sel.length} elements`}</h3>
 
     {#if t0}
       <section data-text-tools>
@@ -271,8 +277,9 @@
           <NumField label="X" value={one.x} onchange={(v) => setGeom('x', v)} onend={end} testid="pos-x" />
           <NumField label="Y" value={one.y} onchange={(v) => setGeom('y', v)} onend={end} testid="pos-y" />
         </div>
-        <div class="row2">
+        <div class="row3">
           <NumField label="Width" value={one.w} min={1} onchange={(v) => setGeom('w', v)} onend={end} testid="pos-w" />
+          <button class="btn icon" class:on={ratio} title={ratio ? 'Unlock aspect ratio' : 'Lock aspect ratio'} aria-label="Lock aspect ratio" aria-pressed={ratio} data-testid="lock-ratio" onclick={() => (ratio = !ratio)}><Icon name={ratio ? 'link' : 'unlink'} size={16} /></button>
           <NumField label="Height" value={one.h} min={1} onchange={(v) => setGeom('h', v)} onend={end} testid="pos-h" />
         </div>
         <NumField label="Rotation" value={one.rotation} suffix="°" onchange={(v) => setGeom('rotation', v)} onend={end} testid="rotation" />
@@ -290,6 +297,13 @@
         <button class="btn icon" title="Align middle" aria-label="Align middle" onclick={() => ed.align('middle')}><Icon name="alignm" /></button>
         <button class="btn icon" title="Align bottom" aria-label="Align bottom" onclick={() => ed.align('bottom')}><Icon name="alignb" /></button>
       </div>
+      {#if sel.length > 1}
+        <div class="toggles" data-testid="spacing">
+          <button class="btn icon" title="Distribute horizontally" aria-label="Distribute horizontally" data-testid="distribute-x" disabled={sel.length < 3} onclick={() => ed.distribute('x')}><Icon name="distx" /></button>
+          <button class="btn icon" title="Distribute vertically" aria-label="Distribute vertically" data-testid="distribute-y" disabled={sel.length < 3} onclick={() => ed.distribute('y')}><Icon name="disty" /></button>
+          <button class="btn" title="Tidy up: even spacing in a row, column or grid" data-testid="tidy-up" onclick={() => ed.tidyUp()}><Icon name="tidy" size={16} /> Tidy up</button>
+        </div>
+      {/if}
       <div class="toggles">
         <button class="btn icon" title="Bring to front" aria-label="Bring to front" onclick={() => ed.arrange('front')}><Icon name="front" /></button>
         <button class="btn icon" title="Forward" aria-label="Forward" onclick={() => ed.arrange('forward')}><Icon name="up" /></button>
@@ -302,6 +316,12 @@
 
     <section class="actions">
       <button class="btn" class:on={locked} onclick={() => { ed.update({ locked: !locked }); end(); }}><Icon name={locked ? 'lock' : 'unlock'} size={16} /> {locked ? 'Unlock' : 'Lock'}</button>
+      {#if sel.length > 1}
+        <button class="btn" title="Group (⌘G)" data-testid="group" onclick={() => ed.group()}><Icon name="group" size={16} /> Group</button>
+      {/if}
+      {#if groups.length}
+        <button class="btn" title="Ungroup (⇧⌘G)" data-testid="ungroup" onclick={() => ed.ungroup()}><Icon name="ungroup" size={16} /> Ungroup</button>
+      {/if}
       <button class="btn" onclick={() => ed.duplicateSelection()}><Icon name="copy" size={16} /> Duplicate</button>
       <button class="btn danger" onclick={() => ed.deleteSelection()} data-testid="delete"><Icon name="trash" size={16} /> Delete</button>
     </section>
@@ -315,6 +335,7 @@
   section { display: flex; flex-direction: column; gap: 10px; padding-top: 14px; border-top: 1px solid var(--line); }
   .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: end; }
   .row2.end { align-items: end; }
+  .row3 { display: grid; grid-template-columns: 1fr auto 1fr; gap: 6px; align-items: end; }
   .toggles { display: flex; gap: 4px; flex-wrap: wrap; }
   .actions { flex-direction: row; flex-wrap: wrap; gap: 6px; }
   .info { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }

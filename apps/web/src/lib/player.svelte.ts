@@ -1,4 +1,4 @@
-import { clipTime, pageAtTime, totalDuration, type VideoElement } from '@digital-canvas/scene';
+import { clipTime, pageAtTime, totalDuration, walk, type VideoElement } from '@digital-canvas/scene';
 import type { EditorState } from './editor.svelte.ts';
 
 /**
@@ -56,7 +56,7 @@ export class Player {
 
   private clipsAt(t: number): { el: VideoElement; local: number }[] {
     const { page, local } = pageAtTime(this.ed.doc, t);
-    return page.elements.filter((e): e is VideoElement => e.type === 'video' && !e.hidden).map((el) => ({ el, local }));
+    return [...walk(page.elements)].filter((e): e is VideoElement => e.type === 'video' && !e.hidden).map((el) => ({ el, local }));
   }
 
   /** Show the picture at time `t` (paused). */

@@ -55,6 +55,15 @@
     pause: 'M7 4h3.5v16H7zM13.5 4H17v16h-3.5z',
     music: 'M9 18V5l11-2v13M9 18a3 3 0 11-6 0 3 3 0 016 0zM20 16a3 3 0 11-6 0 3 3 0 016 0z',
     video: 'M3 6h12v12H3zM15 10l6-3v10l-6-3',
+    distx: 'M4 3v18M20 3v18M9.5 8h5v8h-5z',
+    disty: 'M3 4h18M3 20h18M8 9.5h8v5H8z',
+    tidy: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z',
+    group: 'M3 3h4M17 3h4v4M21 17v4h-4M7 21H3v-4M3 7V3M7 7h6v6H7zM11 11h6v6h-6z',
+    ungroup: 'M4 4h8v8H4zM12 12h8v8h-8z',
+    link: 'M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1',
+    unlink: 'M10 14a4 4 0 005.7 0M14 10a4 4 0 00-5.7 0M4 4l16 16',
+    ruler: 'M3 17L17 3l4 4L7 21zM7 13l2 2M10 10l2 2M13 7l2 2',
+    resize: 'M4 14v6h6M20 10V4h-6M4 20l7-7M20 4l-7 7',
   } as const;
   export type IconName = keyof typeof ICONS;
 </script>
