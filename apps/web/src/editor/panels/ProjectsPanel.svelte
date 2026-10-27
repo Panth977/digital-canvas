@@ -181,5 +181,4 @@
   .use { position: absolute; top: 6px; right: 6px; width: 28px; height: 28px; border-radius: 6px; border: 0; background: rgba(0,0,0,.6); color: #fff; display: none; place-items: center; }
   .design:hover .use { display: grid; }
   .vid { position: relative; }
-  .design .dp-badge { bottom: auto; top: 6px; }
 </style>

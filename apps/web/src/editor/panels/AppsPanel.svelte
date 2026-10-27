@@ -179,7 +179,7 @@
       {#if busy === 'icons'}<p class="dp-hint"><span class="dp-spin"></span> Searching…</p>{/if}
       {#if iconsDone && !icons.length}<p class="dp-empty">No icons found.</p>{/if}
       <div class="dp-grid four" data-testid="app-icon-results">
-        {#each icons as n (n)}<button class="dp-cell" title={n} disabled={busy === n} onclick={() => addIcon(n)}><img src={iconUrl(n)} alt={n} loading="lazy" /></button>{/each}
+        {#each icons as n (n)}<button class="dp-cell light" title={n} disabled={busy === n} onclick={() => addIcon(n)}><img src={iconUrl(n)} alt={n} loading="lazy" /></button>{/each}
       </div>
       {#if !icons.length && !iconsDone}<p class="dp-hint">Search 150+ open-source icon sets via <a href="https://iconify.design" target="_blank" rel="noreferrer">Iconify</a>. Icons come in as vectors you can recolour.</p>{/if}
 
@@ -248,7 +248,7 @@
         <button class="btn" onclick={shuffleAvatars} data-testid="app-avatar-shuffle">Shuffle</button>
       </div>
       <div class="dp-grid" data-testid="app-avatar-results">
-        {#each avSeeds as s (s)}<button class="dp-cell" title="Add avatar “{s}”" disabled={busy === `av-${s}`} onclick={() => addAvatar(s)}><img src={avatarUrl(avStyle, s)} alt="Avatar {s}" loading="lazy" /></button>{/each}
+        {#each avSeeds as s (s)}<button class="dp-cell light" title="Add avatar “{s}”" disabled={busy === `av-${s}`} onclick={() => addAvatar(s)}><img src={avatarUrl(avStyle, s)} alt="Avatar {s}" loading="lazy" /></button>{/each}
       </div>
       <p class="dp-hint">Avatars by <a href="https://www.dicebear.com" target="_blank" rel="noreferrer">DiceBear</a>; each style has its own licence ({AVATAR_STYLES.find((s) => s.id === avStyle)?.licence}). The same word always gives the same face.</p>
 

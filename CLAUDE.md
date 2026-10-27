@@ -31,3 +31,11 @@ Open-source Canva alternative. Built on TaskManager ticket **ORCH-27** (ORCH boa
 - Connector ends store `attach: { elementId, point }`; `EditorState.commit()` runs `followConnectors()` on every change.
 - Vector PDF embeds whole font files: pdf-lib's `subset: true` drops glyphs of Inter. Text effects, curved text and gradients are drawn as an image of that element only.
 - Openverse allows `page_size` ≤ 20 without a key; photos are searched with `license_type=commercial,modification`, and the credit is kept in the asset `name`.
+
+## Rail modules (r3, 2026-10-27)
+
+- Panels live in `apps/web/src/editor/panels/` (AI, Templates, Brand, Tools, Projects, Apps); shared look in `panels.css` (`dp-` classes).
+- Templates: author in `tools/templates/library.ts` (loose docs, see `packages/scene/src/loose.ts`), then `npx tsx tools/templates/build.ts [id…]` writes `apps/web/src/templates/*.json` + `index.json` and `apps/web/public/templates/*.png`. Icons are baked in from Iconify (Fluent Emoji flat, Phosphor, MDI). `packages/render/test/templates.test.ts` checks every template.
+- Brand Kit: `packages/storage/src/brand.ts`; every store implements `loadBrand/saveBrand` (Drive: `Digital Canvas/brand.json` with `appProperties.dcBrand=1`, logos in `assets/`).
+- AI is bring-your-own-key: key in `localStorage['dc.anthropicKey']`, sent only to api.anthropic.com via `@anthropic-ai/sdk` (`dangerouslyAllowBrowser`), model `claude-sonnet-5-5`. "Design for me" asks for a loose doc and validates it with `designFromReply` → `parseDoc`.
+- Eraser brush: `addStroke` with brush `eraser` removes drawings (`erasedBy`, scene/erase.ts) instead of drawing.
