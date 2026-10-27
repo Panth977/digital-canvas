@@ -51,6 +51,7 @@
     if (e.type === 'text') return e.text.split('\n')[0]!.slice(0, 40) || 'Text';
     if (e.type === 'image') return ed.doc.assets[e.asset]?.name ?? 'Image';
     if (e.type === 'video') return ed.doc.assets[e.asset]?.name ?? 'Video';
+    if (e.type === 'path') return 'Graphic';
     return SHAPES.find((s) => s.kind === e.shape)?.label ?? 'Shape';
   }
 

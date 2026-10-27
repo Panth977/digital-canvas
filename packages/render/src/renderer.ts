@@ -1,5 +1,5 @@
 import type { Canvas, CanvasKit, Image, Paint, Path } from 'canvaskit-wasm';
-import type { Doc, Element, Fill, ImageElement, Page, ShapeElement, ShapeKind, TextElement, VideoElement } from '@digital-canvas/scene';
+import type { Doc, Element, Fill, ImageElement, Page, PathElement, ShapeElement, ShapeKind, TextElement, VideoElement } from '@digital-canvas/scene';
 import { color, FontLibrary } from './fonts.ts';
 import { listIndent, TextLayouts } from './text.ts';
 
@@ -223,6 +223,7 @@ export class Renderer {
       p.delete();
     }
     if (el.type === 'shape') this.drawShape(canvas, el);
+    else if (el.type === 'path') this.drawPath(canvas, el);
     else if (el.type === 'text') this.drawText(canvas, el);
     else this.drawImage(canvas, el);
     if (layered) canvas.restore();
@@ -255,6 +256,42 @@ export class Renderer {
     this.setFill(fill, x, y, w, h);
     canvas.drawRect(this.ck.XYWHRect(x, y, w, h), this.paint);
     this.paint.setShader(null);
+  }
+
+  private svgPaths = new Map<string, Path | null>();
+
+  private drawPath(canvas: Canvas, el: PathElement): void {
+    const ck = this.ck, paint = this.paint, vb = el.viewBox;
+    if (vb.w <= 0 || vb.h <= 0) return;
+    const sx = el.w / vb.w, sy = el.h / vb.h;
+    canvas.save();
+    canvas.translate(el.x, el.y);
+    canvas.scale(sx, sy);
+    canvas.translate(-vb.x, -vb.y);
+    for (const part of el.paths) {
+      let path = this.svgPaths.get(part.d);
+      if (path === undefined) {
+        path = ck.Path.MakeFromSVGString(part.d);
+        this.svgPaths.set(part.d, path);
+      }
+      if (!path) continue;
+      if (part.fill) {
+        // gradients are laid out in viewBox units
+        this.setFill(part.fill, vb.x, vb.y, vb.w, vb.h);
+        canvas.drawPath(path, paint);
+        paint.setShader(null);
+      }
+      if (part.stroke && part.stroke.width > 0) {
+        paint.setStyle(ck.PaintStyle.Stroke);
+        // stroke width is in page px: undo the (average) scale
+        paint.setStrokeWidth(part.stroke.width / Math.sqrt(Math.abs(sx * sy)));
+        paint.setStrokeCap(ck.StrokeCap.Round);
+        paint.setStrokeJoin(ck.StrokeJoin.Round);
+        paint.setColor(color(ck, part.stroke.color));
+        canvas.drawPath(path, paint);
+      }
+    }
+    canvas.restore();
   }
 
   private drawShape(canvas: Canvas, el: ShapeElement): void {
@@ -351,6 +388,8 @@ export class Renderer {
 
   dispose(): void {
     this.text.dispose();
+    for (const p of this.svgPaths.values()) p?.delete();
+    this.svgPaths.clear();
     for (const img of this.images.values()) img.delete();
     for (const img of this.frames.values()) img.delete();
     this.frames.clear();

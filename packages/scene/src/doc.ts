@@ -1,5 +1,5 @@
 import { FORMAT, VERSION } from './types.ts';
-import type { AudioClip, Doc, Element, Fill, Page, ShapeElement, ShapeKind, TextElement, TextStyle, ImageElement, Unit, VideoElement } from './types.ts';
+import type { AudioClip, Doc, Element, Fill, Page, PathElement, ShapeElement, ShapeKind, TextElement, TextStyle, ImageElement, Unit, VideoElement } from './types.ts';
 import { toPx, MIN_SIDE, MAX_SIDE } from './units.ts';
 
 /**
@@ -101,6 +101,10 @@ export function image(asset: string, box: { x: number; y: number; w: number; h: 
   return { id: newId('e_'), type: 'image', asset, ...box, rotation: 0, opacity: 1, radius: 0 };
 }
 
+export function pathElement(paths: PathElement['paths'], viewBox: PathElement['viewBox'], box: { x: number; y: number; w: number; h: number }): PathElement {
+  return { id: newId('e_'), type: 'path', ...box, rotation: 0, opacity: 1, viewBox, paths };
+}
+
 export function video(asset: string, box: { x: number; y: number; w: number; h: number }): VideoElement {
   return { id: newId('e_'), type: 'video', asset, ...box, rotation: 0, opacity: 1, radius: 0 };
 }
@@ -111,7 +115,7 @@ export function addElements(doc: Doc, pageId: string, elements: Element[]): Doc 
   return mapPage(doc, pageId, (p) => ({ ...p, elements: [...p.elements, ...elements] }));
 }
 
-export type ElementPatch = Partial<Omit<ShapeElement, 'id' | 'type'>> | Partial<Omit<TextElement, 'id' | 'type'>> | Partial<Omit<ImageElement, 'id' | 'type'>> | Partial<Omit<VideoElement, 'id' | 'type'>>;
+export type ElementPatch = Partial<Omit<ShapeElement, 'id' | 'type'>> | Partial<Omit<TextElement, 'id' | 'type'>> | Partial<Omit<ImageElement, 'id' | 'type'>> | Partial<Omit<VideoElement, 'id' | 'type'>> | Partial<Omit<PathElement, 'id' | 'type'>>;
 
 /** Patch several elements; `patch` may be a function of the old element. */
 export function updateElements(doc: Doc, ids: string[], patch: ElementPatch | ((e: Element) => ElementPatch)): Doc {

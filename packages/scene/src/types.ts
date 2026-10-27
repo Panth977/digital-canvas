@@ -148,7 +148,24 @@ export interface VideoElement extends ElementBase {
   volume?: number;
 }
 
-export type Element = ShapeElement | TextElement | ImageElement | VideoElement;
+/** One vector path of a PathElement, in viewBox units (SVG path syntax). */
+export interface PathPart {
+  d: string;
+  fill: Fill | null;
+  stroke: Stroke | null;
+}
+
+/**
+ * A vector graphic: SVG paths scaled from `viewBox` to the element's box (like an SVG with
+ * preserveAspectRatio="none"). Imported Canva shapes and graphics, freehand drawings, icons.
+ */
+export interface PathElement extends ElementBase {
+  type: 'path';
+  viewBox: { x: number; y: number; w: number; h: number };
+  paths: PathPart[];
+}
+
+export type Element = ShapeElement | TextElement | ImageElement | VideoElement | PathElement;
 export type ElementType = Element['type'];
 
 export interface Page {
