@@ -29,7 +29,7 @@
   {@const c = toast.confirm}
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
   <div class="scrim" onclick={() => c.resolve(false)}>
-    <div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" data-testid="confirm" onclick={(e) => e.stopPropagation()}>
+    <div class="dialog" role="alertdialog" tabindex="-1" aria-modal="true" aria-labelledby="confirm-title" data-testid="confirm" onclick={(e) => e.stopPropagation()}>
       <h3 id="confirm-title">{c.title}</h3>
       {#if c.body}<p>{c.body}</p>{/if}
       <div class="btns">

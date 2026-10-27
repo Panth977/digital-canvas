@@ -5,9 +5,8 @@
   import { textShortcut } from '../lib/shortcuts.ts';
   import { engine } from '../lib/engine.ts';
   import { router } from '../lib/router.svelte.ts';
-  import { download, isImage } from '../lib/files.ts';
+  import { isImage } from '../lib/files.ts';
   import Icon from '../lib/Icon.svelte';
-  import { exportPdf } from '@digital-canvas/render';
   import Canvas from './Canvas.svelte';
   import SidePanel from './SidePanel.svelte';
   import ContextToolbar from './ContextToolbar.svelte';
@@ -18,7 +17,9 @@
   import ResizeDialog from './ResizeDialog.svelte';
   import { view } from '../lib/view.svelte.ts';
   import { isVideo } from '@digital-canvas/scene';
-  import { exportMp4 } from '../lib/mp4.ts';
+  import DownloadMenu from './DownloadMenu.svelte';
+  import VersionHistory from './VersionHistory.svelte';
+  import ShortcutsDialog from './ShortcutsDialog.svelte';
 
   let { id, store }: { id: string; store: ProjectStore } = $props();
 
@@ -30,7 +31,8 @@
   let showDownload = $state(false);
   let showResize = $state(false);
   let showFile = $state(false);
-  let dl = $state({ format: 'png' as 'png' | 'jpeg' | 'pdf' | 'pdfv' | 'svg' | 'mp4', dpi: 300, scale: 1, transparent: false, pages: 'current' as 'current' | 'all' });
+  let showVersions = $state(false);
+  let showShortcuts = $state(false);
 
   onMount(() => {
     ui.reset();
@@ -78,6 +80,7 @@
     else if (mod && k === 'a') { stop(); ed.selectAll(); }
     else if (mod && k === 'g') { stop(); e.shiftKey ? ed.ungroup() : ed.group(); }
     else if (!mod && e.shiftKey && !e.altKey && k === 'r') { stop(); view.toggle('rulers'); }
+    else if (!mod && e.key === '?') { stop(); showShortcuts = true; }
     else if (mod && k === 's') { stop(); void ed.save(); }
     else if (mod && (k === '=' || k === '+')) { stop(); canvas?.setZoom(zoom * 1.25); }
     else if (mod && k === '-') { stop(); canvas?.setZoom(zoom / 1.25); }
@@ -132,69 +135,20 @@
     } else ed.paste();
   }
 
-  let busy = $state(false);
-  let progress = $state(0);
-
-  async function doDownload(): Promise<void> {
-    if (!ed) return;
-    const pages = dl.pages === 'all' ? ed.doc.pages : [ed.page];
-    if (dl.format === 'mp4') {
-      busy = true;
-      progress = 0;
-      try {
-        ed.player.pause();
-        const bytes = await exportMp4(ed, { onProgress: (f) => (progress = f) });
-        download(bytes, `${ed.doc.title}.mp4`, 'video/mp4');
-      } catch (e) {
-        alert(`Couldn't make the video: ${e instanceof Error ? e.message : e}`);
-      } finally {
-        busy = false;
-      }
-      showDownload = false;
-      return;
-    }
-    if (dl.format === 'pdfv') {
-      busy = true;
-      try {
-        const bytes = await ed.exportVectorPdf(pages.map((p) => p.id));
-        download(bytes, `${ed.doc.title}.pdf`, 'application/pdf');
-      } catch (e) {
-        alert(`Couldn't make the PDF: ${e instanceof Error ? e.message : e}`);
-      } finally {
-        busy = false;
-      }
-      showDownload = false;
-      return;
-    }
-    if (dl.format === 'svg') {
-      pages.forEach((p) => {
-        const i = ed!.doc.pages.indexOf(p);
-        const name = ed!.doc.pages.length > 1 ? `${ed!.doc.title} - page ${i + 1}.svg` : `${ed!.doc.title}.svg`;
-        download(new Blob([ed!.exportSvg(p.id)], { type: 'image/svg+xml' }), name);
-      });
-      showDownload = false;
-      return;
-    }
-    if (dl.format === 'pdf') {
-      busy = true;
-      try {
-        const bytes = await exportPdf(ed.renderer, ed.doc, { dpi: dl.dpi, pages: pages.map((p) => p.id) });
-        download(bytes, `${ed.doc.title}.pdf`, 'application/pdf');
-      } finally {
-        busy = false;
-      }
-      showDownload = false;
-      return;
-    }
-    const format = dl.format;
-    const ext = format === 'png' ? 'png' : 'jpg';
-    pages.forEach((p) => {
-      const i = ed!.doc.pages.indexOf(p);
-      const bytes = ed!.exportPage(p.id, format, dl.scale, dl.transparent);
-      const name = ed!.doc.pages.length > 1 ? `${ed!.doc.title} - page ${i + 1}.${ext}` : `${ed!.doc.title}.${ext}`;
-      download(bytes, name, format === 'png' ? 'image/png' : 'image/jpeg');
-    });
-    showDownload = false;
+  // ---- title: Canva renames in place; Enter or click away keeps it, Esc puts it back ----
+  let titleEl = $state<HTMLInputElement>();
+  function commitTitle(): void {
+    const el = titleEl;
+    if (!el || !ed) return;
+    const v = el.value.trim();
+    if (v && v !== ed.doc.title) ed.rename(v);
+    el.value = ed.doc.title;
+    el.scrollLeft = 0;
+  }
+  function titleKey(e: KeyboardEvent): void {
+    const el = e.currentTarget as HTMLInputElement;
+    if (e.key === 'Enter') el.blur();
+    else if (e.key === 'Escape') { e.stopPropagation(); el.value = ed!.doc.title; el.blur(); }
   }
 
   const SAVE_TEXT = { saved: 'Saved', saving: 'Saving…', unsaved: 'Unsaved changes', error: 'Save failed' } as const;
@@ -213,67 +167,37 @@
   <div class="center"><div class="spinner"></div><p>Loading editor…</p></div>
 {:else}
   <div class="editor">
-    <header class="top">
+    <header class="top" data-tips>
       <div class="left">
         <button class="hb icon" title="Home" aria-label="Home" onclick={() => router.go({ name: 'home' })} data-testid="home"><Icon name="home" size={22} /></button>
         <div class="dl-wrap">
-          <button class="hb" class:open={showFile} onclick={(e) => { e.stopPropagation(); showResize = false; showDownload = false; showFile = !showFile; }} data-testid="file-menu">File</button>
-          {#if showFile}<FileMenu {ed} bleed={ed.doc.bleed} onclose={() => (showFile = false)} ondownload={() => { showFile = false; showDownload = true; }} />{/if}
+          <button class="hb" class:open={showFile} aria-haspopup="menu" aria-expanded={showFile} onclick={(e) => { e.stopPropagation(); showResize = false; showDownload = false; showFile = !showFile; }} data-testid="file-menu">File</button>
+          {#if showFile}<FileMenu {ed} bleed={ed.doc.bleed} onclose={() => (showFile = false)} ondownload={() => { showFile = false; showDownload = true; }}
+            onversions={() => (showVersions = true)} onshortcuts={() => (showShortcuts = true)} />{/if}
         </div>
         <div class="dl-wrap">
-          <button class="hb" class:open={showResize} onclick={(e) => { e.stopPropagation(); showFile = false; showResize = !showResize; }} data-testid="resize">Resize</button>
+          <button class="hb" class:open={showResize} aria-haspopup="dialog" aria-expanded={showResize} onclick={(e) => { e.stopPropagation(); showFile = false; showDownload = false; showResize = !showResize; }} data-testid="resize">Resize</button>
           {#if showResize}<ResizeDialog ed={ed} onclose={() => (showResize = false)} />{/if}
         </div>
         <span class="sep"></span>
         <button class="hb icon" title="Undo (⌘Z)" aria-label="Undo" disabled={!ed.canUndo} onclick={() => ed!.undo()} data-testid="undo"><Icon name="undo" size={20} /></button>
         <button class="hb icon" title="Redo (⇧⌘Z)" aria-label="Redo" disabled={!ed.canRedo} onclick={() => ed!.redo()} data-testid="redo"><Icon name="redo" size={20} /></button>
-        <span class="save hb icon" class:err={ed.saveState === 'error'} class:busy={ed.saveState !== 'saved' && ed.saveState !== 'error'} title="{ed.saveError || SAVE_TIP[ed.saveState]} · {store.label}" data-testid="save-state">
-          <Icon name={ed.saveState === 'error' ? 'alert' : ed.saveState === 'saved' ? 'cloudok' : 'cloud'} size={22} />
+        <span class="save hb icon" class:err={ed.saveState === 'error'} data-state={ed.saveState} title={ed.saveError ? `Save failed: ${ed.saveError}` : SAVE_TIP[ed.saveState]} data-testid="save-state">
+          {#if ed.saveState === 'saving'}<span class="ring" aria-hidden="true"></span>{:else}<Icon name={ed.saveState === 'error' ? 'alert' : ed.saveState === 'saved' ? 'cloudok' : 'cloud'} size={22} />{/if}
           <span class="sr-only">{SAVE_TEXT[ed.saveState]} · {store.label}</span>
         </span>
       </div>
       <div class="right">
-        <input class="title" value={ed.doc.title} aria-label="Design title" data-testid="title" size={Math.max(8, Math.min(40, ed.doc.title.length + 1))}
-          onchange={(e) => ed!.rename((e.currentTarget as HTMLInputElement).value)}
-          onkeydown={(e) => e.key === 'Enter' && (e.currentTarget as HTMLInputElement).blur()} />
+        <input class="title" bind:this={titleEl} value={ed.doc.title} aria-label="Design title" data-testid="title" title="Rename" spellcheck="false" maxlength="255"
+          onfocus={(e) => (e.currentTarget as HTMLInputElement).select()} onblur={commitTitle} onkeydown={titleKey} />
         <div class="dl-wrap">
-          <button class="share" onclick={(e) => { e.stopPropagation(); showFile = false; showDownload = !showDownload; }} data-testid="download"><Icon name="download" size={18} /> Download</button>
-          {#if showDownload}
-            <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-            <div class="dl" onclick={(e) => e.stopPropagation()}>
-              <h4>Download</h4>
-              <label class="field">File type
-                <select class="input" bind:value={dl.format} data-testid="dl-format" onchange={() => { if (dl.format === 'pdf' || dl.format === 'pdfv') dl.pages = 'all'; }}><option value="png">PNG</option><option value="jpeg">JPG</option><option value="pdfv">PDF (vector)</option><option value="pdf">PDF (print, flattened)</option><option value="svg">SVG</option>{#if isVideo(ed.doc)}<option value="mp4">MP4 video</option>{/if}</select>
-              </label>
-              {#if dl.format === 'mp4'}
-                <span class="dims">{Math.round(ed.doc.width)} × {Math.round(ed.doc.height)} px · 30 fps · all pages</span>
-              {:else if dl.format === 'pdfv'}
-                <span class="dims">Text stays text, shapes stay sharp; fonts are embedded.</span>
-              {:else if dl.format === 'svg'}
-                <span class="dims">One SVG file per page, fonts and images inside.</span>
-              {:else if dl.format === 'pdf'}
-                <label class="field">Quality
-                  <select class="input" bind:value={dl.dpi}><option value={150}>Standard (150 dpi)</option><option value={300}>Print (300 dpi)</option></select>
-                </label>
-              {:else}
-                <label class="field">Size × {dl.scale}
-                  <input type="range" min="0.5" max="4" step="0.5" bind:value={dl.scale} />
-                </label>
-                <span class="dims">{Math.round(ed.doc.width * dl.scale)} × {Math.round(ed.doc.height * dl.scale)} px</span>
-              {/if}
-              {#if dl.format === 'png'}
-                <label class="check"><input type="checkbox" bind:checked={dl.transparent} /> Transparent background</label>
-              {/if}
-              <label class="field">Pages
-                <select class="input" bind:value={dl.pages} disabled={dl.format === 'mp4'}><option value="current">Current page ({ed.pageIndex + 1})</option><option value="all">All pages ({ed.doc.pages.length})</option></select>
-              </label>
-              <button class="btn primary" onclick={doDownload} disabled={busy} data-testid="do-download">{busy ? (dl.format === 'mp4' ? `Rendering… ${Math.round(progress * 100)}%` : 'Preparing…') : 'Download'}</button>
-              {#if dl.format === 'pdf'}<p class="note">Each page is one image at the chosen quality: looks exactly like the editor.</p>{/if}
-            </div>
-          {/if}
+          <button class="share" class:open={showDownload} aria-haspopup="dialog" aria-expanded={showDownload} onclick={(e) => { e.stopPropagation(); showFile = false; showResize = false; showDownload = !showDownload; }} data-testid="download"><Icon name="download" size={18} /> Download</button>
+          {#if showDownload}<DownloadMenu {ed} onclose={() => (showDownload = false)} />{/if}
         </div>
       </div>
     </header>
+    {#if showVersions}<VersionHistory {ed} onclose={() => (showVersions = false)} />{/if}
+    {#if showShortcuts}<ShortcutsDialog onclose={() => (showShortcuts = false)} />{/if}
 
     <div class="body">
       <SidePanel {ed} />
@@ -300,20 +224,15 @@
   .hb:disabled { opacity: .45; cursor: default; }
   .sep { width: 1px; height: 24px; background: rgba(255,255,255,.35); margin: 0 6px; }
   .save { cursor: default; }
-  .save.busy { opacity: .7; }
+  .save[data-state='unsaved'] { opacity: .75; }
   .save.err { color: #ffd2d2; }
-  .title { height: 40px; max-width: 360px; border-radius: 12px; border: 1px solid transparent; background: transparent; color: #fff; font-weight: 600; font-size: 14px; padding: 0 12px; text-align: right; }
-  .title:hover { border-color: rgba(255,255,255,.4); }
-  .title:focus { background: rgba(0,0,0,.18); outline: none; border-color: rgba(255,255,255,.7); text-align: left; }
+  .ring { width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgba(255,255,255,.35); border-top-color: #fff; animation: spin .8s linear infinite; }
+  .title { height: 40px; width: 360px; max-width: 32vw; min-width: 80px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: #fff; font-weight: 600; font-size: 14px; padding: 0 10px; text-align: right; text-overflow: ellipsis; white-space: nowrap; overflow: hidden; }
+  .title:hover { border-color: rgba(255,255,255,.5); }
+  .title:focus { background: rgba(0,0,0,.18); outline: none; border-color: #fff; text-align: left; text-overflow: clip; }
   .dl-wrap { position: relative; }
   .share { height: 40px; padding: 0 16px; display: inline-flex; align-items: center; gap: 8px; border: 0; border-radius: 12px; background: rgba(255,255,255,.9); color: #0d1216; font-size: 14px; font-weight: 600; margin-left: 8px; }
-  .share:hover { background: #fff; }
-  .dl { position: absolute; right: 0; top: 48px; width: 320px; background: var(--pop); color: var(--ink); border-radius: 12px; box-shadow: var(--shadow); padding: 16px; display: flex; flex-direction: column; gap: 12px; z-index: 50; border: 1px solid var(--line); }
-  .dl h4 { margin: 0; font-size: 16px; }
-  .dl .btn.primary { height: 40px; }
-  .dims { font-size: 12px; color: var(--muted); margin-top: -6px; }
-  .check { display: flex; gap: 8px; align-items: center; font-size: 13px; }
-  .note { font-size: 12px; color: var(--muted); margin: 0; }
+  .share:hover, .share.open { background: #fff; }
   .body { flex: 1; display: flex; min-height: 0; }
   .work { position: relative; flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--stage); border-top-left-radius: 16px; overflow: hidden; }
   .ctxrow { position: relative; z-index: 30; height: 64px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }

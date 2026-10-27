@@ -117,6 +117,7 @@ test('distribute and tidy up from the position panel', async ({ page }) => {
 test('rulers: drag out a guide, elements snap to it, drag it off to delete', async ({ page }) => {
   await newDesign(page);
   await page.getByTestId('file-menu').click();
+  await page.getByTestId('file-settings').click();
   await page.getByTestId('view-rulers').check();
   await page.getByTestId('file-menu').click(); // close the menu
   const top = (await page.getByTestId('ruler-top').boundingBox())!;
@@ -154,6 +155,7 @@ test('rulers: drag out a guide, elements snap to it, drag it off to delete', asy
 test('print bleed and margins can be shown', async ({ page }) => {
   await newDesign(page, 'business-card');
   await page.getByTestId('file-menu').click();
+  await page.getByTestId('file-settings').click();
   await page.getByTestId('view-bleed').check();
   await page.getByTestId('view-margins').check();
   await expect(page.getByTestId('trim-line')).toHaveCount(1);

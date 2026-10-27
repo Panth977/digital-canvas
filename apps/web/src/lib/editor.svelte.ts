@@ -10,6 +10,7 @@ import {
   tableSetCell, type Attach, type Brush, type ChartKind, type LineElement, type LineMarker, type LineRoute, type Stroke, type TableElement,
 } from '@digital-canvas/scene';
 import { assetId, type ProjectFile, type ProjectStore } from '@digital-canvas/storage';
+import { toast } from './toast.svelte.ts';
 import type { Engine } from './engine.ts';
 import { isImage } from './files.ts';
 import { removeBackground, type BackgroundRemover } from './bgremove.ts';
@@ -620,6 +621,13 @@ export class EditorState {
     return out;
   }
 
+  /** Canva's "Resize" (not "Copy & resize"): this design takes the new size, as one undoable change. */
+  resizeInPlace(t: ResizeTarget): void {
+    const d = resizeDoc(this.doc, t);
+    this.commit({ ...d, id: this.doc.id, title: this.doc.title, createdAt: this.doc.createdAt });
+    this.seal();
+  }
+
   startEditing(id: string): void {
     const hit = findElement(this.doc, id);
     if (hit?.element.type !== 'text' || hit.element.locked) return;
@@ -663,6 +671,8 @@ export class EditorState {
     this.commit(removePage(this.doc, pageId));
     this.seal();
     this.select([], this.doc.pages[Math.max(0, i - 1)]!.id);
+    // Canva: "Page deleted · Undo"
+    toast.show(`Page ${i + 1} deleted`, { action: { label: 'Undo', run: () => this.undo() } });
   }
 
   movePage(pageId: string, delta: number): void {
@@ -673,6 +683,27 @@ export class EditorState {
 
   updatePage(patch: Partial<Omit<Page, 'id' | 'elements'>>, key: string | null = null, pageId = this.pageId): void {
     this.commit(updatePage(this.doc, pageId, patch), key);
+  }
+
+  /**
+   * Bring back an earlier save (version history): its pages, assets and fonts
+   * replace the current ones as one undoable change. Id and title stay.
+   */
+  loadVersion(file: ProjectFile): void {
+    for (const [id, bytes] of file.assets) {
+      if (this.assets.has(id)) continue;
+      this.assets.set(id, bytes);
+      if (file.doc.assets[id]?.mime.startsWith('image/')) this.renderer.setImage(id, bytes);
+    }
+    for (const f of file.doc.fonts ?? []) {
+      const bytes = this.assets.get(f.asset);
+      if (bytes) this.registerFont(f, bytes);
+    }
+    this.selection = [];
+    this.editingTextId = null;
+    this.commit({ ...file.doc, id: this.doc.id, title: this.doc.title });
+    this.seal();
+    this.pageId = this.doc.pages[0]!.id;
   }
 
   rename(title: string): void {

@@ -1,6 +1,6 @@
 import { EXTENSION, MIME, fileName, pack, unpack, type ProjectFile } from './file.ts';
 import { brandJson, parseBrand, type BrandData } from './brand.ts';
-import { byRecent, type ProjectMeta, type ProjectStore } from './store.ts';
+import { byRecent, type ProjectMeta, type ProjectStore, type Version } from './store.ts';
 
 /** Returns a valid Drive access token (the caller caches and refreshes). */
 export type TokenSource = (forceRefresh?: boolean) => Promise<string>;
@@ -92,6 +92,7 @@ export class DriveStore implements ProjectStore {
   private assetsFolderId: string | null = null;
   private assetIds: Promise<Map<string, string>> | null = null; // asset id → Drive file id
   private hidden = new Set<string>(); // assets removed from Uploads
+  private binned = new Map<string, string>(); // doc id → Drive file id, after remove()
 
   constructor(private token: TokenSource, private folderName = 'Digital Canvas', private cache?: AssetCache) {}
 
@@ -300,6 +301,28 @@ export class DriveStore implements ProjectStore {
     const res = await this.call(`${API}/files/${fileId}?alt=media`);
     const file = unpack(new Uint8Array(await res.arrayBuffer()));
     this.ids.set(file.doc.id, fileId);
+    return this.withAssets(file);
+  }
+
+  /** Drive keeps earlier saves of a file as revisions (about 30 days or 100 of them). */
+  async versions(id: string): Promise<Version[]> {
+    const fileId = await this.fileIdOf(id);
+    if (!fileId) return [];
+    const r = await this.json<{ revisions?: { id: string; modifiedTime: string; size?: string }[] }>(
+      `${API}/files/${fileId}/revisions?${new URLSearchParams({ fields: 'revisions(id,modifiedTime,size)', pageSize: '200' })}`);
+    return (r.revisions ?? []).map((v) => ({ id: v.id, modifiedTime: v.modifiedTime, size: v.size ? Number(v.size) : undefined }))
+      .sort((a, b) => b.modifiedTime.localeCompare(a.modifiedTime));
+  }
+
+  async openVersion(id: string, versionId: string): Promise<ProjectFile> {
+    const fileId = await this.fileIdOf(id);
+    if (!fileId) throw new Error('This design is not in your Drive any more.');
+    const res = await this.call(`${API}/files/${fileId}/revisions/${encodeURIComponent(versionId)}?alt=media`);
+    return this.withAssets(unpack(new Uint8Array(await res.arrayBuffer())));
+  }
+
+  /** Fetch the linked assets a file doesn't carry. */
+  private async withAssets(file: ProjectFile): Promise<ProjectFile> {
     // Linked assets: fetch what the file doesn't carry (a few at a time).
     const missing = Object.keys(file.doc.assets).filter((a) => !file.assets.has(a) && isSharedAssetId(a));
     const queue = [...missing];
@@ -344,6 +367,16 @@ export class DriveStore implements ProjectStore {
     if (!fileId) return;
     await this.call(`${API}/files/${fileId}?fields=id`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ trashed: true }) });
     this.ids.delete(id);
+    this.binned.set(id, fileId);
+  }
+
+  /** Undo `remove`: take the file out of Drive's bin. */
+  async restore(id: string): Promise<void> {
+    const fileId = this.binned.get(id);
+    if (!fileId) throw new Error('This design is no longer in the bin.');
+    await this.call(`${API}/files/${fileId}?fields=id`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ trashed: false }) });
+    this.binned.delete(id);
+    this.ids.set(id, fileId);
   }
 
   // ---- brand kit: `Digital Canvas/brand.json`, logos in `assets/` ----
