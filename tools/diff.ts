@@ -34,7 +34,9 @@ for (const f of doc.fonts ?? []) {
   if (bytes) fonts.add(f.family, bytes);
 }
 // Images are decoded per page (a big design's pictures don't all fit in WASM memory at once).
-const pageImages = (n: number) => doc.pages[n - 1]!.elements.flatMap((e) => (e.type === 'image' ? [e.asset] : e.type === 'video' ? [`${e.asset}.poster`] : []));
+type El = (typeof doc.pages)[number]['elements'][number];
+const imagesIn = (els: El[]): string[] => els.flatMap((e) => (e.type === 'image' ? [e.asset] : e.type === 'video' ? [`${e.asset}.poster`] : e.type === 'group' ? imagesIn(e.children) : []));
+const pageImages = (n: number) => imagesIn(doc.pages[n - 1]!.elements);
 
 const rgba = (img: Image) => img.readPixels(0, 0, { width: img.width(), height: img.height(), colorType: ck.ColorType.RGBA_8888, alphaType: ck.AlphaType.Unpremul, colorSpace: ck.ColorSpace.SRGB }) as Uint8Array;
 const wanted = pagesArg ? pagesArg.split(',').map(Number) : doc.pages.map((_, i) => i + 1);

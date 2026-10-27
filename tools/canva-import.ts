@@ -399,8 +399,13 @@ function convert(el: CanvaEl): Element[] {
   const myOrder = el.type === 'group' ? -1 : leafOrder++;
   const base = { id: newId('e_'), x: el.left, y: el.top, w: el.width, h: el.height, rotation: el.rotation ?? 0, opacity: el.opacity ?? 1 };
   if (el.type === 'group') {
-    gap('groups flattened (no group element yet)');
-    return (el.children ?? []).flatMap(convert);
+    const children = (el.children ?? []).flatMap(convert);
+    if (!exactDir || children.length < 2) {
+      gap('groups flattened');
+      return children;
+    }
+    // Canva groups stay groups (children keep page coordinates, like ours).
+    return [{ ...base, type: 'group', children }];
   }
   if (exactDir && el.type === 'rect' && el.fill?.media) {
     const m = el.fill.media;

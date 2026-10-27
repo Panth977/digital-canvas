@@ -39,7 +39,8 @@ doc.pages.forEach((page, pi) => {
   const ref = refImg.readPixels(0, 0, info(W0, H0)) as Uint8Array;
   refImg.delete();
   const shifts: number[] = [];
-  page.elements = page.elements.map((el) => {
+  const fix = (el: (typeof page.elements)[number]): (typeof page.elements)[number] => {
+    if (el.type === 'group') return { ...el, children: el.children.map(fix) };
     if (el.type !== 'text') return el;
     const t = el as TextElement;
     const pad = t.style.fontSize * maxEm;
@@ -93,7 +94,8 @@ doc.pages.forEach((page, pi) => {
     if (best.sc < 0.3 || best.sc < sc0 + 0.02) return el;
     shifts.push(Math.hypot(best.dx, best.dy) / s);
     return { ...t, x: t.x + best.dx / s, y: t.y + best.dy / s };
-  });
+  };
+  page.elements = page.elements.map(fix);
   shifts.sort((a, b) => a - b);
   console.log(`page ${pi + 1}: moved ${shifts.length} text boxes, median shift ${(shifts[shifts.length >> 1] ?? 0).toFixed(1)} px`);
 });
