@@ -64,6 +64,12 @@
     unlink: 'M10 14a4 4 0 005.7 0M14 10a4 4 0 00-5.7 0M4 4l16 16',
     ruler: 'M3 17L17 3l4 4L7 21zM7 13l2 2M10 10l2 2M13 7l2 2',
     resize: 'M4 14v6h6M20 10V4h-6M4 20l7-7M20 4l-7 7',
+    pen: 'M4 20l4-1L19 8l-3-3L5 16l-1 4zM14 7l3 3',
+    line: 'M4 20L20 4',
+    table: 'M3 5h18v14H3zM3 10h18M3 15h18M9 5v14M15 5v14',
+    chart: 'M4 20V11M10 20V5M16 20v-7M2 20h20',
+    qr: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 18h2v2h-2zM14 18h2M18 14h2',
+    frame: 'M12 3a9 9 0 110 18 9 9 0 010-18zM7 16l3-4 2 2 2-3 3 5',
   } as const;
   export type IconName = keyof typeof ICONS;
 </script>

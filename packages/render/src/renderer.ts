@@ -1,7 +1,8 @@
 import type { Canvas, CanvasKit, Image, Paint, Path } from 'canvaskit-wasm';
 import { childrenOf, type Doc, type Element, type Fill, type ImageElement, type Page, type PathElement, type ShapeElement, type ShapeKind, type TextElement, type VideoElement } from '@digital-canvas/scene';
+import { aabb, dashArray, decompose, type Decomposed, type Prim, type PrimText } from '@digital-canvas/scene';
 import { color, FontLibrary } from './fonts.ts';
-import { listIndent, TextLayouts } from './text.ts';
+import { listIndent, TextLayouts, type TextPiece } from './text.ts';
 
 export { color, FontLibrary };
 
@@ -243,6 +244,7 @@ export class Renderer {
     if (el.type === 'shape') this.drawShape(canvas, el);
     else if (el.type === 'path') this.drawPath(canvas, el);
     else if (el.type === 'text') this.drawText(canvas, el);
+    else if (el.type === 'line' || el.type === 'table' || el.type === 'chart') this.drawPieces(canvas, this.vectorize(el));
     else if (el.type === 'image' || el.type === 'video') this.drawImage(canvas, el);
     if (layered) canvas.restore();
     canvas.restore();
@@ -293,6 +295,7 @@ export class Renderer {
         this.svgPaths.set(part.d, path);
       }
       if (!path) continue;
+      path.setFillType(part.evenOdd ? ck.FillType.EvenOdd : ck.FillType.Winding);
       if (part.fill) {
         // gradients are laid out in viewBox units
         this.setFill(part.fill, vb.x, vb.y, vb.w, vb.h);
@@ -339,7 +342,26 @@ export class Renderer {
     // a video shows its current frame, else its poster (stored as an image under `<asset>.poster`)
     const img = el.type === 'video' ? this.frames.get(el.asset) ?? this.images.get(`${el.asset}.poster`) : this.images.get(el.asset);
     const dst = ck.XYWHRect(el.x, el.y, el.w, el.h);
-    if (el.radius > 0) canvas.clipRRect(ck.RRectXY(dst, el.radius, el.radius), ck.ClipOp.Intersect, true);
+    const mask = el.type === 'image' ? this.maskPath(el) : null;
+    if (mask) {
+      canvas.clipPath(mask, ck.ClipOp.Intersect, true);
+      mask.delete();
+    } else if (el.radius > 0) canvas.clipRRect(ck.RRectXY(dst, el.radius, el.radius), ck.ClipOp.Intersect, true);
+    if (el.type === 'image' && el.mask && !img) {
+      // an empty frame: grey, with a little picture sign in the middle
+      this.paint.setStyle(ck.PaintStyle.Fill);
+      this.paint.setColor(ck.Color4f(0.83, 0.85, 0.88, 1));
+      canvas.drawRect(dst, this.paint);
+      const s = Math.min(el.w, el.h) * 0.16, cx = el.x + el.w / 2, cy = el.y + el.h / 2;
+      const b = new ck.PathBuilder();
+      b.addPolygon([cx - s, cy + s * 0.6, cx - s * 0.3, cy - s * 0.3, cx + s * 0.15, cy + s * 0.25, cx + s * 0.45, cy - s * 0.05, cx + s, cy + s * 0.6], true);
+      b.addCircle(cx + s * 0.45, cy - s * 0.5, s * 0.18);
+      const path = b.detachAndDelete();
+      this.paint.setColor(ck.Color4f(1, 1, 1, 0.9));
+      canvas.drawPath(path, this.paint);
+      path.delete();
+      return;
+    }
     if (!img) {
       // Not loaded yet (or missing): a neutral placeholder.
       this.paint.setStyle(ck.PaintStyle.Fill);
@@ -369,6 +391,103 @@ export class Renderer {
     }
     this.paint.setColor(ck.BLACK);
     canvas.drawImageRectOptions(img, src, dst, ck.FilterMode.Linear, ck.MipmapMode.Linear, this.paint);
+  }
+
+  /** A frame's outline in page coordinates (null when the image has no mask). The caller deletes it. */
+  maskPath(el: ImageElement): Path | null {
+    const ck = this.ck, m = el.mask;
+    if (!m) return null;
+    if (typeof m === 'string') return shapePath(ck, m, el.x, el.y, el.w, el.h, el.radius);
+    const path = ck.Path.MakeFromSVGString(m.d);
+    if (!path || m.viewBox.w <= 0 || m.viewBox.h <= 0) {
+      path?.delete();
+      return shapePath(ck, 'rect', el.x, el.y, el.w, el.h);
+    }
+    const sx = el.w / m.viewBox.w, sy = el.h / m.viewBox.h;
+    return transformPath(ck, path, [sx, 0, el.x - m.viewBox.x * sx, 0, sy, el.y - m.viewBox.y * sy, 0, 0, 1]);
+  }
+
+  // ---- lines, tables, charts: drawn from vector pieces ----
+
+  /** The pieces of a line, table or chart, with text boxes moved to their vertical alignment. */
+  vectorize(el: Parameters<typeof decompose>[0]): Decomposed {
+    const d = decompose(el);
+    return { paths: d.paths, texts: d.texts.map((t) => ({ ...t, el: this.placeText(t) })) };
+  }
+
+  private placeText(t: PrimText): TextElement {
+    if (t.valign === 'top') return t.el;
+    const h = this.textHeight(t.el);
+    return { ...t.el, y: t.el.y + (t.valign === 'middle' ? (t.el.h - h) / 2 : t.el.h - h), h };
+  }
+
+  private drawPieces(canvas: Canvas, d: Decomposed): void {
+    for (const p of d.paths) this.drawPrim(canvas, p);
+    for (const t of d.texts) this.drawText(canvas, t.el);
+  }
+
+  private drawPrim(canvas: Canvas, prim: Prim): void {
+    const ck = this.ck, paint = this.paint;
+    const path = ck.Path.MakeFromSVGString(prim.d);
+    if (!path) return;
+    if (prim.fill) {
+      const b = path.computeTightBounds();
+      this.setFill(prim.fill, b[0]!, b[1]!, b[2]! - b[0]!, b[3]! - b[1]!);
+      canvas.drawPath(path, paint);
+      paint.setShader(null);
+    }
+    if (prim.stroke && prim.stroke.width > 0) {
+      const cap = prim.cap ?? 'butt';
+      paint.setStyle(ck.PaintStyle.Stroke);
+      paint.setStrokeWidth(prim.stroke.width);
+      paint.setStrokeCap(cap === 'round' ? ck.StrokeCap.Round : cap === 'square' ? ck.StrokeCap.Square : ck.StrokeCap.Butt);
+      paint.setStrokeJoin(ck.StrokeJoin.Round);
+      paint.setColor(color(ck, prim.stroke.color));
+      const dash = dashArray(prim.stroke, cap);
+      const effect = dash ? ck.PathEffect.MakeDash(dash) : null;
+      paint.setPathEffect(effect);
+      canvas.drawPath(path, paint);
+      paint.setPathEffect(null);
+      effect?.delete();
+    }
+    path.delete();
+  }
+
+  /**
+   * One element alone as a PNG, for exports that can't express it as vectors
+   * (text effects, curved text). Returns the image and where it goes on the page.
+   */
+  rasterElement(el: Element, scale = 3): { png: Uint8Array; x: number; y: number; w: number; h: number } | null {
+    const ck = this.ck;
+    const b = aabb(el);
+    const pad = el.type === 'text' ? el.style.fontSize * 0.8 : 4 + ('stroke' in el && el.stroke ? el.stroke.width * 4 : 0);
+    const x = Math.floor(b.x - pad), y = Math.floor(b.y - pad), w = Math.ceil(b.w + 2 * pad), h = Math.ceil(b.h + 2 * pad);
+    const surface = ck.MakeSurface(Math.max(1, Math.round(w * scale)), Math.max(1, Math.round(h * scale)));
+    if (!surface) return null;
+    try {
+      const canvas = surface.getCanvas();
+      canvas.clear(ck.TRANSPARENT);
+      canvas.scale(scale, scale);
+      canvas.translate(-x, -y);
+      this.drawElement(canvas, el);
+      surface.flush();
+      const img = surface.makeImageSnapshot();
+      const png = img.encodeToBytes(ck.ImageFormat.PNG, 100);
+      img.delete();
+      return png ? { png, x, y, w, h } : null;
+    } finally {
+      surface.delete();
+    }
+  }
+
+  /** The page background alone as a PNG (for gradients in vector PDF). */
+  rasterBackground(doc: Doc, page: Page, scale = 1): Uint8Array {
+    return this.exportPage(doc, { ...page, elements: [] }, { scale, format: 'png' });
+  }
+
+  /** Text as positioned words, for vector export (see `textPieces`). */
+  textPieces(el: TextElement): TextPiece[] {
+    return this.text.pieces(el);
   }
 
   // ---- export ----
@@ -461,4 +580,12 @@ export function shapePath(ck: CanvasKit, kind: ShapeKind, x: number, y: number, 
   const path = b.detach();
   b.delete();
   return path;
+}
+
+/** A copy of `path` transformed by a 3×3 matrix (row-major). Deletes `path`. */
+export function transformPath(ck: CanvasKit, path: Path, m: number[]): Path {
+  const b = new ck.PathBuilder(path);
+  b.transform(m);
+  path.delete();
+  return b.detachAndDelete();
 }

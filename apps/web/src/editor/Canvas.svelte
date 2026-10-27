@@ -2,10 +2,12 @@
   import { onMount } from 'svelte';
   import type { Surface } from 'canvaskit-wasm';
   import {
-    aabb, angleTo, center, corners, findElement, intersects, normalizeRect, resizeBox, rotatePoint, union, updateElements,
+    aabb, angleTo, center, corners, findElement, hitTest, intersects, normalizeRect, resizeBox, rotatePoint, union, updateElements,
     addGuide, childrenOf, hitTestPath, moveGuide, pathTo, removeGuide, safeMargin, snapMove, snapResize, snapTargets,
-    type Element, type GapHint, type Handle, type Point, type Rect, type ShapeKind, type SnapGuide, type SnapTargets,
+    ANCHORS, boxPoint, contains, coverCrop, isFrame, lineEnds, lineRoute, routePoints, tableCellAt, tableCellRect,
+    type Attach, type Element, type GapHint, type Handle, type LineElement, type Point, type Rect, type ShapeKind, type SnapGuide, type SnapTargets,
   } from '@digital-canvas/scene';
+  import { fetchPhoto, attribution, type Photo } from '../lib/stock.ts';
   import type { EditorState } from '../lib/editor.svelte.ts';
   import { TEXT_PRESETS } from '../lib/editor.svelte.ts';
   import Icon from '../lib/Icon.svelte';
@@ -46,6 +48,11 @@
   function localPoint(e: PointerEvent | MouseEvent | DragEvent): Point {
     const r = host.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top };
+  }
+
+  /** Screen points along a line's route (for its outline). */
+  function lineOutline(el: LineElement, i: number): Point[] {
+    return routePoints(lineRoute(el), 16).map((p) => rotatePoint(p, center(el), el.rotation)).map((p) => toScreen(p.x, p.y + pageTop(i)));
   }
 
   /** Screen-space corners of an element on page i. */
@@ -179,13 +186,18 @@
     return union(rects);
   });
 
-  interface HandlePos { h: Handle | 'rot'; x: number; y: number }
+  interface HandlePos { h: Handle | 'rot' | 'start' | 'end'; x: number; y: number }
 
   const handles = $derived.by((): HandlePos[] => {
-    if (ed.editingTextId) return [];
+    if (ed.editingTextId || ed.framePanId) return [];
     if (single) {
       const { el, i } = single;
       if (el.locked) return [];
+      if (el.type === 'line') {
+        // a line has a handle on each end instead of a box
+        const [a, b] = lineEnds(el);
+        return [{ h: 'start', ...toScreen(a.x, a.y + pageTop(i)) }, { h: 'end', ...toScreen(b.x, b.y + pageTop(i)) }];
+      }
       const [tl, tr, br, bl] = screenCorners(el, i) as [Point, Point, Point, Point];
       const mid = (a: Point, b: Point) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
       const all: HandlePos[] = [
@@ -211,7 +223,7 @@
     return [];
   });
 
-  const CURSOR: Record<string, string> = { nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize', n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize', rot: 'grab' };
+  const CURSOR: Record<string, string> = { nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize', n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize', rot: 'grab', start: 'crosshair', end: 'crosshair' };
 
   // ---- pointer interaction ----
   type Drag =
@@ -220,9 +232,14 @@
     | { mode: 'guide'; axis: 'x' | 'y'; pageI: number; index: number | null; key: string }
     | { mode: 'rotate'; pageI: number; orig: Element; key: string }
     | { mode: 'marquee'; start: Point; now: Point; pageI: number; base: string[] }
-    | { mode: 'pan'; start: Point; panX: number; panY: number };
+    | { mode: 'pan'; start: Point; panX: number; panY: number }
+    | { mode: 'lineEnd'; id: string; which: 'start' | 'end'; pageI: number; key: string }
+    | { mode: 'draw'; pageI: number; pts: Point[] }
+    | { mode: 'framePan'; id: string; start: Point; crop: { x: number; y: number; w: number; h: number }; key: string };
 
   let drag = $state.raw<Drag | null>(null);
+  /** While dragging a line's end: the element it would stick to, and the spot. */
+  let snap = $state.raw<{ el: Element; i: number; point: { x: number; y: number } | null } | null>(null);
   let cursor = $state('default');
   let spaceDown = false;
 
@@ -325,12 +342,22 @@
       return;
     }
     if (ed.editingTextId) ed.stopEditing();
+    if (ed.editingCell) ed.stopCellEdit();
     const key = `drag:${Date.now()}`;
+
+    if (ed.tool && e.button === 0) {
+      // freehand drawing: collect points until the pointer comes up
+      const w = toWorld(s.x, s.y);
+      const pageI = pageAt(w);
+      drag = { mode: 'draw', pageI, pts: [toPage(w, pageI)] };
+      return;
+    }
 
     const h = handleAt(s);
     if (h) {
-      if (h.h === 'rot' && single) drag = { mode: 'rotate', pageI: single.i, orig: single.el, key };
-      else if (h.h !== 'rot') {
+      if ((h.h === 'start' || h.h === 'end') && single) drag = { mode: 'lineEnd', id: single.el.id, which: h.h, pageI: single.i, key };
+      else if (h.h === 'rot' && single) drag = { mode: 'rotate', pageI: single.i, orig: single.el, key };
+      else if (h.h !== 'rot' && h.h !== 'start' && h.h !== 'end') {
         const orig = ed.selected;
         const pageI = selected[0]!.i;
         const box = single ? { x: single.el.x, y: single.el.y, w: single.el.w, h: single.el.h } : union(orig.map((el) => aabb(el)))!;
@@ -346,8 +373,21 @@
     }
 
     const hit = elementAt(s);
+    if (hit && ed.framePanId === hit.el.id && hit.el.type === 'image') {
+      // moving the photo inside its frame
+      const el = hit.el, meta = ed.doc.assets[el.asset];
+      const crop = el.crop ?? coverCrop(meta?.width ?? el.w, meta?.height ?? el.h, el.w, el.h);
+      drag = { mode: 'framePan', id: el.id, start: toWorld(s.x, s.y), crop, key };
+      return;
+    }
     if (hit) {
       const id = hit.el.id;
+      if (hit.el.type === 'table') {
+        // remember the cell for the properties panel
+        const local = rotatePoint(toPage(toWorld(s.x, s.y), hit.i), center(hit.el), -hit.el.rotation);
+        const c = tableCellAt(hit.el, local);
+        if (c) ed.cell = { id, ...c };
+      }
       if (e.shiftKey) {
         ed.select(ed.selection.includes(id) ? ed.selection.filter((x) => x !== id) : [...ed.selection, id]);
         return;
@@ -397,7 +437,41 @@
           snapShown = { i: drag.pageI, guides: r.guides, gaps: r.gaps };
         } else snapShown = null;
         const orig = drag.orig;
-        ed.commit(updateElements(ed.doc, [...orig.keys()], (el) => ({ x: orig.get(el.id)!.x + dx, y: orig.get(el.id)!.y + dy })), drag.key);
+        ed.commit(updateElements(ed.doc, [...orig.keys()], (el) => {
+          const patch: Partial<LineElement> = { x: orig.get(el.id)!.x + dx, y: orig.get(el.id)!.y + dy };
+          // a moved connector lets go of elements that stay behind
+          if (el.type === 'line') {
+            const keep = (end: LineElement['start']) => (end.attach && !orig.has(end.attach.elementId) ? (({ attach: _, ...rest }) => rest)(end) : end);
+            patch.start = keep(el.start);
+            patch.end = keep(el.end);
+          }
+          return patch;
+        }), drag.key);
+        break;
+      }
+      case 'lineEnd': {
+        const p = toPage(w, drag.pageI);
+        const target = snapTarget(drag.id, drag.pageI, p);
+        snap = target;
+        const attach: Attach | null = target?.point ? { elementId: target.el.id, point: target.point } : null;
+        const at = target?.point ? boxPoint(target.el, target.point) : p;
+        ed.setLineEnd(drag.id, drag.which, at, attach, drag.key);
+        break;
+      }
+      case 'draw': {
+        const p = toPage(w, drag.pageI);
+        const last = drag.pts[drag.pts.length - 1]!;
+        if (Math.hypot(p.x - last.x, p.y - last.y) * zoom >= 1.5) drag = { ...drag, pts: [...drag.pts, p] };
+        break;
+      }
+      case 'framePan': {
+        const hit = findElement(ed.doc, drag.id);
+        if (hit?.element.type !== 'image') break;
+        const el = hit.element, c = drag.crop;
+        // the whole image is el.w / c.w px wide on the page
+        const fx = (w.x - drag.start.x) / (el.w / c.w), fy = (w.y - drag.start.y) / (el.h / c.h);
+        const crop = { ...c, x: Math.max(0, Math.min(1 - c.w, c.x - fx)), y: Math.max(0, Math.min(1 - c.h, c.y - fy)) };
+        ed.commit(updateElements(ed.doc, [el.id], { crop }), drag.key);
         break;
       }
       case 'resize':
@@ -469,6 +543,10 @@
     ed.commit(updateElements(ed.doc, [...map.keys()], (cur) => {
       const el = map.get(cur.id)!;
       const patch: Record<string, unknown> = { x: nb.x + (el.x - b.x) * sx, y: nb.y + (el.y - b.y) * sy, w: el.w * sx, h: el.h * sy };
+      if (el.type === 'line') {
+        patch.start = { ...el.start, x: el.start.x * sx, y: el.start.y * sy };
+        patch.end = { ...el.end, x: el.end.x * sx, y: el.end.y * sy };
+      }
       if (el.type === 'text') {
         const style = { ...el.style, fontSize: Math.max(4, el.style.fontSize * sx) };
         patch.style = style;
@@ -478,23 +556,49 @@
     }), d.key);
   }
 
+  /** The element a dragged line end is over, and the anchor it snaps to (if near one). */
+  function snapTarget(lineId: string, pageI: number, p: Point): { el: Element; i: number; point: { x: number; y: number } | null } | null {
+    const page = ed.doc.pages[pageI]!;
+    const reach = 14 / zoom;
+    for (let k = page.elements.length - 1; k >= 0; k--) {
+      const el = page.elements[k]!;
+      if (el.id === lineId || el.type === 'line' || el.hidden) continue;
+      const near = ANCHORS.map((a) => ({ a, d: Math.hypot(boxPoint(el, a).x - p.x, boxPoint(el, a).y - p.y) })).sort((x, y) => x.d - y.d)[0]!;
+      if (near.d <= reach) return { el, i: pageI, point: near.a };
+      if (contains(el, p, reach)) return { el, i: pageI, point: null };
+    }
+    return null;
+  }
+
   function onPointerUp(e: PointerEvent): void {
     if (host.hasPointerCapture(e.pointerId)) host.releasePointerCapture(e.pointerId);
     if (drag?.mode === 'pan') cursor = spaceDown ? 'grab' : 'default';
     if (drag?.mode === 'guide') dropGuide(drag, localPoint(e));
+    if (drag?.mode === 'draw') ed.addStroke(ed.doc.pages[drag.pageI]!.id, drag.pts);
     snapShown = null;
+    snap = null;
     if (drag) ed.seal();
     drag = null;
   }
 
   function onDblClick(e: MouseEvent): void {
-    const hit = elementAt(localPoint(e));
+    if (ed.tool) return;
+    const s = localPoint(e);
+    const hit = elementAt(s);
     if (!hit) return;
     // a group: step in and select the child under the pointer
     if (childrenOf(hit.el)) {
       const next = hit.path[hit.path.indexOf(hit.el) + 1];
       if (next) ed.select([next.id]);
     } else if (hit.el.type === 'text') ed.startEditing(hit.el.id);
+    else if (hit.el.type === 'table') {
+      const local = rotatePoint(toPage(toWorld(s.x, s.y), hit.i), center(hit.el), -hit.el.rotation);
+      const c = tableCellAt(hit.el, local);
+      if (c) ed.editCell(hit.el.id, c.r, c.c);
+    } else if (isFrame(hit.el) && hit.el.asset && !hit.el.locked) {
+      ed.select([hit.el.id]);
+      ed.framePanId = hit.el.id;
+    }
   }
 
   function onWheel(e: WheelEvent): void {
@@ -520,15 +624,29 @@
   async function onDrop(e: DragEvent): Promise<void> {
     e.preventDefault();
     const at = dropPoint(e);
+    // an image dropped on a frame fills it
+    const page = ed.doc.pages.find((p) => p.id === ed.pageId)!;
+    const under = hitTest(page, at);
+    const frameId = under && isFrame(under) && !under.locked ? under.id : null;
     const data = e.dataTransfer?.getData('application/x-digital-canvas');
     if (data) {
-      const d = JSON.parse(data) as { kind: 'shape'; shape: ShapeKind } | { kind: 'text'; preset: keyof typeof TEXT_PRESETS } | { kind: 'asset'; id: string };
+      const d = JSON.parse(data) as { kind: 'shape'; shape: ShapeKind } | { kind: 'text'; preset: keyof typeof TEXT_PRESETS } | { kind: 'asset'; id: string } | { kind: 'photo'; photo: Photo };
       if (d.kind === 'shape') ed.addShape(d.shape, at);
       else if (d.kind === 'text') ed.addText(d.preset, at);
+      else if (d.kind === 'photo') {
+        const got = await fetchPhoto(d.photo).catch(() => null);
+        const id = got && (await ed.addAsset(got.bytes, got.mime, attribution(d.photo)));
+        if (id) frameId ? ed.fillFrame(frameId, id) : ed.addImageAsset(id, at);
+      } else if (frameId) ed.fillFrame(frameId, d.id);
       else ed.addImageAsset(d.id, at);
       return;
     }
-    for (const f of e.dataTransfer?.files ?? []) await ed.addMediaFile(f, at);
+    for (const f of e.dataTransfer?.files ?? []) {
+      if (frameId && f.type.startsWith('image/')) {
+        const id = await ed.addAsset(new Uint8Array(await f.arrayBuffer()), f.type, f.name);
+        if (id) ed.fillFrame(frameId, id);
+      } else await ed.addMediaFile(f, at);
+    }
   }
 
   // ---- keyboard: space to pan ----
@@ -630,6 +748,52 @@
     ed.stopEditing();
   }
 
+  // ---- tables: the picked cell and in-place cell editing ----
+  const cellBox = $derived.by(() => {
+    const c = ed.editingCell ?? ed.cell;
+    if (!c) return null;
+    const hit = findElement(ed.doc, c.id);
+    if (hit?.element.type !== 'table' || !hit.element.cells[c.r]?.[c.c]) return null;
+    const t = hit.element, i = pageIndexOf(hit.page.id);
+    const r = tableCellRect(t, c.r, c.c);
+    const tl = rotatePoint({ x: r.x, y: r.y }, center(t), t.rotation);
+    // the cell's corners turn with the table, around the table's centre
+    const pts = [[r.x, r.y], [r.x + r.w, r.y], [r.x + r.w, r.y + r.h], [r.x, r.y + r.h]].map(([x, y]) => {
+      const q = rotatePoint({ x: x!, y: y! }, center(t), t.rotation);
+      return toScreen(q.x, q.y + pageTop(i));
+    });
+    return { t, cell: t.cells[c.r]![c.c]!, rect: r, pos: toScreen(tl.x, tl.y + pageTop(i)), pts, ...c };
+  });
+
+  /** The stroke being drawn, in screen coordinates. */
+  const ink = $derived.by(() => {
+    if (drag?.mode !== 'draw') return '';
+    const top = pageTop(drag.pageI);
+    return drag.pts.map((p, k) => { const q = toScreen(p.x, p.y + top); return `${k ? 'L' : 'M'}${q.x} ${q.y}`; }).join('') + (drag.pts.length === 1 ? 'l0.01 0' : '');
+  });
+
+  function cellEditor(node: HTMLTextAreaElement) {
+    node.focus();
+    node.select();
+  }
+
+  function onCellKey(e: KeyboardEvent): void {
+    e.stopPropagation();
+    const c = ed.editingCell;
+    if (!c) return;
+    if (e.key === 'Escape') { e.preventDefault(); ed.stopCellEdit(); }
+    else if (e.key === 'Tab') {
+      // Tab / Shift+Tab walks the cells
+      e.preventDefault();
+      const hit = findElement(ed.doc, c.id);
+      if (hit?.element.type !== 'table') return;
+      const cols = hit.element.cols.length, n = hit.element.rows.length * cols;
+      const k = (c.r * cols + c.c + (e.shiftKey ? n - 1 : 1)) % n;
+      ed.stopCellEdit();
+      ed.editCell(c.id, Math.floor(k / cols), k % cols);
+    }
+  }
+
   // ---- page toolbars ----
   const pageBars = $derived(
     ed.doc.pages.map((p, i) => ({ id: p.id, i, pos: toScreen(0, pageTop(i)) })).filter(({ pos }) => pos.y > -40 && pos.y < vh + 10),
@@ -657,7 +821,7 @@
 <div
   class="stage"
   bind:this={host}
-  style="cursor:{cursor}"
+  style="cursor:{ed.tool ? 'crosshair' : ed.framePanId ? 'move' : cursor}"
   role="application"
   aria-label="Design canvas"
   data-testid="stage"
@@ -698,16 +862,40 @@
       {/each}
     {/if}
     {#if hover}
-      <polygon points={poly(screenCorners(hover.el, hover.i))} class="hover" />
+      {#if hover.el.type === 'line'}
+        <polyline points={poly(lineOutline(hover.el, hover.i))} class="hover" />
+      {:else}
+        <polygon points={poly(screenCorners(hover.el, hover.i))} class="hover" />
+      {/if}
     {/if}
     {#each selected as { el, i } (el.id)}
-      <polygon points={poly(screenCorners(el, i))} class="sel" class:locked={el.locked} />
+      {#if el.type === 'line'}
+        <polyline points={poly(lineOutline(el, i))} class="sel" class:locked={el.locked} />
+      {:else}
+        <polygon points={poly(screenCorners(el, i))} class="sel" class:locked={el.locked} />
+      {/if}
     {/each}
     {#if multiBox}
       <rect x={multiBox.x} y={multiBox.y} width={multiBox.w} height={multiBox.h} class="sel dashed" />
     {/if}
+    {#if cellBox && !ed.editingCell && ed.selection.includes(cellBox.id)}
+      <polygon points={poly(cellBox.pts)} class="cell" />
+    {/if}
+    {#if snap}
+      <polygon points={poly(screenCorners(snap.el, snap.i))} class="snap" />
+      {#each ANCHORS as a}
+        {@const q = boxPoint(snap.el, a)}
+        {@const sp = toScreen(q.x, q.y + pageTop(snap.i))}
+        <circle cx={sp.x} cy={sp.y} r={snap.point && snap.point.x === a.x && snap.point.y === a.y ? 6 : 4} class="anchor" class:on={snap.point && snap.point.x === a.x && snap.point.y === a.y} />
+      {/each}
+    {/if}
+    {#if ink && ed.tool}
+      <path d={ink} class="ink" stroke={ed.tool.color} stroke-width={ed.tool.size * zoom} opacity={ed.tool.opacity} />
+    {/if}
     {#each handles as h (h.h)}
-      {#if h.h === 'rot'}
+      {#if h.h === 'start' || h.h === 'end'}
+        <circle cx={h.x} cy={h.y} r="7" class="handle lineend" data-testid="handle-{h.h}" />
+      {:else if h.h === 'rot'}
         <g class="rot" transform="translate({h.x},{h.y})">
           <circle r="10" />
           <path d="M-4 -1a4.5 4.5 0 1 0 1.5-3.5M-2.5-4.5h-2.5v-2.5" transform="translate(1,2)" />
@@ -770,9 +958,38 @@
       onblur={onRichBlur}
     ></div>
   {/if}
+
+  {#if ed.editingCell && cellBox}
+    {@const c = cellBox}
+    {@const st = { ...c.t.style, ...c.cell.style }}
+    {@const pad = Math.min(c.t.padding, c.rect.w / 3, c.rect.h / 3) * zoom}
+    <textarea
+      class="cell-edit"
+      data-testid="cell-editor"
+      use:cellEditor
+      value={c.cell.text}
+      style="left:{c.pos.x}px;top:{c.pos.y}px;width:{c.rect.w * zoom}px;height:{c.rect.h * zoom}px;padding:{pad}px;transform:rotate({c.t.rotation}deg);
+        background:{c.cell.fill ?? '#ffffff'};text-align:{st.align};color:{st.color};
+        font:{st.italic ? 'italic' : 'normal'} {st.bold ? 700 : 400} {st.fontSize * zoom}px/{st.lineHeight} '{st.fontFamily}', Inter, sans-serif"
+      oninput={(e) => ed.setCellText(c.id, c.r, c.c, (e.currentTarget as HTMLTextAreaElement).value)}
+      onpointerdown={(e) => e.stopPropagation()}
+      onkeydown={onCellKey}
+      onblur={(e) => { if (!(e.relatedTarget as HTMLElement | null)?.closest('[data-text-tools]')) ed.stopCellEdit(); }}
+    ></textarea>
+  {/if}
 </div>
 
 <style>
+  .cell { fill: rgba(124, 92, 255, .08); stroke: var(--accent); stroke-width: 2; }
+  .snap { fill: rgba(124, 92, 255, .06); stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 4 3; }
+  .anchor { fill: #fff; stroke: var(--accent); stroke-width: 2; }
+  .anchor.on { fill: var(--accent); }
+  .ink { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+  .lineend { stroke: var(--accent); stroke-width: 2; }
+  .cell-edit {
+    position: absolute; transform-origin: 0 0; margin: 0; border: 0; resize: none; overflow: hidden; box-sizing: border-box;
+    outline: 2px solid var(--accent); background: #fff; white-space: pre-wrap; user-select: text; -webkit-user-select: text;
+  }
   .stage { position: relative; flex: 1; overflow: hidden; background: var(--stage); touch-action: none; user-select: none; }
   canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
   .overlay { position: absolute; inset: 0; pointer-events: none; overflow: visible; }

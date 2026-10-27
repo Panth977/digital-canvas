@@ -10,3 +10,7 @@ export * from './tree.ts';
 export * from './group.ts';
 export * from './snap.ts';
 export * from './layout.ts';
+export * from './line.ts';
+export * from './elements.ts';
+export * from './vector.ts';
+export * from './svg.ts';

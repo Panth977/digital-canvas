@@ -24,3 +24,10 @@ Open-source Canva alternative. Built on TaskManager ticket **ORCH-27** (ORCH boa
 - Firestore `asia-south1`; functions `asia-south1`; Firebase Auth used only for custom tokens (`uid = google:<sub>`).
 - `backend/scripts/deploy-functions.mjs` replaces `icebase deploy --only functions`: IceBase 0.4.7's buildFunctions reads `peerDependencies` the JSR npm build lacks. It also aliases `@panth977/icebase` → `@jsr/panth977__icebase` so the bundle holds one copy (two copies break `instanceof Firestore`).
 - Dev-only globals: `window.__account`, `window.__library`, `window.__dc`.
+
+## M6 notes (2026-10-27)
+
+- Lines, tables and charts are drawn from `decompose()` pieces (`packages/scene/src/vector.ts`: SVG path strings + text boxes), so the renderer, SVG export and vector PDF share one layout. Add a new vector element the same way.
+- Connector ends store `attach: { elementId, point }`; `EditorState.commit()` runs `followConnectors()` on every change.
+- Vector PDF embeds whole font files: pdf-lib's `subset: true` drops glyphs of Inter. Text effects, curved text and gradients are drawn as an image of that element only.
+- Openverse allows `page_size` ≤ 20 without a key; photos are searched with `license_type=commercial,modification`, and the credit is kept in the asset `name`.

@@ -26,7 +26,7 @@
   let canvas = $state<Canvas>();
   let showDownload = $state(false);
   let showResize = $state(false);
-  let dl = $state({ format: 'png' as 'png' | 'jpeg' | 'pdf' | 'mp4', dpi: 300, scale: 1, transparent: false, pages: 'current' as 'current' | 'all' });
+  let dl = $state({ format: 'png' as 'png' | 'jpeg' | 'pdf' | 'pdfv' | 'svg' | 'mp4', dpi: 300, scale: 1, transparent: false, pages: 'current' as 'current' | 'all' });
 
   onMount(() => {
     let cancelled = false;
@@ -79,7 +79,10 @@
     else if (mod && k === ']') { stop(); ed.arrange(e.altKey ? 'front' : 'forward'); }
     else if (mod && k === '[') { stop(); ed.arrange(e.altKey ? 'back' : 'backward'); }
     else if (k === 'delete' || k === 'backspace') { stop(); ed.deleteSelection(); }
-    else if (k === 'escape') { ed.select([]); }
+    else if (k === 'escape') {
+      if (ed.tool || ed.framePanId) { ed.tool = null; ed.framePanId = null; }
+      else ed.select([]);
+    }
     else if (k === 'enter' && ed.selected.length === 1 && ed.selected[0]!.type === 'text') { stop(); ed.startEditing(ed.selected[0]!.id); }
     else if (k.startsWith('arrow')) {
       stop();
@@ -123,6 +126,28 @@
       } finally {
         busy = false;
       }
+      showDownload = false;
+      return;
+    }
+    if (dl.format === 'pdfv') {
+      busy = true;
+      try {
+        const bytes = await ed.exportVectorPdf(pages.map((p) => p.id));
+        download(bytes, `${ed.doc.title}.pdf`, 'application/pdf');
+      } catch (e) {
+        alert(`Couldn't make the PDF: ${e instanceof Error ? e.message : e}`);
+      } finally {
+        busy = false;
+      }
+      showDownload = false;
+      return;
+    }
+    if (dl.format === 'svg') {
+      pages.forEach((p) => {
+        const i = ed!.doc.pages.indexOf(p);
+        const name = ed!.doc.pages.length > 1 ? `${ed!.doc.title} - page ${i + 1}.svg` : `${ed!.doc.title}.svg`;
+        download(new Blob([ed!.exportSvg(p.id)], { type: 'image/svg+xml' }), name);
+      });
       showDownload = false;
       return;
     }
@@ -188,10 +213,14 @@
             <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
             <div class="dl" onclick={(e) => e.stopPropagation()}>
               <label class="field">File type
-                <select class="input" bind:value={dl.format} data-testid="dl-format" onchange={() => { if (dl.format === 'pdf') dl.pages = 'all'; }}><option value="png">PNG</option><option value="jpeg">JPG</option><option value="pdf">PDF</option>{#if isVideo(ed.doc)}<option value="mp4">MP4 video</option>{/if}</select>
+                <select class="input" bind:value={dl.format} data-testid="dl-format" onchange={() => { if (dl.format === 'pdf' || dl.format === 'pdfv') dl.pages = 'all'; }}><option value="png">PNG</option><option value="jpeg">JPG</option><option value="pdfv">PDF (vector)</option><option value="pdf">PDF (print, flattened)</option><option value="svg">SVG</option>{#if isVideo(ed.doc)}<option value="mp4">MP4 video</option>{/if}</select>
               </label>
               {#if dl.format === 'mp4'}
                 <span class="dims">{Math.round(ed.doc.width)} × {Math.round(ed.doc.height)} px · 30 fps · all pages</span>
+              {:else if dl.format === 'pdfv'}
+                <span class="dims">Text stays text, shapes stay sharp; fonts are embedded.</span>
+              {:else if dl.format === 'svg'}
+                <span class="dims">One SVG file per page, fonts and images inside.</span>
               {:else if dl.format === 'pdf'}
                 <label class="field">Quality
                   <select class="input" bind:value={dl.dpi}><option value={150}>Standard (150 dpi)</option><option value={300}>Print (300 dpi)</option></select>
@@ -209,7 +238,7 @@
                 <select class="input" bind:value={dl.pages} disabled={dl.format === 'mp4'}><option value="current">Current page ({ed.pageIndex + 1})</option><option value="all">All pages ({ed.doc.pages.length})</option></select>
               </label>
               <button class="btn primary" onclick={doDownload} disabled={busy} data-testid="do-download">{busy ? (dl.format === 'mp4' ? `Rendering… ${Math.round(progress * 100)}%` : 'Preparing…') : 'Download'}</button>
-              <p class="note">PDF pages are images at the chosen quality; vector PDF and SVG arrive in milestone 6.</p>
+              {#if dl.format === 'pdf'}<p class="note">Each page is one image at the chosen quality: looks exactly like the editor.</p>{/if}
             </div>
           {/if}
         </div>
