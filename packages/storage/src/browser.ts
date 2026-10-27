@@ -1,5 +1,5 @@
 import { pack, unpack, type ProjectFile } from './file.ts';
-import { KV, appDb } from './idb.ts';
+import { KV, appDb, openDb } from './idb.ts';
 import { byRecent, metaOf, type ProjectMeta, type ProjectStore } from './store.ts';
 
 interface Row {
@@ -30,4 +30,10 @@ export class BrowserStore implements ProjectStore {
   async remove(id: string): Promise<void> {
     await this.kv.delete(id);
   }
+}
+
+/** Asset bytes kept in this browser by content hash, so reopening a Drive design downloads nothing twice. */
+export function browserAssetCache(): import('./drive.ts').AssetCache {
+  const kv = new KV<Uint8Array>(openDb('digital-canvas-assets', ['assets']), 'assets');
+  return { get: (id) => kv.get(id), set: (id, bytes) => kv.set(id, bytes) };
 }

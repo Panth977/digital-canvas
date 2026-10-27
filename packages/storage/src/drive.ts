@@ -9,6 +9,15 @@ const UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
 const ROOT_PROP = 'digitalCanvasRoot';
 const DOC_PROP = 'dcDocId';
+/** On the shared assets folder ('assets') and on each asset file (its content-hash id). */
+const ASSETS_PROP = 'dcAssets';
+const ASSET_PROP = 'dcAsset';
+
+/** A cache of asset bytes by id (ids are content hashes, so entries never go stale). */
+export interface AssetCache {
+  get(id: string): Promise<Uint8Array | undefined>;
+  set(id: string, bytes: Uint8Array): Promise<void>;
+}
 
 interface DriveFile {
   id: string;
@@ -38,14 +47,22 @@ function base64url(bytes: Uint8Array): string {
  *
  * Each file carries `appProperties.dcDocId` so the project id survives
  * renames; the Drive file id is looked up from it.
+ *
+ * Drive is the database, so saves stay small: a design's `.dcanvas` holds only
+ * its document and thumbnail. Images, videos, sounds and fonts live once each
+ * in `Digital Canvas/assets/`, named by content hash and shared by every
+ * design; a save uploads only assets Drive doesn't have yet. Older files with
+ * assets inside still open (and move their assets out on the next save).
  */
 export class DriveStore implements ProjectStore {
   readonly kind = 'drive';
   readonly label = 'Google Drive';
   private folderId: string | null = null;
   private ids = new Map<string, string>(); // doc id → Drive file id
+  private assetsFolderId: string | null = null;
+  private assetIds: Promise<Map<string, string>> | null = null; // asset id → Drive file id
 
-  constructor(private token: TokenSource, private folderName = 'Digital Canvas') {}
+  constructor(private token: TokenSource, private folderName = 'Digital Canvas', private cache?: AssetCache) {}
 
   private async call(url: string, init: RequestInit = {}, retry = true): Promise<Response> {
     const res = await fetch(url, { ...init, headers: { ...init.headers, Authorization: `Bearer ${await this.token(!retry)}` } });
@@ -74,6 +91,62 @@ export class DriveStore implements ProjectStore {
       body: JSON.stringify({ name: this.folderName, mimeType: FOLDER_MIME, appProperties: { [ROOT_PROP]: '1' } }),
     });
     return (this.folderId = made.id);
+  }
+
+  /** `Digital Canvas/assets`, created on first use. */
+  private async assetsFolder(): Promise<string> {
+    if (this.assetsFolderId) return this.assetsFolderId;
+    const parent = await this.folder();
+    const q = `'${parent}' in parents and mimeType='${FOLDER_MIME}' and trashed=false and appProperties has { key='${ASSETS_PROP}' and value='1' }`;
+    const found = await this.json<{ files: DriveFile[] }>(`${API}/files?${new URLSearchParams({ q, fields: 'files(id)', spaces: 'drive' })}`);
+    if (found.files[0]) return (this.assetsFolderId = found.files[0].id);
+    const made = await this.json<DriveFile>(`${API}/files?fields=id`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'assets', mimeType: FOLDER_MIME, parents: [parent], appProperties: { [ASSETS_PROP]: '1', [ROOT_PROP]: 'assets' } }),
+    });
+    return (this.assetsFolderId = made.id);
+  }
+
+  /** Every asset already in Drive (listed once per session). */
+  private stored(): Promise<Map<string, string>> {
+    this.assetIds ??= (async () => {
+      const parent = await this.assetsFolder();
+      const map = new Map<string, string>();
+      const q = `'${parent}' in parents and trashed=false`;
+      let pageToken = '';
+      do {
+        const params = new URLSearchParams({ q, fields: 'nextPageToken,files(id,appProperties)', pageSize: '1000', spaces: 'drive' });
+        if (pageToken) params.set('pageToken', pageToken);
+        const r = await this.json<{ files: DriveFile[]; nextPageToken?: string }>(`${API}/files?${params}`);
+        for (const f of r.files) { const a = f.appProperties?.[ASSET_PROP]; if (a) map.set(a, f.id); }
+        pageToken = r.nextPageToken ?? '';
+      } while (pageToken);
+      return map;
+    })();
+    this.assetIds.catch(() => (this.assetIds = null));
+    return this.assetIds;
+  }
+
+  private async uploadAsset(id: string, bytes: Uint8Array, mime: string): Promise<void> {
+    const stored = await this.stored();
+    if (stored.has(id)) return;
+    const meta = { name: id, mimeType: mime, parents: [await this.assetsFolder()], appProperties: { [ASSET_PROP]: id } };
+    const boundary = `dc${Math.random().toString(36).slice(2)}`;
+    const head = `--${boundary}\r\ncontent-type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${boundary}\r\ncontent-type: ${mime}\r\n\r\n`;
+    const body = new Blob([head, bytes as BlobPart, `\r\n--${boundary}--`]);
+    const r = await this.json<{ id: string }>(`${UPLOAD}/files?uploadType=multipart&fields=id`, { method: 'POST', headers: { 'content-type': `multipart/related; boundary=${boundary}` }, body });
+    stored.set(id, r.id);
+  }
+
+  private async downloadAsset(id: string): Promise<Uint8Array | undefined> {
+    const hit = await this.cache?.get(id).catch(() => undefined);
+    if (hit) return hit;
+    const fileId = (await this.stored()).get(id);
+    if (!fileId) return undefined;
+    const bytes = new Uint8Array(await (await this.call(`${API}/files/${fileId}?alt=media`)).arrayBuffer());
+    await this.cache?.set(id, bytes).catch(() => {});
+    return bytes;
   }
 
   async list(): Promise<ProjectMeta[]> {
@@ -125,11 +198,26 @@ export class DriveStore implements ProjectStore {
     const res = await this.call(`${API}/files/${fileId}?alt=media`);
     const file = unpack(new Uint8Array(await res.arrayBuffer()));
     this.ids.set(file.doc.id, fileId);
+    // Linked assets: fetch what the file doesn't carry (a few at a time).
+    const missing = Object.keys(file.doc.assets).filter((a) => !file.assets.has(a));
+    const queue = [...missing];
+    await Promise.all(Array.from({ length: Math.min(6, queue.length) }, async () => {
+      for (let a = queue.shift(); a; a = queue.shift()) {
+        const bytes = await this.downloadAsset(a);
+        if (bytes) file.assets.set(a, bytes);
+      }
+    }));
+    for (const [a, b] of file.assets) if (!missing.includes(a)) void this.cache?.set(a, b).catch(() => {});
     return file;
   }
 
   async save(file: ProjectFile): Promise<void> {
     const { doc } = file;
+    // Assets first, so a saved design never points at something Drive doesn't have.
+    const queue = Object.keys(doc.assets).filter((a) => file.assets.has(a));
+    await Promise.all(Array.from({ length: Math.min(4, queue.length) }, async () => {
+      for (let a = queue.shift(); a; a = queue.shift()) await this.uploadAsset(a, file.assets.get(a)!, doc.assets[a]!.mime);
+    }));
     const fileId = await this.fileIdOf(doc.id);
     const meta: Record<string, unknown> = {
       name: fileName(doc.title),
@@ -140,7 +228,7 @@ export class DriveStore implements ProjectStore {
     if (!fileId) meta.parents = [await this.folder()];
     const boundary = `dc${Math.random().toString(36).slice(2)}`;
     const head = `--${boundary}\r\ncontent-type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${boundary}\r\ncontent-type: ${MIME}\r\n\r\n`;
-    const body = new Blob([head, pack(file) as BlobPart, `\r\n--${boundary}--`]);
+    const body = new Blob([head, pack({ doc, assets: new Map(), thumbnail: file.thumbnail }) as BlobPart, `\r\n--${boundary}--`]);
     const url = fileId ? `${UPLOAD}/files/${fileId}?uploadType=multipart&fields=id` : `${UPLOAD}/files?uploadType=multipart&fields=id`;
     const r = await this.json<{ id: string }>(url, { method: fileId ? 'PATCH' : 'POST', headers: { 'content-type': `multipart/related; boundary=${boundary}` }, body });
     this.ids.set(doc.id, r.id);
