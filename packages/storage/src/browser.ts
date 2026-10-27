@@ -1,5 +1,6 @@
 import { pack, unpack, type ProjectFile } from './file.ts';
 import { KV, appDb, openDb } from './idb.ts';
+import { brandJson, parseBrand, usedBrandAssets, type BrandData } from './brand.ts';
 import { byRecent, metaOf, type ProjectMeta, type ProjectStore } from './store.ts';
 
 interface Row {
@@ -29,6 +30,17 @@ export class BrowserStore implements ProjectStore {
 
   async remove(id: string): Promise<void> {
     await this.kv.delete(id);
+  }
+
+  private brandKv = new KV<{ json: string; assets: [string, Uint8Array][] }>(appDb(), 'settings');
+
+  async loadBrand(): Promise<BrandData | null> {
+    const row = await this.brandKv.get('brand');
+    return row ? { kit: parseBrand(JSON.parse(row.json)), assets: new Map(row.assets) } : null;
+  }
+
+  async saveBrand(data: BrandData): Promise<void> {
+    await this.brandKv.set('brand', { json: brandJson(data.kit), assets: [...usedBrandAssets(data)] });
   }
 }
 

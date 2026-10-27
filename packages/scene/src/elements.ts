@@ -281,7 +281,8 @@ export function qrUpdate(el: PathElement, text: string): Partial<PathElement> {
 
 // ---- freehand drawing ----
 
-export type Brush = 'pen' | 'marker' | 'highlighter';
+/** `eraser` removes the drawings it touches instead of drawing. */
+export type Brush = 'pen' | 'marker' | 'highlighter' | 'eraser';
 
 /**
  * A freehand stroke as a path element. Points are smoothed (moving average,
