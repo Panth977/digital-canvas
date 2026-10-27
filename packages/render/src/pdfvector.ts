@@ -6,7 +6,7 @@ import {
 import fontkit from '@pdf-lib/fontkit';
 import type { Path } from 'canvaskit-wasm';
 import type { Color, Doc, Element, Fill, ImageElement, Page, PathElement, ShapeElement, Stroke, TextElement, VideoElement } from '@digital-canvas/scene';
-import { dashArray, type Decomposed } from '@digital-canvas/scene';
+import { dashArray, posterOf, type Decomposed } from '@digital-canvas/scene';
 import type { FontFace } from './fonts.ts';
 import { shapePath, transformPath, type Renderer } from './renderer.ts';
 import { loadPicture, pictureNeedsRaster, textNeedsRaster, type VectorExportOptions } from './svgexport.ts';
@@ -201,7 +201,7 @@ export async function exportVectorPdf(renderer: Renderer, doc: Doc, opts: Vector
     };
 
     const picture = async (el: ImageElement | VideoElement) => {
-      const assetId = el.type === 'video' ? `${el.asset}.poster` : el.asset;
+      const assetId = el.type === 'video' ? posterOf(el) : el.asset;
       const bytes = assetId ? opts.assets.get(assetId) : undefined;
       const size = bytes ? renderer.setImage(assetId, bytes) : null;
       const clipPath = (el.type === 'image' ? renderer.maskPath(el) : null) ?? shapePath(ck, 'rect', el.x, el.y, el.w, el.h, el.radius);

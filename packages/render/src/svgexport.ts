@@ -1,5 +1,5 @@
 import type { Doc, Element, Fill, ImageElement, Page, PathElement, ShapeElement, TextElement, VideoElement } from '@digital-canvas/scene';
-import { dashArray, hasLook, type Decomposed } from '@digital-canvas/scene';
+import { dashArray, hasLook, posterOf, type Decomposed } from '@digital-canvas/scene';
 import type { Renderer } from './renderer.ts';
 import { shapePath } from './renderer.ts';
 import type { FontFace } from './fonts.ts';
@@ -21,7 +21,7 @@ export const pictureNeedsRaster = (el: ImageElement | VideoElement): boolean => 
 
 /** Decode an image's (or a video poster's) bytes into the renderer so it can be drawn; its pixel size, or null. */
 export function loadPicture(renderer: Renderer, el: ImageElement | VideoElement, assets: ReadonlyMap<string, Uint8Array>): { width: number; height: number } | null {
-  const assetId = el.type === 'video' ? `${el.asset}.poster` : el.asset;
+  const assetId = el.type === 'video' ? posterOf(el) : el.asset;
   const bytes = assetId ? assets.get(assetId) : undefined;
   return bytes ? renderer.setImage(assetId, bytes) : null;
 }
@@ -117,7 +117,7 @@ export function exportSvg(renderer: Renderer, doc: Doc, page: Page, opts: Vector
     }).join('') + d.texts.map((t) => text(t.el)).join('');
 
   const picture = (el: ImageElement | VideoElement): string => {
-    const assetId = el.type === 'video' ? `${el.asset}.poster` : el.asset;
+    const assetId = el.type === 'video' ? posterOf(el) : el.asset;
     const bytes = assetId ? opts.assets.get(assetId) : undefined;
     const size = bytes ? renderer.setImage(assetId, bytes) : null;
     // clip: the frame's shape, rounded corners or the box

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addAudio, addElements, clipTime, createDoc, isVideo, pageAtTime, pageStart, pruneAssets, removeAudio, totalDuration, updatePage, video, addPage } from '../src/index.ts';
+import { posterOf, addAudio, addElements, clipTime, createDoc, isVideo, pageAtTime, pageStart, pruneAssets, removeAudio, totalDuration, updatePage, video, addPage } from '../src/index.ts';
 
 describe('timeline', () => {
   it('pages play one after another for their durations', () => {
@@ -34,5 +34,14 @@ describe('timeline', () => {
     expect(Object.keys(pruneAssets(r.doc).assets).sort()).toEqual(['a.mp4', 'a.mp4.poster', 'm.mp3']);
     expect(isVideo(r.doc)).toBe(true);
     expect(removeAudio(r.doc, r.id).audio).toEqual([]);
+  });
+
+  it('a clip can have its own poster (a trimmed piece opens on a later frame)', () => {
+    const v = { ...video('a.mp4', { x: 0, y: 0, w: 10, h: 10 }), trimStart: 4, poster: 'f4.png' };
+    expect(posterOf(v)).toBe('f4.png');
+    expect(posterOf(video('a.mp4', { x: 0, y: 0, w: 10, h: 10 }))).toBe('a.mp4.poster');
+    let d = { ...createDoc({ width: 100, height: 100 }), assets: { 'a.mp4': { mime: 'video/mp4' }, 'f4.png': { mime: 'image/png' }, 'x.png': { mime: 'image/png' } } };
+    d = addElements(d, d.pages[0]!.id, [v]);
+    expect(Object.keys(pruneAssets(d).assets).sort()).toEqual(['a.mp4', 'f4.png']);
   });
 });

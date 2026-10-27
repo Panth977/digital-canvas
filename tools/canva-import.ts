@@ -600,6 +600,73 @@ function makePlate(cp: CanvaPage): void {
   const W = pageShot.width(), H = pageShot.height(), s = shotScale;
   const info = { width: W, height: H, colorType: ck.ColorType.RGBA_8888, alphaType: ck.AlphaType.Unpremul, colorSpace: ck.ColorSpace.SRGB };
   const px = pageShot.readPixels(0, 0, info) as Uint8Array;
+  /** Our drawing of one text element over its box (plus a margin), at the render's scale. */
+  const shot = (t: TextElement) => {
+    const pad = t.style.fontSize * 0.3;
+    const bx = Math.max(0, Math.floor((t.x - pad) * s)), by = Math.max(0, Math.floor((t.y - pad) * s));
+    const bw = Math.min(W - bx, Math.ceil((t.w + 2 * pad) * s)), bh = Math.min(H - by, Math.ceil((t.h + 2 * pad) * s));
+    if (bw <= 0 || bh <= 0) return null;
+    const surf = ck!.MakeSurface(bw, bh)!;
+    const c = surf.getCanvas();
+    c.clear(ck!.TRANSPARENT);
+    c.scale(s, s);
+    c.translate(-bx / s, -by / s);
+    measure!.drawElement(c, { ...t, opacity: 1 });
+    const img = surf.makeImageSnapshot();
+    const a = img.readPixels(0, 0, { ...info, width: bw, height: bh }) as Uint8Array;
+    img.delete();
+    surf.delete();
+    return { a, bx, by, bw, bh };
+  };
+  /** Share of the pixels we draw that have Canva's colour at that spot (fit including effects). */
+  const colourFit = (t: TextElement): number => {
+    const r = shot(t);
+    if (!r) return 0;
+    let ink = 0, hit = 0;
+    for (let j = 0; j < r.bh; j += 2) for (let i = 0; i < r.bw; i += 2) {
+      const o = (j * r.bw + i) * 4;
+      if (r.a[o + 3]! < 200) continue;
+      ink++;
+      const q = ((r.by + j) * W + r.bx + i) * 4;
+      if (Math.hypot(px[q]! - r.a[o]!, px[q + 1]! - r.a[o + 1]!, px[q + 2]! - r.a[o + 2]!) < 70) hit++;
+    }
+    return ink ? hit / ink : 0;
+  };
+  /** Canva's outline effect isn't in the API: look for one ring colour around the letters. */
+  const findOutline = (t: TextElement): TextElement => {
+    if (t.effect) return t;
+    // Canva's colours in rings around the letters, one ring per outline thickness step: an outline is
+    // a ring colour next to the letters that is not the text's colour nor what lies further out.
+    const steps = [20, 40, 60, 90, 130];
+    const taken = new Set<number>();
+    const bands: { med: number[]; same: number; n: number }[] = [];
+    for (const thickness of steps) {
+      const probe = shot({ ...t, effect: { type: 'outline', thickness, color: '#ff00ff' } });
+      if (!probe) return t;
+      const ring: number[][] = [];
+      for (let j = 0; j < probe.bh; j += 2) for (let i = 0; i < probe.bw; i += 2) {
+        const o = (j * probe.bw + i) * 4;
+        if (!(probe.a[o + 3]! > 200 && probe.a[o]! > 230 && probe.a[o + 1]! < 30 && probe.a[o + 2]! > 230)) continue;
+        const q = ((probe.by + j) * W + probe.bx + i) * 4;
+        if (taken.has(q)) continue;
+        taken.add(q);
+        ring.push([px[q]!, px[q + 1]!, px[q + 2]!]);
+      }
+      if (ring.length < 30) return t;
+      const med = [0, 1, 2].map((k) => ring.map((p) => p[k]!).sort((x, y) => x - y)[ring.length >> 1]!);
+      const same = ring.filter((p) => Math.hypot(p[0]! - med[0]!, p[1]! - med[1]!, p[2]! - med[2]!) < 60).length / ring.length;
+      bands.push({ med, same, n: ring.length });
+    }
+    const d = (a: number[], b: number[]) => Math.hypot(a[0]! - b[0]!, a[1]! - b[1]!, a[2]! - b[2]!);
+    const first = bands[0]!, far = bands[bands.length - 1]!;
+    if (process.env.DC_DEBUG) console.error('outline', JSON.stringify(t.text), bands.map((b) => `${b.med}/${b.same.toFixed(2)}`).join(' '));
+    if (first.same < 0.45 || d(first.med, hexRgb(t.style.color)) < 60 || d(first.med, far.med) < 60) return t;
+    let k = 0;
+    while (k + 1 < bands.length - 1 && d(bands[k + 1]!.med, first.med) < 60 && bands[k + 1]!.same >= 0.4) k++;
+    const color = '#' + first.med.map((v) => v.toString(16).padStart(2, '0')).join('');
+    gap('text outline (colour and thickness found by matching Canva\'s render)');
+    return { ...t, effect: { type: 'outline', thickness: steps[k]!, color } };
+  };
   /** Share of an element's ink that lands on Canva pixels of its colour (how well it lines up). */
   const fit = (t: TextElement): number => {
     const pad = t.style.fontSize * 0.3;
@@ -638,7 +705,7 @@ function makePlate(cp: CanvaPage): void {
     }
     // Canva's curved text isn't in the API either: when the straight text doesn't line up, try curves.
     const straight = fit(t);
-    if (straight < 0.6 && !t.text.trim().includes('\n') && t.text.trim().length > 2) {
+    if (straight < 0.85 && !t.text.trim().includes('\n') && t.text.trim().length > 2) {
       const cx = t.x + t.w / 2, cy = t.y + t.h / 2;
       const curved = (k: number): TextElement => {
         const el: TextElement = { ...t, text: t.text.replace(/\n+$/, ''), curve: k };
@@ -649,11 +716,13 @@ function makePlate(cp: CanvaPage): void {
       let best = { k: 0, sc: straight };
       for (let k = -100; k <= 100; k += 10) if (k) { const sc = fit(curved(k)); if (sc > best.sc) best = { k, sc }; }
       if (best.k) for (let k = best.k - 8; k <= best.k + 8; k += 2) if (k) { const sc = fit(curved(k)); if (sc > best.sc) best = { k, sc }; }
-      if (best.k && best.sc > straight + 0.15) {
+      if (process.env.DC_DEBUG) console.error('curve', JSON.stringify(t.text), straight.toFixed(2), best);
+      if (best.k && best.sc > straight + 0.04) {
         t = curved(best.k);
         gap('curved text (curve found by matching Canva\'s render)');
       }
     }
+    t = findOutline(t);
     textById.set(e.id, t);
     elementMap[e.id] = t.id;
   }

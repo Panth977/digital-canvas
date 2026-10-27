@@ -204,6 +204,8 @@ export interface VideoElement extends ElementBase, ImageLook {
   /** Part of the clip to use, in seconds of the file. Absent = the whole clip. */
   trimStart?: number;
   trimEnd?: number;
+  /** Image asset shown before the clip plays (and in still exports). Absent = `<asset>.poster`. */
+  poster?: string;
   /** Start again when the clip ends before the page does. */
   loop?: boolean;
   muted?: boolean;

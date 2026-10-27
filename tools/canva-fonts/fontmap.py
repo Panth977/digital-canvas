@@ -22,8 +22,12 @@ for name, items in byname.items():
     merged[name] = f
 # A subset whose glyphs have no Unicode map can't draw text: use the whole font from Google Fonts
 import urllib.request
+# Canva Pro fonts not on Google Fonts: the nearest free face (by tools/font-match.ts and eye)
+LOOKALIKE = {'Genty': 'Shrikhand', 'Genty Sans': 'Shrikhand'}
 def google(name):
     fam, w, it = parse(name)
+    if fam in LOOKALIKE:
+        fam, w, it = LOOKALIKE[fam], 400, False
     url = 'https://fonts.googleapis.com/css?family=' + urllib.parse.quote(fam) + f':{w}{"i" if it else ""}'
     try:
         css = urllib.request.urlopen(url, timeout=20).read().decode()
@@ -62,6 +66,7 @@ def parse(name):
 for name in blind:
     g = google(name)
     if g: merged[name] = g; print('google font for', name)
+    else: print('NO GLYPHS for', name, '(not on Google Fonts; add a LOOKALIKE)')
 want_w = {'thin': 100, 'light': 300, 'normal': 400, 'regular': 400, 'medium': 500, 'semibold': 600, 'bold': 700, 'heavy': 800, 'black': 900}
 assign = {}
 for key, pages in uses.items():

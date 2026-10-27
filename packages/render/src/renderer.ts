@@ -1,5 +1,5 @@
 import type { Canvas, CanvasKit, Image, ImageFilter, Paint, Path, RuntimeEffect, Shader } from 'canvaskit-wasm';
-import { childrenOf, cropOf, effectiveAdjust, hasLook, imageBox, type Doc, type Element, type Fill, type ImageElement, type Page, type PathElement, type ShapeElement, type ShapeKind, type TextElement, type VideoElement } from '@digital-canvas/scene';
+import { childrenOf, cropOf, posterOf, effectiveAdjust, hasLook, imageBox, type Doc, type Element, type Fill, type ImageElement, type Page, type PathElement, type ShapeElement, type ShapeKind, type TextElement, type VideoElement } from '@digital-canvas/scene';
 import { aabb, dashArray, decompose, type Decomposed, type Prim, type PrimText } from '@digital-canvas/scene';
 import { colorMatrix, LOOK_SKSL } from './look.ts';
 import { color, FontLibrary } from './fonts.ts';
@@ -335,7 +335,7 @@ export class Renderer {
   /** The picture an image or video element shows right now, if decoded. */
   private pictureOf(el: ImageElement | VideoElement): Image | undefined {
     // a video shows its current frame, else its poster (stored as an image under `<asset>.poster`)
-    return el.type === 'video' ? this.frames.get(el.asset) ?? this.images.get(`${el.asset}.poster`) : this.images.get(el.asset);
+    return el.type === 'video' ? this.frames.get(el.asset) ?? this.images.get(posterOf(el)) : this.images.get(el.asset);
   }
 
   /** Pixel size of a decoded image asset (or a video's current picture). */

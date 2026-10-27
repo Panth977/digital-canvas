@@ -27,6 +27,8 @@ else
   done
   npx tsx tools/merge-dcanvas.ts $d/out3.dcanvas $parts > $d/import3.log 2>&1
 fi
+# video clips: where each starts (Canva doesn't report trims)
+$PY tools/canva-videotrim.py $d/out3.dcanvas $d/hi < /dev/null > $d/videotrim.log 2>&1 || true
 npx tsx tools/canva-align.ts $d/out3.dcanvas $d/hi > $d/align3.log 2>&1 || true
 npx tsx tools/canva-align.ts $d/out3.dcanvas $d/hi 0.15 >> $d/align3.log 2>&1 || true
 DIFF_OURS=1 npx tsx tools/diff.ts $d/out3.dcanvas $d/hi $d/diff3 > $d/diff3.log 2>&1

@@ -3,6 +3,9 @@ import type { AudioClip, ChartElement, Doc, Element, Fill, GroupElement, Page, P
 import { toPx, MIN_SIDE, MAX_SIDE } from './units.ts';
 import { childrenOf, mapLists, offsetElement, transformChildren, walk, withChildren } from './tree.ts';
 
+/** The image a video shows when it isn't playing. */
+export const posterOf = (el: VideoElement): string => el.poster ?? `${el.asset}.poster`;
+
 /**
  * Pure document operations. Every function returns a new Doc and never
  * mutates its input, so the editor can keep old versions for undo and the
@@ -270,6 +273,7 @@ export function pruneAssets(doc: Doc): Doc {
     for (const e of walk(p.elements)) {
       if ((e.type === 'image' || e.type === 'video') && e.asset) used.add(e.asset);
       if (e.type === 'image' && e.original) used.add(e.original);
+      if (e.type === 'video' && e.poster) used.add(e.poster);
     }
   }
   for (const a of doc.audio ?? []) used.add(a.asset);
