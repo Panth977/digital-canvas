@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import type { ProjectStore } from '@digital-canvas/storage';
-  import { EditorState } from '../lib/editor.svelte.ts';
+  import { EditorState, LINES } from '../lib/editor.svelte.ts';
+  import { textShortcut } from '../lib/shortcuts.ts';
   import { engine } from '../lib/engine.ts';
   import { router } from '../lib/router.svelte.ts';
   import { download, isImage } from '../lib/files.ts';
@@ -68,6 +69,7 @@
     const mod = e.metaKey || e.ctrlKey;
     const k = e.key.toLowerCase();
     const stop = () => e.preventDefault();
+    if (textShortcut(ed, e)) return;
     if (mod && k === 'z') { stop(); e.shiftKey ? ed.redo() : ed.undo(); }
     else if (mod && k === 'y') { stop(); ed.redo(); }
     else if (mod && k === 'd') { stop(); ed.duplicateSelection(); }
@@ -82,7 +84,22 @@
     else if (mod && k === '0') { stop(); fitRequest++; }
     else if (mod && k === ']') { stop(); ed.arrange(e.altKey ? 'front' : 'forward'); }
     else if (mod && k === '[') { stop(); ed.arrange(e.altKey ? 'back' : 'backward'); }
+    else if (mod && k === 'enter') { stop(); ed.addPage(); }
+    else if (mod && (k === 'delete' || k === 'backspace') && !ed.selection.length) {
+      // ⌘⌫ deletes an empty page (Canva)
+      stop();
+      if (!ed.page.elements.length && ed.doc.pages.length > 1) ed.removePage(ed.pageId);
+    }
     else if (k === 'delete' || k === 'backspace') { stop(); ed.deleteSelection(); }
+    else if (k === 'tab' && !mod && !e.altKey && (e.target === document.body || (e.target as HTMLElement).closest?.('[data-testid="stage"]'))) {
+      // Tab / Shift+Tab: the next / previous element on the page
+      const els = ed.page.elements.filter((x) => !x.hidden);
+      if (!els.length) return;
+      stop();
+      const at = els.findIndex((x) => x.id === ed!.selection[ed!.selection.length - 1]);
+      const n = at < 0 ? (e.shiftKey ? els.length - 1 : 0) : (at + (e.shiftKey ? els.length - 1 : 1)) % els.length;
+      ed.select([els[n]!.id], ed.pageId);
+    }
     else if (ed.croppingId && (k === 'escape' || k === 'enter')) { stop(); ed.stopCrop(); }
     else if (k === 'escape') {
       if (ui.pop) ui.pop = null;
@@ -98,6 +115,7 @@
       if (k === 't') { stop(); ed.addText('body'); }
       else if (k === 'r') { stop(); ed.addShape('rect'); }
       else if (k === 'c') { stop(); ed.addShape('ellipse'); }
+      else if (k === 'l') { stop(); ed.addLine(LINES[0]!); }
     }
   }
 

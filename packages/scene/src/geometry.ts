@@ -1,5 +1,5 @@
 import type { Element, Page } from './types.ts';
-import { hitPath } from './tree.ts';
+import { hitPath, hitPaths } from './tree.ts';
 import { lineDistance } from './line.ts';
 
 export interface Point { x: number; y: number }
@@ -68,6 +68,26 @@ function hits(e: Element, p: Point, pad: number): boolean {
 /** Like hitTest, but the chain from the top-level element down to the innermost one hit. */
 export function hitTestPath(page: Page, p: Point, pad = 0): Element[] | null {
   return hitPath(page.elements, p, pad, hits);
+}
+
+/** Every element chain under `p`, topmost first (for "select the element behind"). */
+export function hitTestAll(page: Page, p: Point, pad = 0): Element[][] {
+  return hitPaths(page.elements, p, pad, hits);
+}
+
+/**
+ * Elements a selection rectangle picks (Canva): top-level, visible, unlocked
+ * elements it touches, except ones that hold the whole rectangle (the photo
+ * or shape the drag started on, used as a backdrop).
+ */
+export function marqueePick(page: Page, r: Rect): Element[] {
+  return page.elements.filter((e) => {
+    if (e.hidden || e.locked) return false;
+    const b = aabb(e);
+    if (!intersects(b, r)) return false;
+    const holds = b.x <= r.x && b.y <= r.y && b.x + b.w >= r.x + r.w && b.y + b.h >= r.y + r.h;
+    return !holds;
+  });
 }
 
 export function intersects(a: Rect, b: Rect): boolean {

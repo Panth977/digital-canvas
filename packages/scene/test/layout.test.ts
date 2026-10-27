@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   PRESETS, PRESET_CATEGORIES, addElements, addGuide, aabb, arrange, createDoc, distribute, duplicateElements, duplicatePage, findElement, groupElements,
-  hitTest, hitTestPath, moveGuide, parseDoc, pruneAssets, removeElements, removeGuide, resizeDoc, safeMargin, searchPresets, shape, snapMove, snapResize,
+  hitTest, hitTestAll, hitTestPath, marqueePick, moveGuide, parseDoc, pruneAssets, removeElements, removeGuide, resizeDoc, safeMargin, searchPresets, shape, snapMove, snapResize,
   snapTargets, text, tidyUp, toPx, ungroupElements, updateElements, image, MIN_SIDE, MAX_SIDE,
   type Doc, type Element, type GroupElement,
 } from '../src/index.ts';
@@ -137,6 +137,23 @@ describe('groups', () => {
     expect(hitTest(page(doc), { x: 150, y: 150 })?.id).toBe(id);
     expect(hitTest(page(doc), { x: 250, y: 250 })).toBeNull(); // inside the box, between children
     expect(hitTestPath(page(doc), { x: 350, y: 250 })?.map((e) => e.id)).toEqual([id, b.id]);
+  });
+
+  it('hitTestAll lists every element under a point, topmost first', () => {
+    const bg = shape('rect', { x: 0, y: 0, w: 1000, h: 800 });
+    const top = shape('rect', { x: 100, y: 100, w: 100, h: 100 });
+    const d = docWith(bg, top);
+    expect(hitTestAll(page(d), { x: 150, y: 150 }).map((p) => p.map((e) => e.id))).toEqual([[top.id], [bg.id]]);
+  });
+
+  it('marquee picks touched, unlocked elements but not a backdrop that holds the whole box', () => {
+    const bg = shape('rect', { x: 0, y: 0, w: 1000, h: 800 });
+    const s1 = shape('rect', { x: 100, y: 100, w: 100, h: 100 });
+    const s2 = { ...shape('rect', { x: 300, y: 100, w: 100, h: 100 }), locked: true };
+    const s3 = shape('rect', { x: 600, y: 600, w: 100, h: 100 });
+    const d = docWith(bg, s1, s2, s3);
+    expect(marqueePick(page(d), { x: 150, y: 50, w: 300, h: 100 }).map((e) => e.id)).toEqual([s1.id]);
+    expect(marqueePick(page(d), { x: -10, y: -10, w: 1100, h: 900 }).map((e) => e.id)).toEqual([bg.id, s1.id, s3.id]);
   });
 
   it('duplicate, duplicate page and arrange recurse with fresh ids', () => {

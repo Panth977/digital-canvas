@@ -16,18 +16,27 @@ function spanCss(st: TextStyle, zoom: number): string {
     + `text-decoration:${deco};text-transform:${st.uppercase ? 'uppercase' : 'none'};line-height:${st.lineHeight}`;
 }
 
-/** Fill `root` with the box's text as blocks of styled spans. */
+/**
+ * Fill `root` with the box's text as blocks of styled spans, laid out the way
+ * the canvas (Skia) lays it out: each line is as tall as its own runs need
+ * (font ascent + descent, the extra line height split above and below), with
+ * no CSS "strut" from the block's font. An empty line takes the size of the
+ * run its line break belongs to, like Skia.
+ */
 export function renderRich(root: HTMLElement, el: TextElement, zoom: number): void {
   root.replaceChildren();
   const runs = runsOf(el);
   let line = document.createElement('div');
   const lines = [line];
+  /** Style of the run each line starts in (for empty lines). */
+  const lineStyle: Partial<TextStyle>[] = [runs[0]?.style ?? {}];
   for (const r of runs) {
     const parts = r.text.split('\n');
     parts.forEach((part, i) => {
       if (i > 0) {
         line = document.createElement('div');
         lines.push(line);
+        lineStyle.push(r.style ?? {});
       }
       if (!part) return;
       const span = document.createElement('span');
@@ -37,24 +46,40 @@ export function renderRich(root: HTMLElement, el: TextElement, zoom: number): vo
       line.append(span);
     });
   }
-  for (const l of lines) {
+  lines.forEach((l, k) => {
     // a paragraph's own alignment (set by its first run)
     const first = (l.firstChild as HTMLElement | null)?.dataset?.s;
     const align = first ? (JSON.parse(first) as Partial<TextStyle>).align : undefined;
     if (align) l.style.textAlign = align;
-    if (!l.childNodes.length) l.append(document.createElement('br'));
+    if (!l.childNodes.length) {
+      // an empty line: its height comes from the block's own font (a list item's: the box's)
+      const st = el.list ? el.style : { ...el.style, ...lineStyle[k] };
+      l.style.cssText += `font-family:"${css(st.fontFamily)}",Inter,sans-serif;font-size:${st.fontSize * zoom}px;line-height:${st.lineHeight};`;
+      l.append(document.createElement('br'));
+    } else {
+      // no strut: only the spans set the line's height
+      l.style.fontSize = '0';
+      l.style.lineHeight = '0';
+    }
     if (el.list) {
       l.style.display = 'list-item';
       l.style.listStyleType = el.list === 'bullet' ? 'disc' : 'decimal';
-      l.style.fontSize = `${el.style.fontSize * zoom}px`;
-      l.style.color = el.style.color;
     }
-  }
+  });
   root.style.paddingLeft = el.list ? `${listIndent(el) * zoom}px` : '0';
   root.append(...lines);
 }
 
 const isBlock = (n: Node) => n.nodeType === 1 && /^(DIV|P|LI)$/.test((n as Element).tagName);
+
+/** Is `n` the last thing in its line block (nothing after it but empty text)? */
+function endsLine(n: Node): boolean {
+  for (let x: Node | null = n; x && !isBlock(x); x = x.parentNode) {
+    for (let s = x.nextSibling; s; s = s.nextSibling) if (s.nodeType !== 3 || s.textContent) return false;
+    if (x.parentNode && isBlock(x.parentNode)) return true;
+  }
+  return false;
+}
 
 /** Style overrides that apply to a text node: from the nearest span we made. */
 function styleOf(node: Node, root: HTMLElement): Partial<TextStyle> | undefined {
@@ -96,9 +121,10 @@ export function flatten(root: HTMLElement): Flat {
       out.nodes.push({ node: n as Text, start: out.text.length });
       push(t, styleOf(n, root));
     } else if ((n as Element).tagName === 'BR') {
-      // A lone <br> keeps an empty line open; any other is a line break.
+      // A lone <br> keeps an empty line open; a <br> that ends its line is the browser's
+      // placeholder (it shows the empty line after a break), not a break itself; any other is a line break.
       const parent = n.parentNode!;
-      if (!(isBlock(parent) && parent.childNodes.length === 1) && inLine) newline();
+      if (!(isBlock(parent) && parent.childNodes.length === 1) && inLine && !endsLine(n)) newline();
     } else for (const c of n.childNodes) walk(c, inLine);
   };
   // Top level: blocks are lines; loose inline nodes between blocks form a line too.
@@ -180,4 +206,25 @@ export function setSelectionOffsets(root: HTMLElement, start: number, end: numbe
   r.setEnd(en, eo);
   sel.removeAllRanges();
   sel.addRange(r);
+}
+
+/**
+ * Has the browser changed the editor's structure in a way that breaks the
+ * canvas's line model? (A text node or element outside our spans, a line div
+ * that lost its spans, a wrapper the browser added.) Then it should be rebuilt.
+ */
+export function needsRebuild(root: HTMLElement): boolean {
+  for (const line of root.childNodes) {
+    if (line.nodeType !== 1 || (line as Element).tagName !== 'DIV') return true;
+    const div = line as HTMLElement;
+    const empty = div.childNodes.length === 1 && (div.firstChild as Element).tagName === 'BR';
+    // a line div keeps font-size 0 only while it holds our spans
+    if (empty !== (div.style.fontSize !== '0')) return true;
+    if (empty) continue;
+    for (const c of div.childNodes) {
+      if (c.nodeType !== 1 || (c as Element).tagName !== 'SPAN' || !(c as HTMLElement).dataset.s) return true;
+      for (const t of c.childNodes) if (t.nodeType !== 3) return true;
+    }
+  }
+  return false;
 }

@@ -643,6 +643,11 @@ export class Renderer {
     return this.exportPage(doc, { ...page, elements: [] }, { scale, format: 'png' });
   }
 
+  /** Each character's box, in box coordinates (null for line breaks / curved text). */
+  textCharRects(el: TextElement): ({ x: number; y: number; w: number; h: number } | null)[] {
+    return this.text.charRects(el);
+  }
+
   /** Text as positioned words, for vector export (see `textPieces`). */
   textPieces(el: TextElement): TextPiece[] {
     return this.text.pieces(el);

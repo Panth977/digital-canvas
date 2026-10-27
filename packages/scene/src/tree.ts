@@ -168,6 +168,19 @@ export function offsetElement<T extends Element>(e: T, dx: number, dy: number): 
 }
 
 /** Topmost visible element of `els` under `p` (containers are hit through their children), with its path. */
+/** Every chain (top-level element → innermost) under `p`, topmost first. */
+export function hitPaths(els: readonly Element[], p: Point, pad = 0, hits: (e: Element, p: Point, pad: number) => boolean): Element[][] {
+  const out: Element[][] = [];
+  for (let i = els.length - 1; i >= 0; i--) {
+    const e = els[i]!;
+    if (e.hidden) continue;
+    const c = childrenOf(e);
+    if (c) for (const sub of hitPaths(c, p, pad, hits)) out.push([e, ...sub]);
+    else if (hits(e, p, pad)) out.push([e]);
+  }
+  return out;
+}
+
 export function hitPath(els: readonly Element[], p: Point, pad = 0, hits: (e: Element, p: Point, pad: number) => boolean): Element[] | null {
   for (let i = els.length - 1; i >= 0; i--) {
     const e = els[i]!;

@@ -36,6 +36,8 @@ export class EditorState {
   pageId = $state('');
   editingTextId = $state<string | null>(null);
   hoverId = $state<string | null>(null);
+  /** The current page itself is selected (clicked on its background): it shows a purple outline (Canva). */
+  pageSelected = $state(false);
   saveState = $state<SaveState>('saved');
   saveError = $state('');
   canUndo = $state(false);
@@ -144,6 +146,7 @@ export class EditorState {
 
   select(ids: string[], pageId?: string): void {
     this.selection = ids;
+    this.pageSelected = false;
     if (pageId) this.pageId = pageId;
     else if (ids[0]) {
       const hit = findElement(this.doc, ids[0]);

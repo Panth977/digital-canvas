@@ -21,7 +21,7 @@ async function screenOf(page: Page, box: { x: number; y: number; w: number; h: n
   };
 }
 
-test('moving snaps to the page centre with a guide; Alt places freely', async ({ page }) => {
+test('moving snaps to the page centre with a guide; Cmd/Ctrl places freely', async ({ page }) => {
   await newDesign(page);
   await page.getByTestId('shape-rect').click();
   const [r] = await elements(page); // added centred
@@ -38,9 +38,9 @@ test('moving snaps to the page centre with a guide; Alt places freely', async ({
   expect(m!.y).toBeGreaterThan(r!.y + 100);
 
   const c2 = await selectionCenter(page);
-  await page.keyboard.down('Alt');
+  await page.keyboard.down('ControlOrMeta');
   await drag(page, c2, { x: c2.x + 4, y: c2.y }); // inside the snap distance (3 px is the drag threshold)
-  await page.keyboard.up('Alt');
+  await page.keyboard.up('ControlOrMeta');
   const [f] = await elements(page);
   expect(f!.x - m!.x).toBeGreaterThan(2);
 });
@@ -66,10 +66,10 @@ test('group, move as one, select a child by double-click, ungroup', async ({ pag
   // drag by the rectangle (the middle of the group is empty)
   const from = await screenOf(page, g, { x: 200, y: 200 });
   const to = await screenOf(page, g, { x: 300, y: 250 });
-  // Alt: place freely (the group's centre would land within snapping distance of the page centre)
-  await page.keyboard.down('Alt');
+  // Cmd/Ctrl: place freely (the group's centre would land within snapping distance of the page centre)
+  await page.keyboard.down('ControlOrMeta');
   await drag(page, from, to);
-  await page.keyboard.up('Alt');
+  await page.keyboard.up('ControlOrMeta');
   els = await elements(page);
   const moved = els[0] as any;
   expect(moved.x).toBeCloseTo(200, 0);

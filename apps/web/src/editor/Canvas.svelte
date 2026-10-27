@@ -2,7 +2,7 @@
   import { onMount, untrack } from 'svelte';
   import type { Surface } from 'canvaskit-wasm';
   import {
-    aabb, angleTo, center, corners, cropFromBoxes, cropOf, cropPatch, findElement, hitTest, imageBox, intersects, localToPage, normalizeRect, pageToLocal,
+    aabb, angleTo, center, corners, cropFromBoxes, cropOf, cropPatch, duplicateElements, findElement, hitTest, hitTestAll, imageBox, marqueePick, localToPage, normalizeRect, pageToLocal,
     panImage, resizeBox, resizeFrame, rotatePoint, scaleImage, union, updateElements,
     addGuide, childrenOf, hitTestPath, moveGuide, pathTo, removeGuide, safeMargin, snapMove, snapResize, snapTargets,
     ANCHORS, boxPoint, contains, coverCrop, isFrame, lineEnds, lineRoute, routePoints, tableCellAt, tableCellRect,
@@ -15,7 +15,8 @@
   import { view } from '../lib/view.svelte.ts';
   import Rulers, { RULER } from './Rulers.svelte';
   import { ui } from '../lib/ui.svelte.ts';
-  import { flatten, getSelectionOffsets, renderRich, setSelectionOffsets } from '../lib/richtext.ts';
+  import { textShortcut } from '../lib/shortcuts.ts';
+  import { flatten, getSelectionOffsets, needsRebuild, renderRich, setSelectionOffsets } from '../lib/richtext.ts';
 
   let { ed, zoom = $bindable(1), fitRequest = 0 }: { ed: EditorState; zoom?: number; fitRequest?: number } = $props();
 
@@ -161,7 +162,11 @@
     c.clear(Float32Array.from(STAGE));
     c.save();
     c.scale(dpr, dpr);
-    const skip = ed.editingTextId ? new Set([ed.editingTextId]) : undefined;
+    // Text being edited is still drawn here (the editor's own letters are invisible, it only
+    // shows the caret and selection), so nothing moves on double-click. Curved text is edited
+    // as a straight line on a white card, so the canvas leaves it out.
+    const editingEl = ed.editingTextId ? findElement(ed.doc, ed.editingTextId)?.element : null;
+    const skip = editingEl?.type === 'text' && editingEl.curve ? new Set([editingEl.id]) : undefined;
     const shadow = new ck.Paint();
     shadow.setColor(ck.Color4f(0.06, 0.07, 0.12, 0.14));
     shadow.setMaskFilter(ck.MaskFilter.MakeBlur(ck.BlurStyle.Normal, 6, true));
@@ -285,7 +290,7 @@
   const selected = $derived(ed.selected.map((el) => ({ el, i: pageIndexOf(findElement(ed.doc, el.id)!.page.id) })));
   const single = $derived(selected.length === 1 ? selected[0]! : null);
   const hover = $derived.by(() => {
-    if (!ed.hoverId || ed.selection.includes(ed.hoverId)) return null;
+    if (!ed.hoverId || ed.selection.includes(ed.hoverId) || (drag && drag.mode !== 'press')) return null;
     const hit = findElement(ed.doc, ed.hoverId);
     return hit ? { el: hit.element, i: pageIndexOf(hit.page.id) } : null;
   });
@@ -342,7 +347,11 @@
 
   // ---- pointer interaction ----
   type Drag =
-    | { mode: 'move'; start: Point; orig: Map<string, { x: number; y: number }>; key: string; moved: boolean; pageI: number; box: Rect | null; targets: SnapTargets }
+    | { mode: 'move'; start: Point; orig: Map<string, { x: number; y: number }>; key: string; moved: boolean; pageI: number; box: Rect | null; targets: SnapTargets;
+        /** What a click (no drag) does: edit the text at the pointer, or pick the element behind. */
+        click: 'edit' | 'behind' | null; client: Point; alt: boolean }
+    /** Pressed on an element that is not selected: a click selects it, a drag draws a selection box (Canva). */
+    | { mode: 'press'; start: Point; el: Element; i: number; mod: boolean }
     | { mode: 'resize'; handle: Handle; pageI: number; orig: Element[]; box: Rect; key: string; shift: boolean; targets: SnapTargets }
     | { mode: 'guide'; axis: 'x' | 'y'; pageI: number; index: number | null; key: string }
     | { mode: 'rotate'; pageI: number; orig: Element; key: string }
@@ -357,6 +366,8 @@
   /** While dragging a line's end: the element it would stick to, and the spot. */
   let snap = $state.raw<{ el: Element; i: number; point: { x: number; y: number } | null } | null>(null);
   let cursor = $state('default');
+  /** Canva's live readout next to the pointer: "w × h" while resizing, degrees while rotating. */
+  let tip = $state.raw<{ x: number; y: number; text: string } | null>(null);
   let spaceDown = false;
 
   function handleAt(s: Point): HandlePos | null {
@@ -401,8 +412,8 @@
     return snapTargets(ed.doc.width, ed.doc.height, rects, view.rulers ? page.guides ?? [] : []);
   }
 
-  /** Alt or Cmd held (or snapping off in View) = place freely. */
-  const free = (e: PointerEvent | MouseEvent) => !view.snap || e.altKey || e.metaKey;
+  /** Cmd/Ctrl held (or snapping off in View) = place freely. (Alt-drag makes a copy.) */
+  const free = (e: PointerEvent | MouseEvent) => !view.snap || e.metaKey || e.ctrlKey;
 
   // ---- ruler guides ----
   function guideAt(s: Point): { i: number; index: number; axis: 'x' | 'y' } | null {
@@ -510,31 +521,71 @@
       drag = { mode: 'framePan', id: el.id, start: toWorld(s.x, s.y), crop, key };
       return;
     }
-    if (hit) {
+    if (hit?.el.type === 'table') {
+      // remember the cell for the properties panel
+      const local = rotatePoint(toPage(toWorld(s.x, s.y), hit.i), center(hit.el), -hit.el.rotation);
+      const c = tableCellAt(hit.el, local);
+      if (c) ed.cell = { id: hit.el.id, ...c };
+    }
+    if (hit && e.shiftKey) {
+      // Shift-click adds or removes an element
       const id = hit.el.id;
-      if (hit.el.type === 'table') {
-        // remember the cell for the properties panel
-        const local = rotatePoint(toPage(toWorld(s.x, s.y), hit.i), center(hit.el), -hit.el.rotation);
-        const c = tableCellAt(hit.el, local);
-        if (c) ed.cell = { id, ...c };
-      }
-      if (e.shiftKey) {
-        ed.select(ed.selection.includes(id) ? ed.selection.filter((x) => x !== id) : [...ed.selection, id]);
-        return;
-      }
-      if (!ed.selection.includes(id)) ed.select([id]);
+      ed.select(ed.selection.includes(id) ? ed.selection.filter((x) => x !== id) : [...ed.selection, id]);
+      return;
+    }
+    const mod = e.metaKey || e.ctrlKey;
+    if (onSelection(s, hit?.el ?? null)) {
+      // Only what is already selected moves when dragged (Canva).
       const movable = ed.selected.filter((el) => !el.locked);
       const orig = new Map(movable.map((el) => [el.id, { x: el.x, y: el.y }]));
       const box = union(movable.map((el) => aabb(el)));
-      drag = { mode: 'move', start: toWorld(s.x, s.y), orig, key, moved: false, pageI: hit.i, box, targets: targetsFor(hit.i, ed.selection) };
+      const pageI = selected[0]!.i;
+      const one = single?.el;
+      const click = mod ? 'behind' : one?.type === 'text' && hit?.el.id === one.id && !one.curve ? 'edit' : null;
+      drag = { mode: 'move', start: toWorld(s.x, s.y), orig, key, moved: false, pageI, box, targets: targetsFor(pageI, ed.selection), click, client: { x: e.clientX, y: e.clientY }, alt: e.altKey };
+      return;
+    }
+    if (hit) {
+      drag = { mode: 'press', start: s, el: hit.el, i: hit.i, mod };
       return;
     }
 
+    // empty space: the page (selects it) or the workspace around it (selects nothing); a drag draws a selection box
     const w = toWorld(s.x, s.y);
     const pageI = pageAt(w);
-    if (!e.shiftKey) ed.select([], ed.doc.pages[pageI]!.id);
+    const p = toPage(w, pageI);
+    const onPage = p.x >= 0 && p.y >= 0 && p.x <= ed.doc.width && p.y <= ed.doc.height;
+    if (!e.shiftKey) {
+      ed.select([], onPage ? ed.doc.pages[pageI]!.id : undefined);
+      ed.pageSelected = onPage;
+    }
     drag = { mode: 'marquee', start: s, now: s, pageI, base: e.shiftKey ? ed.selection : [] };
   }
+
+  /** Is screen point `s` on the current selection (an element of it, or inside a multi-selection's box), and can it move? */
+  function onSelection(s: Point, hitEl: Element | null): boolean {
+    if (!selected.length || !ed.selected.some((el) => !el.locked)) return false;
+    if (hitEl && ed.selection.includes(hitEl.id)) return true;
+    if (multiBox) return s.x >= multiBox.x && s.x <= multiBox.x + multiBox.w && s.y >= multiBox.y && s.y <= multiBox.y + multiBox.h;
+    if (single && single.el.type !== 'line') return contains(single.el, toPage(toWorld(s.x, s.y), single.i));
+    return false;
+  }
+
+  /**
+   * Cmd/Ctrl-click (Canva): the element under the pointer one level deeper —
+   * inside a group, the element itself; clicked again, the one behind it.
+   */
+  function pickBehind(s: Point): void {
+    const w = toWorld(s.x, s.y);
+    const i = pageAt(w);
+    const stack = hitTestAll(ed.doc.pages[i]!, toPage(w, i), 2 / zoom).map((path) => path[path.length - 1]!);
+    if (!stack.length) return;
+    const k = stack.findIndex((el) => ed.selection.includes(el.id));
+    ed.select([stack[k < 0 ? 0 : (k + 1) % stack.length]!.id]);
+  }
+
+  /** Where a click into a text box should put the caret, once its editor is up (client px). */
+  let caretAt: Point | null = null;
 
   function onPointerMove(e: PointerEvent): void {
     const s = localPoint(e);
@@ -549,7 +600,8 @@
       else {
         const hit = elementAt(s);
         ed.hoverId = hit?.el.id ?? null;
-        cursor = hit ? (hit.el.locked ? 'default' : 'move') : spaceDown ? 'grab' : 'default';
+        // the move cursor only over what a drag would move (the selection); elsewhere a drag selects
+        cursor = spaceDown ? 'grab' : onSelection(s, hit?.el ?? null) ? 'move' : 'default';
       }
       return;
     }
@@ -559,9 +611,24 @@
         panX = drag.panX + (s.x - drag.start.x);
         panY = drag.panY + (s.y - drag.start.y);
         break;
+      case 'press': {
+        // a drag that starts on an unselected element draws a selection box (Canva)
+        if (Math.hypot(s.x - drag.start.x, s.y - drag.start.y) < 3) return;
+        ed.select([], ed.doc.pages[drag.i]!.id);
+        drag = { mode: 'marquee', start: drag.start, now: drag.start, pageI: drag.i, base: [] };
+        onPointerMove(e);
+        return;
+      }
       case 'move': {
         let dx = w.x - drag.start.x, dy = w.y - drag.start.y;
         if (!drag.moved && Math.hypot(dx * zoom, dy * zoom) < 3) return;
+        if (!drag.moved && drag.alt) {
+          // Alt/Option-drag: move a copy, leave the original (Canva)
+          const r = duplicateElements(ed.doc, [...drag.orig.keys()], 0);
+          ed.commit(r.doc, drag.key);
+          ed.select(r.ids);
+          drag.orig = new Map(ed.selected.map((el) => [el.id, { x: el.x, y: el.y }]));
+        }
         drag.moved = true;
         if (drag.box && !free(e)) {
           const r = snapMove({ ...drag.box, x: drag.box.x + dx, y: drag.box.y + dy }, drag.targets, SNAP_PX / zoom);
@@ -607,9 +674,13 @@
         ed.commit(updateElements(ed.doc, [el.id], { crop }), drag.key);
         break;
       }
-      case 'resize':
+      case 'resize': {
         resizeTo(drag, toPage(w, drag.pageI), e.shiftKey, free(e));
+        const now = drag.orig.length === 1 ? findElement(ed.doc, drag.orig[0]!.id)?.element : null;
+        const b = now ?? union(ed.selected.map((el) => aabb(el)));
+        if (b) tip = { x: s.x, y: s.y + 28, text: `w ${Math.round(b.w)} × h ${Math.round(b.h)}` };
         break;
+      }
       case 'guide':
         dragGuide(drag, s);
         break;
@@ -633,6 +704,7 @@
         if (e.shiftKey) deg = Math.round(deg / 15) * 15;
         else for (const snap of [0, 45, 90, 135, 180, 225, 270, 315, 360]) if (Math.abs(deg - snap) < 3) deg = snap;
         ed.commit(updateElements(ed.doc, [el.id], { rotation: deg % 360 }), drag.key);
+        tip = { x: s.x, y: s.y + 28, text: `${Math.round(deg % 360)}°` };
         break;
       }
       case 'marquee': {
@@ -640,7 +712,7 @@
         const a = toPage(toWorld(drag.start.x, drag.start.y), drag.pageI), b = toPage(w, drag.pageI);
         const r = normalizeRect(a, b);
         const page = ed.doc.pages[drag.pageI]!;
-        const ids = page.elements.filter((el) => !el.hidden && intersects(aabb(el), r)).map((el) => el.id);
+        const ids = marqueePick(page, r).map((el) => el.id);
         ed.select([...new Set([...drag.base, ...ids])], page.id);
         break;
       }
@@ -720,8 +792,22 @@
     if (drag?.mode === 'pan') cursor = spaceDown ? 'grab' : 'default';
     if (drag?.mode === 'guide') dropGuide(drag, localPoint(e));
     if (drag?.mode === 'draw') ed.addStroke(ed.doc.pages[drag.pageI]!.id, drag.pts);
+    if (drag?.mode === 'press') {
+      // a click: Cmd/Ctrl picks inside groups / behind, else the element under the pointer
+      if (drag.mod) pickBehind(drag.start);
+      else ed.select([drag.el.id]);
+    }
+    if (drag?.mode === 'move' && !drag.moved) {
+      if (drag.click === 'behind') pickBehind(localPoint(e));
+      else if (drag.click === 'edit' && single) {
+        // a click on a selected text box edits it, caret where you clicked (Canva)
+        caretAt = drag.client;
+        ed.startEditing(single.el.id);
+      }
+    }
     snapShown = null;
     snap = null;
+    tip = null;
     if (drag) ed.seal();
     drag = null;
   }
@@ -739,7 +825,16 @@
     if (childrenOf(hit.el)) {
       const next = hit.path[hit.path.indexOf(hit.el) + 1];
       if (next) ed.select([next.id]);
-    } else if (hit.el.type === 'text') ed.startEditing(hit.el.id);
+    } else if (hit.el.type === 'text') {
+      // double-click: edit with all the text selected
+      caretAt = null;
+      if (ed.editingTextId === hit.el.id && editorNode) {
+        const all = document.createRange();
+        all.selectNodeContents(editorNode);
+        document.getSelection()?.removeAllRanges();
+        document.getSelection()?.addRange(all);
+      } else ed.startEditing(hit.el.id);
+    }
     else if (hit.el.type === 'table') {
       const local = rotatePoint(toPage(toWorld(s.x, s.y), hit.i), center(hit.el), -hit.el.rotation);
       const c = tableCellAt(hit.el, local);
@@ -819,6 +914,21 @@
     return { el: hit.element, i: pageIndexOf(hit.page.id) };
   });
 
+  let editorNode: HTMLDivElement | null = null;
+
+  /** A collapsed range at client point `at` inside the editor, if the point is over its text. */
+  function caretRange(node: HTMLElement, at: Point): Range | null {
+    const d = document as Document & { caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null };
+    let r: Range | null = null;
+    if (d.caretPositionFromPoint) {
+      const pos = d.caretPositionFromPoint(at.x, at.y);
+      if (pos) { r = document.createRange(); r.setStart(pos.offsetNode, pos.offset); }
+    } else r = document.caretRangeFromPoint?.(at.x, at.y) ?? null;
+    if (!r || !node.contains(r.startContainer)) return null;
+    r.collapse(true);
+    return r;
+  }
+
   /**
    * The rich text editor. It builds its DOM once, then only on a style change
    * from outside (`textRev`) or a zoom change, keeping the caret/selection.
@@ -830,10 +940,14 @@
     };
     const first = el();
     if (first) renderRich(node, first, p.zoom);
+    editorNode = node;
     node.focus();
-    // select everything, like double-click in Canva
-    const all = document.createRange();
-    all.selectNodeContents(node);
+    // a click puts the caret there; a double-click (or Enter) selects everything, like Canva
+    const at = caretAt;
+    caretAt = null;
+    const range = at ? caretRange(node, at) : null;
+    const all = range ?? document.createRange();
+    if (!range) all.selectNodeContents(node);
     document.getSelection()?.removeAllRanges();
     document.getSelection()?.addRange(all);
     const track = () => {
@@ -858,6 +972,7 @@
         }
       },
       destroy() {
+        if (editorNode === node) editorNode = null;
         document.removeEventListener('selectionchange', track);
       },
     };
@@ -869,12 +984,20 @@
     ed.setRich(id, f.text, f.runs);
     const r = getSelectionOffsets(node);
     if (r) ed.textSel = r;
+    // Enter, deleting a whole line, etc. leave DOM the browser made up: rebuild it our way
+    // (keeping the caret) so its line heights stay the canvas's.
+    const hit = findElement(ed.doc, id);
+    if (!(e as InputEvent).isComposing && hit?.element.type === 'text' && needsRebuild(node)) {
+      renderRich(node, hit.element, zoom);
+      if (r) setSelectionOffsets(node, r.start, r.end);
+    }
   }
 
   function onRichKey(e: KeyboardEvent): void {
     const mod = e.metaKey || e.ctrlKey;
     const k = e.key.toLowerCase();
     if (e.key === 'Escape') { e.preventDefault(); ed.stopEditing(); }
+    else if (textShortcut(ed, e)) { /* handled */ }
     else if (mod && (k === 'b' || k === 'i' || k === 'u')) {
       // our own styling, not the browser's <b>/<i>/<u>
       e.preventDefault();
@@ -1006,7 +1129,7 @@
       {#if p.hidden}
         <rect x={o.x} y={o.y} width={ed.doc.width * zoom} height={ed.doc.height * zoom} class="hiddenpage" />
       {/if}
-      {#if p.id === ed.pageId && ed.doc.pages.length > 1 && !ed.selection.length}
+      {#if p.id === ed.pageId && ed.pageSelected && !ed.selection.length}
         <rect x={o.x - 2} y={o.y - 2} width={ed.doc.width * zoom + 4} height={ed.doc.height * zoom + 4} class="curpage" data-testid="current-page" />
       {/if}
       {#if view.bleed && ed.doc.bleed}
@@ -1029,6 +1152,11 @@
         {@const l = gapSeg(snapShown.i, g)}
         <line {...l} class="snap gap" />
         <circle cx={l.x1} cy={l.y1} r="2" class="snap-dot" /><circle cx={l.x2} cy={l.y2} r="2" class="snap-dot" />
+        <!-- the gap's size, like Canva's spacing label -->
+        <g class="gaplabel" transform="translate({(l.x1 + l.x2) / 2},{(l.y1 + l.y2) / 2})" data-testid="gap-label">
+          <rect x="-18" y="-10" width="36" height="20" rx="10" />
+          <text text-anchor="middle" dy="4">{Math.round(g.to - g.from)}</text>
+        </g>
       {/each}
     {/if}
     {#if hover}
@@ -1103,7 +1231,7 @@
     {@const pageLocked = pg.elements.length > 0 && pg.elements.every((e) => e.locked)}
     <div class="pagebar" class:narrow={ed.doc.width * zoom < 360} role="toolbar" aria-label="Page actions" tabindex="-1" data-testid="page-header" style="left:{bar.pos.x}px;top:{bar.pos.y - 34 - bleedPx}px;width:{ed.doc.width * zoom}px" onpointerdown={(e) => e.stopPropagation()}>
       <div class="pagetitle" class:current={bar.id === ed.pageId}>
-        <button class="pagename" onclick={() => ed.select([], bar.id)}>Page {bar.i + 1}</button>
+        <button class="pagename" onclick={() => { ed.select([], bar.id); ed.pageSelected = true; }}>Page {bar.i + 1}</button>
         <span class="dash">-</span>
         <input class="pagetitle-input" placeholder="Add page title" value={pg.name ?? ''} aria-label="Page {bar.i + 1} title" data-testid="page-title"
           onfocus={() => ed.select([], bar.id)}
@@ -1121,6 +1249,10 @@
       </div>
     </div>
   {/each}
+
+  {#if tip}
+    <div class="tip" data-testid="drag-tip" style="left:{tip.x}px;top:{tip.y}px">{tip.text}</div>
+  {/if}
 
   {#if mini}
     <div class="mini" role="toolbar" aria-label="Quick actions" tabindex="-1" data-testid="mini-toolbar" style="left:{mini.x}px;top:{mini.y}px" onpointerdown={(e) => e.stopPropagation()}>
@@ -1159,9 +1291,9 @@
       tabindex="0"
       spellcheck="true"
       use:richEditor={{ id: el.id, rev: ed.textRev, zoom }}
-      style="left:{p.x}px;top:{p.y}px;width:{el.w * zoom}px;min-height:{el.h * zoom}px;transform:rotate({el.rotation}deg);
-        text-align:{el.style.align};opacity:{el.opacity};line-height:{el.style.lineHeight};
-        font:{el.style.italic ? 'italic' : 'normal'} {el.style.bold ? 700 : 400} {el.style.fontSize * zoom}px/{el.style.lineHeight} '{el.style.fontFamily}', Inter, sans-serif;color:{el.style.color}"
+      class:ghost={!el.curve}
+      style="left:{p.x}px;top:{p.y}px;width:{el.w * zoom}px;{el.curve ? `min-height:${el.h * zoom}px` : `height:${el.h * zoom}px`};transform:rotate({el.rotation}deg);
+        text-align:{el.style.align};font-size:0;line-height:0;color:{el.style.color}"
       oninput={(e) => onRichInput(e, el.id)}
       onpointerdown={(e) => e.stopPropagation()}
       onkeydown={onRichKey}
@@ -1204,7 +1336,7 @@
   .stage { position: relative; flex: 1; overflow: hidden; background: var(--stage); touch-action: none; user-select: none; }
   canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
   .overlay { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
-  .hover { fill: none; stroke: var(--accent); stroke-width: 1.5; opacity: .7; }
+  .hover { fill: none; stroke: var(--accent); stroke-width: 2; }
   .sel { fill: none; stroke: var(--accent); stroke-width: 2; }
   .sel.locked { stroke: #f59e0b; }
   .dashed { stroke-dasharray: 5 4; stroke-width: 1.5; }
@@ -1220,6 +1352,9 @@
   .snap { stroke: #ff2ec4; stroke-width: 1; }
   .snap.gap { stroke-width: 1.5; }
   .snap-dot { fill: #ff2ec4; }
+  .gaplabel rect { fill: #ff2ec4; }
+  .gaplabel text { fill: #fff; font: 600 11px/1 Inter, system-ui, sans-serif; }
+  .tip { position: absolute; transform: translateX(-50%); padding: 4px 10px; border-radius: 999px; background: #1b1d22; color: #fff; font: 600 12px/1.3 Inter, system-ui, sans-serif; white-space: nowrap; pointer-events: none; z-index: 5; box-shadow: 0 2px 8px rgba(0,0,0,.25); }
   .guide { stroke: #00b8c4; stroke-width: 1; }
   .trim { fill: none; stroke: #e5484d; stroke-width: 1; stroke-dasharray: 6 4; }
   .margin { fill: none; stroke: #7c5cff; stroke-width: 1; stroke-dasharray: 3 3; opacity: .8; }
@@ -1247,10 +1382,13 @@
   .addpage { position: absolute; height: 40px; display: flex; align-items: center; justify-content: center; gap: 6px; border: 0; border-radius: 8px; background: var(--hover); font-weight: 600; color: var(--bar-ink); }
   .addpage:hover { background: var(--accent-soft); color: var(--accent); }
   .text-edit {
-    position: absolute; transform-origin: center; margin: 0; padding: 0; border: 0; resize: none; overflow: hidden;
+    position: absolute; transform-origin: center; margin: 0; padding: 0; border: 0; resize: none; overflow: visible;
     background: transparent; outline: 2px solid var(--accent); outline-offset: 0; caret-color: var(--accent); white-space: pre-wrap; word-break: break-word;
     user-select: text; -webkit-user-select: text; box-sizing: border-box;
   }
+  /* the canvas draws the letters; the editor shows only the caret and the selection */
+  .text-edit.ghost, .text-edit.ghost :global(*) { color: transparent !important; text-decoration-color: transparent !important; }
+  .text-edit.ghost::selection, .text-edit.ghost :global(*::selection) { background: rgba(124, 92, 255, .32); color: transparent; }
   .text-edit.curved { white-space: pre; display: flex; flex-direction: column; justify-content: center; background: rgba(255,255,255,.85); }
   .text-edit :global(div) { margin: 0; }
 </style>

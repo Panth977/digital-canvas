@@ -25,6 +25,8 @@ interface Block {
   y: number;
   marker?: { p: Paragraph; x: number; src?: Source };
   src?: Source;
+  /** Offset in the element's text where this block's characters start. */
+  start: number;
 }
 
 /** A word (or a run's part of one) at its place in the box: `y` is the baseline. For SVG and PDF export. */
@@ -193,7 +195,7 @@ export class TextLayouts {
         const align = lineRuns[0]?.style?.align ?? sliceRuns(runs, start, start + 1)[0]?.style?.align ?? el.style.align;
         const src = lineRuns.length ? lineRuns : sliceRuns(runs, start, start + 1).map((r) => ({ ...r, text: '' }));
         const p = keep(this.build(el, src, pass, align, el.w));
-        blocks.push({ p, x: 0, y, src: { base: el.style, runs: src } });
+        blocks.push({ p, x: 0, y, src: { base: el.style, runs: src }, start });
         y += p.getHeight();
         start += line.length + 1;
       }
@@ -201,7 +203,7 @@ export class TextLayouts {
     }
     if (!el.list) {
       const p = keep(this.build(el, runs, pass, el.style.align, el.w));
-      return { blocks: [{ p, x: 0, y: 0, src: { base: el.style, runs } }], glyphs: [], width: el.w, height: p.getHeight(), minX: 0, minY: 0, paragraphs };
+      return { blocks: [{ p, x: 0, y: 0, src: { base: el.style, runs }, start: 0 }], glyphs: [], width: el.w, height: p.getHeight(), minX: 0, minY: 0, paragraphs };
     }
     // List: one paragraph per line, indented, with its marker in the gutter.
     const indent = listIndent(el);
@@ -217,7 +219,7 @@ export class TextLayouts {
         marker = { p: mp, x: 0, src: { base: first, runs: [{ text: listMarker(el.list, n) }] } };
         n++;
       }
-      blocks.push({ p, x: indent, y, marker, src: { base: el.style, runs: lineRuns } });
+      blocks.push({ p, x: indent, y, marker, src: { base: el.style, runs: lineRuns }, start });
       y += p.getHeight();
       start += line.length + 1;
     }
@@ -339,6 +341,28 @@ export class TextLayouts {
       add(b.p, b.src, b.x, b.y);
       if (b.marker) add(b.marker.p, b.marker.src, b.marker.x, b.y);
     }
+    return out;
+  }
+
+  /**
+   * Where each character of the text sits, in box coordinates (Skia's tight
+   * box: the run's font ascent to descent). Null for characters with no box
+   * (line breaks) and for curved text. Used to check the in-place editor
+   * lays text out exactly like the canvas.
+   */
+  charRects(el: TextElement): ({ x: number; y: number; w: number; h: number } | null)[] {
+    const ck = this.ck;
+    const L = this.layout(el);
+    const out: ({ x: number; y: number; w: number; h: number } | null)[] = new Array(el.text.length).fill(null);
+    if (L.glyphs.length) return out;
+    L.blocks.forEach((b, k) => {
+      const end = L.blocks[k + 1]?.start ?? el.text.length;
+      for (let i = b.start; i < end; i++) {
+        if (el.text[i] === '\n') continue;
+        const r = b.p.getRectsForRange(i - b.start, i - b.start + 1, ck.RectHeightStyle.Tight, ck.RectWidthStyle.Tight)[0]?.rect;
+        if (r) out[i] = { x: b.x + r[0]!, y: b.y + r[1]!, w: r[2]! - r[0]!, h: r[3]! - r[1]! };
+      }
+    });
     return out;
   }
 

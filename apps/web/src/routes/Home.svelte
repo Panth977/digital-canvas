@@ -190,7 +190,8 @@
       <div class="grid">
         {#each projects as p (p.id)}
           <div class="card" data-testid="project-card">
-            <button class="thumb" onclick={() => router.go({ name: 'editor', id: p.id })} aria-label="Open {p.title}">
+            <!-- a plain link: opens in this tab (⌘/Ctrl-click or middle-click still give a new tab) -->
+            <a class="thumb" href="#/d/{p.id}" aria-label="Open {p.title}" data-testid="project-open">
               {#if p.thumbnail}
                 <img src={objectUrl(p.thumbnail)} alt="" />
               {:else if p.thumbnailUrl}
@@ -198,7 +199,7 @@
               {:else}
                 <Icon name="image" size={28} />
               {/if}
-            </button>
+            </a>
             <div class="meta">
               <div>
                 <b title={p.title}>{p.title}</b>
@@ -208,7 +209,7 @@
                 <button class="btn ghost icon" aria-label="More" onclick={(e) => { e.stopPropagation(); menuFor = menuFor === p.id ? null : p.id; }}><Icon name="more" /></button>
                 {#if menuFor === p.id}
                   <div class="menu">
-                    <button onclick={() => router.go({ name: 'editor', id: p.id })}>Open</button>
+                    <a href="#/d/{p.id}">Open</a>
                     <button class="danger" onclick={() => remove(p)}>Delete</button>
                   </div>
                 {/if}
@@ -267,7 +268,7 @@
   .custom-row { display: flex; gap: 6px; align-items: center; width: 100%; }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
   .card { background: var(--pop); border: 1px solid var(--line); border-radius: var(--radius); overflow: visible; }
-  .thumb { display: grid; place-items: center; width: 100%; aspect-ratio: 4 / 3; border: 0; background: var(--chip); border-radius: var(--radius) var(--radius) 0 0; overflow: hidden; color: var(--muted); padding: 10px; }
+  .thumb { box-sizing: border-box; display: grid; place-items: center; width: 100%; aspect-ratio: 4 / 3; border: 0; background: var(--chip); border-radius: var(--radius) var(--radius) 0 0; overflow: hidden; color: var(--muted); padding: 10px; }
   .thumb img { max-width: 100%; max-height: 100%; box-shadow: 0 2px 10px rgba(0,0,0,.12); background: #fff; }
   .meta { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 10px 8px 10px 12px; }
   .meta > div:first-child { min-width: 0; display: flex; flex-direction: column; }
@@ -275,8 +276,8 @@
   .meta span { font-size: 12px; color: var(--muted); }
   .menu-wrap { position: relative; }
   .menu { position: absolute; right: 0; top: 36px; background: var(--pop); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); padding: 4px; z-index: 5; min-width: 120px; }
-  .menu button { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 8px 10px; border-radius: 6px; }
-  .menu button:hover { background: var(--hover); }
+  .menu button, .menu a { display: block; box-sizing: border-box; color: inherit; text-decoration: none; font: inherit; width: 100%; text-align: left; border: 0; background: none; padding: 8px 10px; border-radius: 6px; }
+  .menu button:hover, .menu a:hover { background: var(--hover); }
   .danger { color: var(--danger); }
   .empty { padding: 40px; text-align: center; color: var(--muted); background: var(--pop); border: 1px dashed var(--line); border-radius: var(--radius); }
   .muted { color: var(--muted); }

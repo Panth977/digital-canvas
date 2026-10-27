@@ -23,7 +23,7 @@
   <label class:off={!bleed} title={bleed ? '' : 'This design has no print bleed'}><input type="checkbox" checked={view.bleed} disabled={!bleed} onchange={() => view.toggle('bleed')} data-testid="view-bleed" /> Show print bleed</label>
   <label><input type="checkbox" checked={view.margins} onchange={() => view.toggle('margins')} data-testid="view-margins" /> Show margins</label>
   <label><input type="checkbox" checked={view.snap} onchange={() => view.toggle('snap')} data-testid="view-snap" /> Snap to guides and elements</label>
-  <p>Hold Alt or ⌘ while dragging to place freely. Drag from a ruler to add a guide; drag it off the page to remove it.</p>
+  <p>Hold ⌘/Ctrl while dragging to place freely; Alt-drag moves a copy. Drag from a ruler to add a guide; drag it off the page to remove it.</p>
   <hr />
   <button onclick={() => router.go({ name: 'home' })}><Icon name="home" size={18} /> All designs</button>
 </div>
