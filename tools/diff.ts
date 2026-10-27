@@ -49,7 +49,9 @@ for (const n of wanted) {
   for (const id of ids) { const b = project.assets.get(id); if (b) r.setImage(id, b); }
   const ref = ck.MakeImageFromEncoded(readFileSync(refFile))!;
   const W = ref.width(), H = ref.height();
-  const ours = ck.MakeImageFromEncoded(r.exportPage(doc, doc.pages[n - 1]!, { scale: W / doc.width }))!;
+  const oursPng = r.exportPage(doc, doc.pages[n - 1]!, { scale: W / doc.width });
+  if (process.env.DIFF_OURS) writeFileSync(join(outDir, `ours-page${n}.png`), oursPng); // full size, for tools/canva-bgmask.py
+  const ours = ck.MakeImageFromEncoded(oursPng)!;
   const a = rgba(ref), b = rgba(ours);
   const heat = new Uint8Array(W * H * 4);
   let same = 0, sum = 0;

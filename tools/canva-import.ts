@@ -113,7 +113,7 @@ function exactVideo(m: CanvaMedia): { id: string; duration: number } | null {
   const vs = info.streams.find((x: { codec_type: string }) => x.codec_type === 'video');
   const duration = Number(info.format.duration) || 0;
   const id = addAsset(bytes, 'video/mp4', { width: vs?.width, height: vs?.height, duration, name: vid });
-  const poster = new Uint8Array(execFileSync('ffmpeg', ['-v', 'error', '-ss', '0.05', '-i', file, '-frames:v', '1', '-f', 'image2', '-vcodec', 'png', '-']));
+  const poster = new Uint8Array(execFileSync('ffmpeg', ['-v', 'error', '-ss', '0.05', '-i', file, '-frames:v', '1', '-f', 'image2', '-vcodec', 'png', '-'], { maxBuffer: 1 << 28 }));
   assets.set(`${id}.poster`, poster);
   assetMeta[`${id}.poster`] = { mime: 'image/png', ...pngSize(poster), name: `${vid} (poster)` };
   const r = { id, duration };
