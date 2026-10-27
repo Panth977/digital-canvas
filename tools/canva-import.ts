@@ -19,7 +19,7 @@ import { FontLibrary, Renderer } from '@digital-canvas/render';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { FORMAT, VERSION, newId, DEFAULT_TEXT_STYLE, type Doc, type Element, type Fill, type Page, type PathPart, type TextAlign, type TextElement, type TextStyle } from '@digital-canvas/scene';
+import { FORMAT, VERSION, newId, line as lineElement, DEFAULT_TEXT_STYLE, type Doc, type Element, type Fill, type Page, type PathPart, type TextAlign, type TextElement, type TextStyle } from '@digital-canvas/scene';
 import { googleFontFull } from './google-fonts.ts';
 import { pack } from '@digital-canvas/storage';
 
@@ -434,16 +434,30 @@ function convert(el: CanvaEl): Element[] {
   if (exactDir && el.type === 'rect' && el.fill?.color) {
     return [{ ...base, type: 'shape', shape: 'rect', fill: { type: 'solid', color: el.fill.color.color }, stroke: null, radius: 0 }];
   }
-  if (exactDir && el.type === 'line' && (el.geometry ?? 'straight') === 'straight' && el.start && el.end) {
-    const w = el.stroke?.weight ?? 2, col = el.stroke?.color?.color ?? '#000000';
-    const { left: x1, top: y1 } = el.start, { left: x2, top: y2 } = el.end;
-    const parts: PathPart[] = [{ d: `M${x1} ${y1}L${x2} ${y2}`, fill: null, stroke: { color: col, width: w } }];
-    for (const mk of [...marker(el.start.marker, x1, y1, x1 - x2, y1 - y2, w), ...marker(el.end.marker, x2, y2, x2 - x1, y2 - y1, w)]) {
-      parts.push({ ...mk, fill: mk.fill ? { type: 'solid', color: col } : null, stroke: { color: col, width: w } });
+  if (exactDir && el.type === 'line' && el.start && el.end) {
+    // A real (editable) line: Canva's ends, weight, colour, markers and route.
+    const mk = (m?: string) => (({ ARROW: 'arrow', TRIANGLE: 'triangle', BAR: 'bar', CIRCLE: 'circle', OPEN_CIRCLE: 'circle', SQUARE: 'square', OPEN_SQUARE: 'square', DIAMOND: 'square', OPEN_DIAMOND: 'square' } as Record<string, 'arrow' | 'triangle' | 'bar' | 'circle' | 'square'>)[(m ?? '').toUpperCase()] ?? 'none');
+    const route = el.geometry === 'curved' ? 'curved' : el.geometry === 'elbowed' ? 'elbow' : 'straight';
+    if (route !== 'straight') gap('curved/elbow lines (route shape approximated)');
+    const ln = lineElement({ x: el.start.left, y: el.start.top }, { x: el.end.left, y: el.end.top }, {
+      stroke: { color: el.stroke?.color?.color ?? '#000000', width: el.stroke?.weight ?? 2 },
+      route, start: mk(el.start.marker), end: mk(el.end.marker),
+    });
+    return [{ ...ln, opacity: base.opacity }];
+  }
+  if (exactDir && el.type === 'shape' && el.paths?.length === 1 && el.paths[0]!.fill?.media) {
+    // A picture inside a shape (Canva frame): the image, masked by the shape's path.
+    const p0 = el.paths[0]!;
+    const id = exactImage(p0.fill!.media!);
+    if (id) {
+      const vb = el.viewBox ?? { top: 0, left: 0, width: el.width, height: el.height };
+      const img: Element = { ...base, type: 'image', asset: id, radius: 0, crop: cropOf(el, p0.fill!.media!.imageBox), mask: { d: p0.d, viewBox: { x: vb.left, y: vb.top, w: vb.width, h: vb.height } } };
+      const out: Element[] = [img];
+      if (p0.stroke && p0.stroke.weight > 0 && p0.stroke.color?.color) {
+        out.push({ ...base, id: newId('e_'), type: 'path', viewBox: { x: vb.left, y: vb.top, w: vb.width, h: vb.height }, paths: [{ d: p0.d, fill: null, stroke: { color: p0.stroke.color.color, width: p0.stroke.weight } }] });
+      }
+      return out;
     }
-    const pad = w * 4;
-    const minX = Math.min(x1, x2) - pad, minY = Math.min(y1, y2) - pad, maxX = Math.max(x1, x2) + pad, maxY = Math.max(y1, y2) + pad;
-    return [{ id: base.id, type: 'path', x: minX, y: minY, w: maxX - minX, h: maxY - minY, rotation: 0, opacity: base.opacity, viewBox: { x: minX, y: minY, w: maxX - minX, h: maxY - minY }, paths: parts }];
   }
   if (plateMode && pageShot && (el.type === 'rect' && el.fill?.media || el.type === 'shape' && el.paths?.some((p) => p.fill?.media) || exactDir && (el.type === 'line' || el.type === 'unsupported'))) {
     // Every picture comes from the text-free plate (it already holds Canva's own pixels, opacity included).
