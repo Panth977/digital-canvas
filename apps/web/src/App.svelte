@@ -7,6 +7,7 @@
   import { account } from './lib/account.svelte.ts';
   import { openWith } from './lib/openwith.svelte.ts';
   import type { DriveStore } from '@digital-canvas/storage';
+  import Toasts from './lib/Toasts.svelte';
 
   onMount(() => void library.init());
 
@@ -29,6 +30,7 @@
 {:else}
   <Home />
 {/if}
+<Toasts />
 
 <style>
   .boot { height: 100%; display: grid; place-items: center; color: var(--muted); }
