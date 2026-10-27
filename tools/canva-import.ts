@@ -724,6 +724,17 @@ function makePlate(cp: CanvaPage): void {
         gap('curved text (curve found by matching Canva\'s render)');
       }
     }
+    // Our face can be a little wider than Canva's (another build of the font): when the text wraps
+    // into more lines than Canva's box holds, widen the box (up to 25%) instead of adding a line.
+    if (!t.curve && measure!.fitText(t).h > t.h * 1.2) {
+      const w0 = t.w;
+      let w = w0;
+      while (w < w0 * 1.25 && measure!.fitText({ ...t, w }).h > t.h * 1.2) w *= 1.03;
+      if (measure!.fitText({ ...t, w }).h <= t.h * 1.2) {
+        const dx = t.style.align === 'center' || t.style.align === 'justify' ? (w - w0) / 2 : t.style.align === 'right' ? w - w0 : 0;
+        t = { ...t, w, x: t.x - dx };
+      }
+    }
     t = findOutline(t);
     textById.set(e.id, t);
     elementMap[e.id] = t.id;
