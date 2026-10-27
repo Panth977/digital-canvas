@@ -2,12 +2,13 @@
   import { PRESET_CATEGORIES, PRESETS, searchPresets, type Doc, type PresetCategory, type ResizeTarget, type Unit } from '@digital-canvas/scene';
   import type { EditorState } from '../lib/editor.svelte.ts';
   import { router } from '../lib/router.svelte.ts';
+  import { toast } from '../lib/toast.svelte.ts';
   import Icon from '../lib/Icon.svelte';
 
   /**
-   * "Resize" (Canva's Magic Resize): pick sizes, get a copy of this design at
-   * each, layout scaled to fit and centred. The copies are new designs in the
-   * same place this one is saved.
+   * Canva's "Resize & Magic Switch": pick sizes, then "Copy & resize" (a new
+   * design per size, saved next to this one) or "Resize" (this design takes
+   * the one size picked; undoable). Layout is scaled to fit and centred.
    */
   let { ed, onclose }: { ed: EditorState; onclose: () => void } = $props();
 
@@ -27,16 +28,30 @@
     picked = picked.includes(id) ? picked.filter((x) => x !== id) : [...picked, id];
   }
 
-  async function go(): Promise<void> {
-    const targets: ResizeTarget[] = picked.map((id) => {
+  function targets(): ResizeTarget[] {
+    const out: ResizeTarget[] = picked.map((id) => {
       const p = PRESETS.find((x) => x.id === id)!;
       return { width: p.width, height: p.height, unit: p.unit, print: p.print, title: `${ed.doc.title} (${p.name})` };
     });
-    if (useCustom) targets.push({ width: custom.w, height: custom.h, unit: custom.unit, print: custom.unit !== 'px', title: `${ed.doc.title} (${custom.w}×${custom.h} ${custom.unit})` });
+    if (useCustom) out.push({ width: custom.w, height: custom.h, unit: custom.unit, print: custom.unit !== 'px', title: `${ed.doc.title} (${custom.w}×${custom.h} ${custom.unit})` });
+    return out;
+  }
+
+  /** Resize this design (one size only). */
+  function resizeHere(): void {
+    const [t] = targets();
+    if (!t || count !== 1) return;
+    ed.resizeInPlace(t);
+    onclose();
+    toast.show(`Resized to ${t.width} × ${t.height} ${t.unit ?? 'px'}`, { action: { label: 'Undo', run: () => ed.undo() } });
+  }
+
+  async function go(): Promise<void> {
+    const all = targets();
     busy = true;
     error = '';
     try {
-      made = await ed.resizeCopies(targets);
+      made = await ed.resizeCopies(all);
       picked = [];
       useCustom = false;
     } catch (e) {
@@ -50,7 +65,7 @@
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 <div class="resize" data-testid="resize-dialog" onclick={(e) => e.stopPropagation()}>
   <div class="head">
-    <b>Resize a copy</b>
+    <b>Resize</b>
     <button class="btn ghost icon" aria-label="Close" onclick={onclose}><Icon name="close" size={16} /></button>
   </div>
   <div class="search">
@@ -82,9 +97,12 @@
     <input class="input" type="number" min="0.1" step="any" bind:value={custom.h} aria-label="Height" />
     <select class="input" bind:value={custom.unit} aria-label="Unit"><option value="px">px</option><option value="in">in</option><option value="mm">mm</option><option value="cm">cm</option></select>
   </label>
-  <button class="btn primary" disabled={!count || busy} onclick={go} data-testid="resize-go">
-    {busy ? 'Making copies…' : count > 1 ? `Copy & resize (${count})` : 'Copy & resize'}
-  </button>
+  <div class="go">
+    <button class="btn primary" disabled={!count || busy} onclick={go} data-testid="resize-go">
+      {busy ? 'Making copies…' : count > 1 ? `Copy & resize (${count})` : 'Copy & resize'}
+    </button>
+    <button class="btn" disabled={count !== 1 || busy} title={count > 1 ? 'Resize changes this design to one size: pick only one' : 'Change this design to the size picked'} onclick={resizeHere} data-testid="resize-here">Resize</button>
+  </div>
   {#if error}<p class="err">{error}</p>{/if}
   {#if made.length}
     <div class="made" data-testid="resize-made">
@@ -94,7 +112,7 @@
       {/each}
     </div>
   {/if}
-  <p class="note">Everything is scaled to fit the new size and centred; backgrounds still cover the page. This design stays as it is.</p>
+  <p class="note">Everything is scaled to fit the new size and centred; backgrounds still cover the page. “Copy & resize” keeps this design as it is.</p>
 </div>
 
 <style>
@@ -108,6 +126,8 @@
   .list .s { color: var(--muted); font-size: 12px; white-space: nowrap; }
   .none { padding: 10px; color: var(--muted); font-size: 13px; }
   .custom { display: grid; grid-template-columns: auto auto 1fr auto 1fr 64px; gap: 6px; align-items: center; font-size: 13px; }
+  .go { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+  .go .btn { height: 40px; }
   .made { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
   .made .btn { justify-content: flex-start; overflow: hidden; text-overflow: ellipsis; }
   .note { font-size: 12px; color: var(--muted); margin: 0; }

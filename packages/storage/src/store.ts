@@ -27,6 +27,19 @@ export interface ProjectStore {
   /** The brand kit kept alongside the designs (see brand.ts). */
   loadBrand?(): Promise<BrandData | null>;
   saveBrand?(data: BrandData): Promise<void>;
+  /** Earlier saves of a design, newest first (Drive keeps revisions). */
+  versions?(id: string): Promise<Version[]>;
+  /** One earlier save, as a file (not made current). */
+  openVersion?(id: string, versionId: string): Promise<ProjectFile>;
+  /** Take a design back out of the bin after `remove` (Drive). */
+  restore?(id: string): Promise<void>;
+}
+
+export interface Version {
+  id: string;
+  /** ISO time of that save. */
+  modifiedTime: string;
+  size?: number;
 }
 
 export function metaOf(file: ProjectFile): ProjectMeta {

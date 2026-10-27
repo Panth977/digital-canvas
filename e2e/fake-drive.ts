@@ -17,6 +17,8 @@ export interface FakeFile {
   thumbnailLink?: string;
   imageMediaMetadata?: { width: number; height: number };
   body?: Buffer;
+  /** Earlier contents, oldest first (Drive revisions). */
+  revisions?: { id: string; modifiedTime: string; body: Buffer }[];
 }
 
 export const FOLDER = 'application/vnd.google-apps.folder';
@@ -94,15 +96,23 @@ export class FakeDrive {
     if (url.pathname === '/drive/v3/files' && req.method() === 'POST') return json({ id: this.add({ parents: ['root'], ...req.postDataJSON() }).id });
     if (url.pathname.startsWith('/upload/drive/v3/files')) {
       const { meta, body } = this.parseMultipart(req.postDataBuffer()!, req.headers()['content-type']!);
+      const modifiedTime = new Date(Date.now() + this.n++).toISOString();
       if (id) {
         const f = this.files.get(id)!;
-        Object.assign(f, meta, { body, appProperties: { ...f.appProperties, ...meta.appProperties } });
+        Object.assign(f, meta, { body, modifiedTime, appProperties: { ...f.appProperties, ...meta.appProperties } });
+        (f.revisions ??= []).push({ id: `r${this.n++}`, modifiedTime, body });
         return json({ id });
       }
-      return json({ id: this.add({ parents: ['root'], ...meta, body }).id });
+      return json({ id: this.add({ parents: ['root'], ...meta, body, modifiedTime, revisions: [{ id: `r${this.n++}`, modifiedTime, body }] }).id });
     }
     const f = id ? this.files.get(id) : undefined;
     if (!f) return json({ error: { message: 'File not found' } }, 404);
+    const rev = /\/revisions(?:\/([^/?]+))?$/.exec(url.pathname);
+    if (rev && !rev[1]) return json({ revisions: (f.revisions ?? []).map((r) => ({ id: r.id, modifiedTime: r.modifiedTime, size: String(r.body.length) })) });
+    if (rev) {
+      const r = f.revisions?.find((x) => x.id === rev[1]);
+      return r ? route.fulfill({ body: r.body, headers: { 'access-control-allow-origin': '*' } }) : json({ error: { message: 'Revision not found' } }, 404);
+    }
     if (url.searchParams.get('alt') === 'media') return route.fulfill({ body: f.body ?? Buffer.alloc(0), headers: { 'access-control-allow-origin': '*', 'access-control-expose-headers': 'content-length' } });
     if (req.method() === 'PATCH') {
       const { appProperties, ...rest } = req.postDataJSON();

@@ -10,6 +10,10 @@
   import { pickFiles, IMAGE_TYPES } from '../lib/files.ts';
   import ColorField from './ColorField.svelte';
   import NumField from './NumField.svelte';
+  import { FONT_SIZES, parseSize } from '../lib/uiutil.ts';
+  import { copyStyle, pasteStyle } from '../lib/copystyle.ts';
+  import { animationLabel } from '@digital-canvas/scene';
+  import { untrack } from 'svelte';
 
   /**
    * Canva's contextual toolbar: a floating bar at the top of the workspace
@@ -65,16 +69,55 @@
   ];
   const align = $derived(ALIGNS.find((x) => x.a === (ts.align ?? t0?.style.align)) ?? ALIGNS[0]!);
   const size = $derived(ts.fontSize ?? t0?.style.fontSize ?? 0);
+  /** What the size box shows: Canva keeps what you type until Enter or click-away. */
+  let sizeDraft = $state('');
+  let sizeFocused = $state(false);
+  const sizeText = $derived(ts.fontSize === undefined && texts.length && !t0 ? '' : String(Math.round(size * 10) / 10));
+  $effect(() => { const v = sizeText; if (!untrack(() => sizeFocused)) sizeDraft = v; });
   function setSize(v: number): void {
     if (!Number.isFinite(v) || v <= 0) return;
-    ed.updateTextStyle({ fontSize: Math.max(4, Math.min(800, v)) }, key('fs'));
+    ed.updateTextStyle({ fontSize: Math.max(1, Math.min(800, v)) }, key('fs'));
+  }
+  function commitSize(): void {
+    const v = parseSize(sizeDraft);
+    if (v !== null && v !== Math.round(size * 10) / 10) { setSize(v); end(); }
+    sizeDraft = sizeText;
   }
   function bump(d: number): void {
-    setSize(Math.round(size) + d);
+    setSize(Math.max(1, Math.round(size) + d));
     end();
   }
+  function sizeKey(e: KeyboardEvent): void {
+    const el = e.currentTarget as HTMLInputElement;
+    if (e.key === 'Enter') { commitSize(); ui.pop = null; el.blur(); }
+    else if (e.key === 'Escape') { e.stopPropagation(); sizeDraft = sizeText; ui.pop = null; el.blur(); }
+    else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); bump(e.key === 'ArrowUp' ? 1 : -1); sizeDraft = String(Math.round(size)); }
+  }
+
+  /** Every colour in the selected text (runs too): several make a striped bar, like Canva. */
+  const textColors = $derived.by(() => {
+    if (editingSel) return [ts.color ?? '#000000'];
+    const out: string[] = [];
+    for (const t of texts) {
+      const runs = t.runs?.filter((r) => r.text.length);
+      const cs = runs?.length ? runs.map((r) => r.style?.color ?? t.style.color) : [t.style.color];
+      for (const c of cs) if (c && !out.includes(c.slice(0, 7).toLowerCase())) out.push(c.slice(0, 7).toLowerCase());
+    }
+    return out.length ? out.slice(0, 6) : ['#000000'];
+  });
+  const stripes = (cs: string[]) => cs.length === 1 ? cs[0]! : `linear-gradient(90deg, ${cs.map((c, i) => `${c} ${(i / cs.length) * 100}% ${((i + 1) / cs.length) * 100}%`).join(', ')})`;
+
+  /** Bold / italic need a face of the font that has them (Canva greys the button out). */
+  const faces = $derived.by(() => {
+    void ed.doc.fonts;
+    const fam = ts.fontFamily;
+    const fs = fam ? ed.engine.fonts.faces.filter((f) => f.family === fam) : [];
+    return { known: fs.length > 0, bold: fs.some((f) => f.weight >= 600), italic: fs.some((f) => f.italic) };
+  });
+  const noBold = $derived(faces.known && !faces.bold && !ts.bold);
+  const noItalic = $derived(faces.known && !faces.italic && !ts.italic);
   const textColor = () => ed.textStyle?.color ?? '#000000';
-  const textBar = $derived(t0?.gradient && !editingSel ? `linear-gradient(90deg, ${t0.gradient.stops.map((s) => s.color).join(', ')})` : (ts.color ?? '#000000'));
+  const textBar = $derived(t0?.gradient && !editingSel ? `linear-gradient(90deg, ${t0.gradient.stops.map((s) => s.color).join(', ')})` : stripes(textColors));
 
   // ---- shapes / lines ----
   const fillHex = (s: ShapeElement) => (s.fill?.type === 'solid' ? s.fill.color : s.fill?.type === 'linear' ? s.fill.stops[0]?.color ?? '#000000' : '#ffffff');
@@ -115,13 +158,59 @@
   const pageBg = () => (ed.page.background.type === 'solid' ? ed.page.background.color : '#ffffff');
   const pageBgShown = $derived(ed.page.background.type === 'solid' ? ed.page.background.color : '#ffffff');
 
+  // ---- copy style (the paint roller): arm it, then the next element picked gets the look ----
+  function armStyle(): void {
+    if (ui.styleClip) { ui.styleClip = null; return; }
+    const src = sel[0];
+    if (src) ui.styleClip = { style: copyStyle($state.snapshot(src) as Element), source: ed.selection.join(',') };
+    ui.pop = null;
+  }
+  $effect(() => {
+    const ids = ed.selection;
+    const clip = untrack(() => ui.styleClip);
+    if (!clip || !ids.length || ids.join(',') === clip.source) return;
+    untrack(() => {
+      ui.styleClip = null;
+      ed.update((e) => pasteStyle(clip.style, e), null, ids);
+      ed.refitText();
+      ed.seal();
+    });
+  });
+
+  // ---- overflow: when the bar is too wide, the less used tools go into "…" (Canva) ----
+  // level 1: Lock moves into "…"; level 2: Copy style and Transparency; level 3: Effects, Animate, Position.
+  let bar = $state<HTMLElement>();
+  let level = $state(0);
+  const compact = $derived(level >= 2);
+  let need: number[] = [];
+  let raf = 0;
+  function check(): void {
+    const el = bar;
+    if (!el?.parentElement) return;
+    const room = el.parentElement.clientWidth - 24;
+    if (el.scrollWidth > el.clientWidth + 1 && level < 3) { need[level] = el.scrollWidth; level++; again(); }
+    else if (level > 0 && need[level - 1] && room >= need[level - 1]!) { level--; again(); }
+  }
+  function again(): void { cancelAnimationFrame(raf); raf = requestAnimationFrame(check); }
+  $effect(() => {
+    const el = bar;
+    if (!el?.parentElement) return;
+    const ro = new ResizeObserver(again);
+    ro.observe(el.parentElement);
+    return () => { ro.disconnect(); cancelAnimationFrame(raf); };
+  });
+  // a new kind of selection measures again
+  $effect(() => { void kind; void sel.length; void editingSel; untrack(() => { level = 0; need = []; again(); }); });
+
+  const animated = $derived(sel.length ? sel.some((e) => e.animation) : !!ed.page.animation);
+
   const TITLES: Record<Kind, string> = { page: 'Page', text: 'Text', image: 'Image', video: 'Video', frame: 'Frame', shape: 'Shape', line: 'Line', table: 'Table', chart: 'Chart', graphic: 'Graphic', qr: 'QR code', group: 'Group', multi: 'Selection' };
   const opacity = $derived(Math.round((sel[0]?.opacity ?? 1) * 100));
 </script>
 
 <svelte:window onpointerdown={onWindowDown} />
 
-<div class="ctx" role="toolbar" tabindex="-1" aria-label="{TITLES[kind]} toolbar" data-testid="context-toolbar" data-kind={kind} data-text-tools>
+<div class="ctx" bind:this={bar} class:compact class:tight={level >= 3} role="toolbar" tabindex="-1" aria-label="{TITLES[kind]} toolbar" data-testid="context-toolbar" data-kind={kind} data-compact={level} data-text-tools data-tips>
   {#if kind === 'page'}
     <button class="sw" title="Background colour" aria-label="Background colour" data-testid="page-bg-btn" style="--c:{pageBgShown}"
       onclick={() => color({ title: 'Background colour', testid: 'page-bg', kind: 'page', value: pageBg, onchange: (hex) => ed.updatePage({ background: { type: 'solid', color: hex } }, 'page-bg') })}><i></i></button>
@@ -140,32 +229,41 @@
     {:else}
       <button class="tb" data-testid="make-video" onclick={() => { ed.updatePage({ duration: pageDuration(ed.page) }); end(); }}><Icon name="video" size={16} /> Make it a video</button>
     {/if}
-    <button class="tb" class:on={ui.panel === 'position'} data-testid="layers-btn" onclick={() => { ui.positionTab = 'layers'; ui.open('position'); }}><Icon name="layers" size={16} /> Layers</button>
+    <button class="tb" class:on={ui.panel === 'animate'} class:set={animated} title="Animate the page" data-testid="animate-btn" onclick={() => ui.open('animate')}><Icon name="animate" size={16} /> {ed.page.animation ? animationLabel(ed.page.animation) : 'Animate'}</button>
+    <button class="tb" class:on={ui.panel === 'position'} title="Layers" data-testid="layers-btn" onclick={() => { ui.positionTab = 'layers'; ui.open('position'); }}><Icon name="layers" size={16} /> Layers</button>
   {:else}
     {#if kind === 'text' && t0}
-      <button class="tb font" class:on={ui.panel === 'font'} data-testid="font-picker" title="Font" onclick={() => ui.open('font')}
+      <button class="tb font" class:on={ui.panel === 'font'} data-testid="font-picker" title="Font" aria-label="Font: {ts.fontFamily ?? 'Mixed'}" onclick={() => ui.open('font')}
         style="font-family:'{ts.fontFamily ?? 'Inter'}', Inter, sans-serif">
         <span>{ts.fontFamily ?? 'Mixed'}</span>
         {#if ed.fontLoading}<span class="spin"></span>{:else}<Icon name="down" size={14} />{/if}
       </button>
-      <div class="size">
-        <button aria-label="Decrease font size" onclick={() => bump(-1)}><Icon name="down" size={14} /></button>
-        <input type="number" min="4" max="800" value={Math.round(size * 10) / 10} aria-label="Font size" data-testid="font-size"
-          oninput={(e) => setSize(Number((e.currentTarget as HTMLInputElement).value))} onchange={end} onblur={end} />
-        <button aria-label="Increase font size" onclick={() => bump(1)}><Icon name="up" size={14} /></button>
+      <div class="size pw">
+        <button title="Decrease font size (⇧⌘,)" aria-label="Decrease font size" data-testid="font-size-down" onclick={() => bump(-1)}><Icon name="minus" size={14} /></button>
+        <input type="text" inputmode="decimal" bind:value={sizeDraft} placeholder="–" aria-label="Font size" title="Font size" data-testid="font-size" role="combobox" aria-expanded={ui.pop === 'fsize'} aria-controls="fsize-list"
+          onfocus={(e) => { sizeFocused = true; (e.currentTarget as HTMLInputElement).select(); ui.pop = 'fsize'; requestAnimationFrame(() => document.querySelector('#fsize-list button.on')?.scrollIntoView({ block: 'center' })); }}
+          onblur={() => { sizeFocused = false; commitSize(); }} onkeydown={sizeKey} />
+        <button title="Increase font size (⇧⌘.)" aria-label="Increase font size" data-testid="font-size-up" onclick={() => bump(1)}><Icon name="plus" size={14} /></button>
+        {#if ui.pop === 'fsize'}
+          <ul class="pop sizes" id="fsize-list" role="listbox" aria-label="Font sizes" data-testid="font-size-list">
+            {#each FONT_SIZES as n (n)}
+              <li role="option" aria-selected={Math.round(size) === n}><button class:on={Math.round(size) === n} data-testid="font-size-{n}" onpointerdown={(e) => e.preventDefault()} onclick={() => { setSize(n); end(); sizeDraft = String(n); ui.pop = null; }}>{n}</button></li>
+            {/each}
+          </ul>
+        {/if}
       </div>
       <button class="ib tcolor" class:on={ui.panel === 'color' && ui.color?.kind === 'text'} title="Text colour" aria-label="Text colour" data-testid="text-color-btn"
         onclick={() => color({ title: 'Text colour', testid: 'text-color', kind: 'text', value: textColor, onchange: (hex) => ed.updateTextStyle({ color: hex }, key('tc')) })}>
-        <b>A</b><i style="background:{textBar}"></i>
+        <b>A</b><i style="background:{textBar}" data-testid="text-color-bar" data-colors={textColors.length}></i>
       </button>
-      <button class="ib" class:on={ts.bold} title="Bold (⌘B)" aria-label="Bold" data-testid="bold" onclick={() => { ed.updateTextStyle({ bold: !ts.bold }); end(); }}><Icon name="bold" /></button>
-      <button class="ib" class:on={ts.italic} title="Italic (⌘I)" aria-label="Italic" data-testid="italic" onclick={() => { ed.updateTextStyle({ italic: !ts.italic }); end(); }}><Icon name="italic" /></button>
+      <button class="ib" class:on={ts.bold} disabled={noBold} title={noBold ? `${ts.fontFamily} has no bold` : 'Bold (⌘B)'} aria-label="Bold" data-testid="bold" onclick={() => { ed.updateTextStyle({ bold: !ts.bold }); end(); }}><Icon name="bold" /></button>
+      <button class="ib" class:on={ts.italic} disabled={noItalic} title={noItalic ? `${ts.fontFamily} has no italic` : 'Italic (⌘I)'} aria-label="Italic" data-testid="italic" onclick={() => { ed.updateTextStyle({ italic: !ts.italic }); end(); }}><Icon name="italic" /></button>
       <button class="ib" class:on={ts.underline} title="Underline (⌘U)" aria-label="Underline" data-testid="underline" onclick={() => { ed.updateTextStyle({ underline: !ts.underline }); end(); }}><Icon name="underline" /></button>
-      <button class="ib" class:on={ts.strike} title="Strikethrough" aria-label="Strikethrough" data-testid="strike" onclick={() => { ed.updateTextStyle({ strike: !ts.strike }); end(); }}><Icon name="strike" /></button>
-      <button class="ib case" class:on={ts.uppercase} title="Uppercase" aria-label="Uppercase" data-testid="uppercase" onclick={() => { ed.updateTextStyle({ uppercase: !ts.uppercase }); end(); }}>aA</button>
-      <button class="ib" title="{align.label} (click to change)" aria-label={align.label} data-testid="align"
+      <button class="ib" class:on={ts.strike} title="Strikethrough (⇧⌘X)" aria-label="Strikethrough" data-testid="strike" onclick={() => { ed.updateTextStyle({ strike: !ts.strike }); end(); }}><Icon name="strike" /></button>
+      <button class="ib case" class:on={ts.uppercase} title="Uppercase (⇧⌘K)" aria-label="Uppercase" data-testid="uppercase" onclick={() => { ed.updateTextStyle({ uppercase: !ts.uppercase }); end(); }}>aA</button>
+      <button class="ib" title="Alignment: {align.label.toLowerCase().replace('align ', '')}" aria-label={align.label} data-testid="align"
         onclick={() => { const n = ALIGNS[(ALIGNS.indexOf(align) + 1) % ALIGNS.length]!; ed.updateTextStyle({ align: n.a }); end(); }}><Icon name={align.icon} /></button>
-      <button class="ib" class:on={!!t0.list} title={t0.list === 'bullet' ? 'Bulleted list' : t0.list === 'number' ? 'Numbered list' : 'List'} aria-label="List" data-testid="list"
+      <button class="ib" class:on={!!t0.list} title={t0.list === 'bullet' ? 'Bulleted list (⇧⌘8)' : t0.list === 'number' ? 'Numbered list (⇧⌘7)' : 'List (⇧⌘8)'} aria-label="List" data-testid="list"
         onclick={() => { ed.updateText({ list: !t0!.list ? 'bullet' : t0!.list === 'bullet' ? 'number' : undefined }); end(); }}><Icon name={t0.list === 'number' ? 'listn' : 'listb'} /></button>
       <div class="pw">
         <button class="ib" class:on={ui.pop === 'spacing'} title="Spacing" aria-label="Spacing" data-testid="spacing-btn" onclick={() => togglePop('spacing')}><Icon name="spacing" /></button>
@@ -185,21 +283,30 @@
               <input class="input n" type="number" min="0.5" max="4" step="0.05" value={ts.lineHeight ?? t0.style.lineHeight} aria-label="Line spacing value"
                 oninput={(e) => ed.updateTextStyle({ lineHeight: Number((e.currentTarget as HTMLInputElement).value) }, key('lh'))} onchange={end} />
             </div>
+            <div class="anchor">
+              <span>Anchor text box</span>
+              <div class="seg" role="radiogroup" aria-label="Anchor text box">
+                {#each [{ a: 'top', icon: 'alignt', label: 'Top' }, { a: 'middle', icon: 'alignm', label: 'Middle' }, { a: 'bottom', icon: 'alignb', label: 'Bottom' }] as const as o (o.a)}
+                  <button role="radio" aria-checked={(t0.anchor ?? 'top') === o.a} class:on={(t0.anchor ?? 'top') === o.a} title="Anchor to the {o.label.toLowerCase()}" aria-label={o.label} data-testid="anchor-{o.a}"
+                    onclick={() => { ed.updateText({ anchor: o.a === 'top' ? undefined : o.a }); end(); }}><Icon name={o.icon} size={16} /></button>
+                {/each}
+              </div>
+            </div>
           </div>
         {/if}
       </div>
-      <span class="sep"></span>
+      {#if level < 3}<span class="sep"></span>{/if}
       {#if !editingSel}
-        <button class="tb" class:on={ui.panel === 'effects'} data-testid="effects-btn" onclick={() => ui.open('effects')}>Effects</button>
+        <button class="tb" class:gone={level >= 3} class:on={ui.panel === 'effects'} title="Effects" data-testid="effects-btn" onclick={() => ui.open('effects')}>Effects</button>
       {/if}
     {/if}
 
     {#if (kind === 'image' || kind === 'video' || (kind === 'frame' && fr?.asset)) && pic}
-      <button class="tb" class:on={ui.panel === 'image'} data-testid="edit-image" onclick={() => ui.open('image')}><Icon name="sliders" size={16} /> Edit</button>
-      <button class="tb" class:on={ed.croppingId === pic.id} data-testid="crop" disabled={pic.locked}
+      <button class="tb" class:on={ui.panel === 'image'} title="Edit image" data-testid="edit-image" onclick={() => ui.open('image')}><Icon name="sliders" size={16} /> Edit</button>
+      <button class="tb" class:on={ed.croppingId === pic.id} title="Crop" data-testid="crop" disabled={pic.locked}
         onclick={() => (ed.croppingId === pic!.id ? ed.stopCrop() : ed.startCrop(pic!.id))}><Icon name="crop" size={16} /> {ed.croppingId === pic.id ? 'Done' : 'Crop'}</button>
       <div class="pw">
-        <button class="tb" class:on={ui.pop === 'flip'} data-testid="flip-btn" onclick={() => togglePop('flip')}><Icon name="flipx" size={16} /> Flip</button>
+        <button class="tb" class:on={ui.pop === 'flip'} title="Flip" data-testid="flip-btn" onclick={() => togglePop('flip')}><Icon name="flipx" size={16} /> Flip</button>
         {#if ui.pop === 'flip'}
           <div class="pop menu">
             <button onclick={() => { ed.update((e) => ({ flipX: !e.flipX })); end(); }}><Icon name="flipx" size={16} /> Flip horizontal</button>
@@ -210,7 +317,7 @@
     {/if}
     {#if kind === 'video' && v0}
       <div class="pw">
-        <button class="tb" class:on={ui.pop === 'trim'} data-testid="trim-btn" onclick={() => togglePop('trim')}><Icon name="scissors" size={16} /> Trim</button>
+        <button class="tb" class:on={ui.pop === 'trim'} title="Trim" data-testid="trim-btn" onclick={() => togglePop('trim')}><Icon name="scissors" size={16} /> Trim</button>
         {#if ui.pop === 'trim'}
           <div class="pop">
             <div class="row2">
@@ -243,9 +350,9 @@
     {/if}
     {#if kind === 'frame' && fr}
       {#if !fr.asset}
-        <button class="tb" data-testid="frame-upload" onclick={() => uploadToFrame(fr!.id)}><Icon name="upload" size={16} /> Add a photo</button>
+        <button class="tb" title="Add a photo" data-testid="frame-upload" onclick={() => uploadToFrame(fr!.id)}><Icon name="upload" size={16} /> Add a photo</button>
       {/if}
-      <button class="tb" class:on={ui.panel === 'frame'} data-testid="edit-frame" onclick={() => ui.open('frame')}><Icon name="frame" size={16} /> Frame</button>
+      <button class="tb" class:on={ui.panel === 'frame'} title="Frame" data-testid="edit-frame" onclick={() => ui.open('frame')}><Icon name="frame" size={16} /> Frame</button>
     {/if}
 
     {#if kind === 'shape' && s0}
@@ -274,7 +381,7 @@
       </div>
       {#if s0.shape === 'rect'}
         <div class="pw">
-          <button class="ib" class:on={ui.pop === 'radius'} title="Corner rounding" aria-label="Corner rounding" onclick={() => togglePop('radius')}><Icon name="radius" /></button>
+          <button class="ib" class:on={ui.pop === 'radius'} title="Corner rounding" aria-label="Corner rounding" data-testid="shape-radius-btn" onclick={() => togglePop('radius')}><Icon name="radius" /></button>
           {#if ui.pop === 'radius'}
             <div class="pop"><NumField label="Corner rounding" value={s0.radius} min={0} max={2000} onchange={(v) => ed.update((e) => (e.type === 'shape' ? { radius: v } : {}), key('r'))} onend={end} /></div>
           {/if}
@@ -313,14 +420,14 @@
     {/if}
 
     {#if kind === 'table'}
-      <button class="tb" class:on={ui.panel === 'table'} data-testid="edit-table" onclick={() => ui.open('table')}><Icon name="table" size={16} /> Edit table</button>
+      <button class="tb" class:on={ui.panel === 'table'} title="Edit table" data-testid="edit-table" onclick={() => ui.open('table')}><Icon name="table" size={16} /> Edit table</button>
     {/if}
     {#if kind === 'chart'}
-      <button class="tb" class:on={ui.panel === 'chart'} data-testid="edit-chart" onclick={() => ui.open('chart')}><Icon name="chart" size={16} /> Edit chart</button>
+      <button class="tb" class:on={ui.panel === 'chart'} title="Edit chart" data-testid="edit-chart" onclick={() => ui.open('chart')}><Icon name="chart" size={16} /> Edit chart</button>
     {/if}
     {#if (kind === 'graphic' || kind === 'qr') && gr}
       {#if kind === 'qr'}
-        <button class="tb" class:on={ui.panel === 'qr'} data-testid="edit-qr" onclick={() => ui.open('qr')}><Icon name="qr" size={16} /> QR code</button>
+        <button class="tb" class:on={ui.panel === 'qr'} title="QR code" data-testid="edit-qr" onclick={() => ui.open('qr')}><Icon name="qr" size={16} /> QR code</button>
       {/if}
       {#each colorsOf(gr) as c, i (i + c)}
         <button class="sw" title="Colour {i + 1}" aria-label="Colour {i + 1}" data-testid="graphic-swatch-{i}" style="--c:{c}" onclick={() => graphicColor(i, c)}><i></i></button>
@@ -336,7 +443,12 @@
       {/if}
     {/if}
 
-    <button class="tb" class:on={ui.panel === 'position'} data-testid="position-btn" onclick={() => { ui.positionTab = 'arrange'; ui.open('position'); }}>Position</button>
+    {#if kind !== 'text' && level < 3}<span class="sep"></span>{/if}
+    <button class="tb" class:gone={level >= 3} class:on={ui.panel === 'animate'} class:set={animated} title="Animate" data-testid="animate-btn" onclick={() => ui.open('animate')}>{sel.length === 1 && sel[0]!.animation ? animationLabel(sel[0]!.animation) : 'Animate'}</button>
+    <button class="tb" class:gone={level >= 3} class:on={ui.panel === 'position'} title="Position" data-testid="position-btn" onclick={() => { ui.positionTab = 'arrange'; ui.open('position'); }}>Position</button>
+    {#if !compact}
+      <button class="ib" class:on={!!ui.styleClip} title={ui.styleClip ? 'Click an element to paste the style (Esc to cancel)' : 'Copy style (⌥⌘C)'} aria-label="Copy style" aria-pressed={!!ui.styleClip} data-testid="copy-style" onclick={armStyle}><Icon name="roller" /></button>
+    {/if}
     {#if pic && !fr && (kind === 'image' || kind === 'video')}
       <div class="pw">
         <button class="ib" class:on={ui.pop === 'iradius'} title="Corner rounding" aria-label="Corner rounding" data-testid="radius-btn" onclick={() => togglePop('iradius')}><Icon name="radius" /></button>
@@ -345,7 +457,7 @@
         {/if}
       </div>
     {/if}
-    <div class="pw">
+    <div class="pw" class:gone={compact}>
       <button class="ib" class:on={ui.pop === 'opacity'} title="Transparency" aria-label="Transparency" data-testid="opacity-btn" onclick={() => togglePop('opacity')}><Icon name="transparency" /></button>
       {#if ui.pop === 'opacity'}
         <div class="pop right">
@@ -359,17 +471,29 @@
         </div>
       {/if}
     </div>
-    <button class="ib" class:on={locked} title={locked ? 'Unlock' : 'Lock'} aria-label={locked ? 'Unlock' : 'Lock'} data-testid="lock" onclick={() => { ed.update({ locked: !locked }); end(); }}><Icon name={locked ? 'lock' : 'unlock'} /></button>
+    {#if level < 1}
+      <button class="ib" class:on={locked} title={locked ? 'Unlock (⌥⇧L)' : 'Lock (⌥⇧L)'} aria-label={locked ? 'Unlock' : 'Lock'} data-testid="lock" onclick={() => { ed.update({ locked: !locked }); end(); }}><Icon name={locked ? 'lock' : 'unlock'} /></button>
+    {/if}
     <div class="pw">
       <button class="ib" class:on={ui.pop === 'more'} title="More" aria-label="More" data-testid="more-btn" onclick={() => togglePop('more')}><Icon name="more" /></button>
       {#if ui.pop === 'more'}
         <div class="pop menu right" data-testid="more-menu">
+          {#if level >= 3}
+            {#if kind === 'text' && !editingSel}<button data-testid="more-effects" onclick={() => ui.open('effects')}><Icon name="sparkle" size={16} /> Effects</button>{/if}
+            <button data-testid="more-animate" onclick={() => ui.open('animate')}><Icon name="animate" size={16} /> Animate</button>
+            <button data-testid="more-position" onclick={() => { ui.positionTab = 'arrange'; ui.open('position'); }}><Icon name="position" size={16} /> Position</button>
+          {/if}
+          {#if compact}
+            <button data-testid="more-copy-style" onclick={armStyle}><Icon name="roller" size={16} /> Copy style <kbd>⌥⌘C</kbd></button>
+            <button data-testid="more-opacity" onclick={() => (ui.pop = 'opacity')}><Icon name="transparency" size={16} /> Transparency</button>
+            <hr />
+          {/if}
           <button onclick={() => { ed.copy(); ui.pop = null; }}><Icon name="copy" size={16} /> Copy <kbd>⌘C</kbd></button>
           <button onclick={() => { ed.paste(); ui.pop = null; }}><Icon name="copy" size={16} /> Paste <kbd>⌘V</kbd></button>
           <button onclick={() => { ed.duplicateSelection(); ui.pop = null; }}><Icon name="copy" size={16} /> Duplicate <kbd>⌘D</kbd></button>
           <button class="danger" data-testid="delete" onclick={() => { ed.deleteSelection(); ui.pop = null; }}><Icon name="trash" size={16} /> Delete <kbd>⌫</kbd></button>
           <hr />
-          <button onclick={() => { ed.update({ locked: !locked }); end(); ui.pop = null; }}><Icon name={locked ? 'unlock' : 'lock'} size={16} /> {locked ? 'Unlock' : 'Lock'}</button>
+          <button data-testid="more-lock" onclick={() => { ed.update({ locked: !locked }); end(); ui.pop = null; }}><Icon name={locked ? 'unlock' : 'lock'} size={16} /> {locked ? 'Unlock' : 'Lock'} <kbd>⌥⇧L</kbd></button>
           <button onclick={() => { ed.update((e) => ({ flipX: !e.flipX })); end(); }}><Icon name="flipx" size={16} /> Flip horizontal</button>
           <button onclick={() => { ed.update((e) => ({ flipY: !e.flipY })); end(); }}><Icon name="flipy" size={16} /> Flip vertical</button>
           {#if pic && !(fr && !fr.asset)}
@@ -388,17 +512,30 @@
     background: var(--pop); color: var(--ink); border-radius: 12px; box-shadow: var(--shadow); border: 1px solid var(--line); scrollbar-width: none; }
   .ctx:has(.pop) { overflow: visible; }
   .tb, .ib, .sw { flex-shrink: 0; height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 0; background: none; border-radius: 8px; color: inherit; font-weight: 600; font-size: 14px; white-space: nowrap; }
-  .tb { padding: 0 10px; }
+  .tb { padding: 0 8px; }
   .ib { width: 36px; }
   .tb:hover:not(:disabled), .ib:hover, .sw:hover { background: var(--hover); }
   .tb.on, .ib.on, .sw.on { background: var(--accent-soft); color: var(--accent); }
-  .tb:disabled { opacity: .45; }
-  .font { width: 170px; justify-content: space-between; border: 1px solid var(--line); font-weight: 400; font-size: 15px; }
+  .tb:disabled, .ib:disabled { opacity: .35; cursor: default; }
+  .ib:disabled:hover { background: none; }
+  .tb.set:not(.on) { color: var(--accent); }
+  .pw.gone > .ib, .tb.gone { display: none; }
+  .tight .font { width: 120px; }
+  .pop.sizes { list-style: none; margin: 0; width: 84px; max-height: 320px; overflow-y: auto; padding: 6px; gap: 0; left: 50%; transform: translateX(-50%); }
+  .sizes button { width: 100%; height: 30px; border: 0; background: none; border-radius: 6px; color: inherit; font-size: 14px; }
+  .sizes button:hover { background: var(--hover); }
+  .sizes button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .anchor { display: flex; align-items: center; justify-content: space-between; font-size: 13px; font-weight: 600; }
+  .seg { display: flex; gap: 2px; padding: 2px; border-radius: 8px; background: var(--chip); }
+  .seg button { width: 32px; height: 28px; display: grid; place-items: center; border: 0; background: none; border-radius: 6px; color: var(--ink-2); }
+  .seg button.on { background: var(--pop); color: var(--accent); box-shadow: 0 1px 2px rgba(0,0,0,.15); }
+  .font { width: 150px; justify-content: space-between; border: 1px solid var(--line); font-weight: 400; font-size: 15px; }
   .font span:first-child { overflow: hidden; text-overflow: ellipsis; }
   .size { display: flex; align-items: center; border: 1px solid var(--line); border-radius: 8px; height: 36px; margin: 0 4px; flex-shrink: 0; }
-  .size button { width: 28px; height: 34px; border: 0; background: none; display: grid; place-items: center; color: inherit; border-radius: 7px; }
+  .size button { width: 26px; height: 34px; border: 0; background: none; display: grid; place-items: center; color: inherit; border-radius: 7px; }
   .size button:hover { background: var(--hover); }
-  .size input { width: 46px; height: 34px; border: 0; border-left: 1px solid var(--line); border-right: 1px solid var(--line); background: none; text-align: center; font-weight: 600; -moz-appearance: textfield; appearance: textfield; }
+  .size.pw { position: relative; }
+  .size input { width: 42px; height: 34px; border: 0; border-left: 1px solid var(--line); border-right: 1px solid var(--line); background: none; text-align: center; font-weight: 600; -moz-appearance: textfield; appearance: textfield; }
   .size input::-webkit-inner-spin-button { display: none; }
   .tcolor { flex-direction: column; gap: 1px; }
   .tcolor b { font-size: 16px; line-height: 16px; }

@@ -45,6 +45,20 @@ export interface ElementBase {
   flipY?: boolean;
   locked?: boolean;
   hidden?: boolean;
+  /** Enter animation (presentations, video and GIF export). See anim.ts. */
+  animation?: Animation;
+}
+
+export type AnimationType = 'rise' | 'pan' | 'fade' | 'pop' | 'wipe' | 'typewriter' | 'baseline' | 'drift' | 'tumble';
+export type AnimationDirection = 'left' | 'right' | 'up' | 'down';
+
+/** Canva's basic animations; they play when the page starts. */
+export interface Animation {
+  type: AnimationType;
+  /** Seconds (default 0.8). */
+  duration?: number;
+  /** Where it comes from (pan, wipe, drift). */
+  direction?: AnimationDirection;
 }
 
 export type ShapeKind = 'rect' | 'ellipse' | 'triangle' | 'diamond' | 'pentagon' | 'hexagon' | 'star' | 'arrow';
@@ -116,6 +130,11 @@ export interface TextElement extends ElementBase {
   list?: ListStyle;
   /** Gradient fill for the letters; replaces the colours while set. */
   gradient?: Extract<Fill, { type: 'linear' }>;
+  /**
+   * Which edge stays put when the text grows or shrinks (Canva's "Anchor text
+   * box"). Absent = top.
+   */
+  anchor?: 'top' | 'middle' | 'bottom';
 }
 
 /**
@@ -340,6 +359,8 @@ export interface Page {
   duration?: number;
   /** Ruler guides on this page (elements snap to them). */
   guides?: Guide[];
+  /** Animate the whole page: every element without its own animation, staggered. */
+  animation?: Animation;
 }
 
 /** A sound on the design's timeline (music, voice-over). */

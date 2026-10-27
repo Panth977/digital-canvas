@@ -10,6 +10,7 @@ import {
   tableSetCell, type Attach, type Brush, type ChartKind, type LineElement, type LineMarker, type LineRoute, type Stroke, type TableElement,
 } from '@digital-canvas/scene';
 import { assetId, type ProjectFile, type ProjectStore } from '@digital-canvas/storage';
+import { toast } from './toast.svelte.ts';
 import type { Engine } from './engine.ts';
 import { isImage } from './files.ts';
 import { removeBackground, type BackgroundRemover } from './bgremove.ts';
@@ -171,7 +172,13 @@ export class EditorState {
 
   /** Box changes that keep a text box fitted to its content (curved text keeps its centre). */
   fitPatch(e: TextElement): Partial<TextElement> {
-    if (!e.curve) return { h: this.renderer.textHeight(e) };
+    if (!e.curve) {
+      const h = this.renderer.textHeight(e);
+      // Canva's text anchor: the middle or the bottom edge stays where it is
+      if (e.anchor === 'middle' && h !== e.h) return { h, y: e.y + (e.h - h) / 2 };
+      if (e.anchor === 'bottom' && h !== e.h) return { h, y: e.y + e.h - h };
+      return { h };
+    }
     const { w, h } = this.renderer.fitText(e);
     return { w, h, x: e.x + (e.w - w) / 2, y: e.y + (e.h - h) / 2 };
   }
@@ -219,7 +226,7 @@ export class EditorState {
   }
 
   /** Change whole-box text settings (effect, curve, list, gradient), refitting the box. */
-  updateText(patch: Partial<Pick<TextElement, 'effect' | 'curve' | 'list' | 'gradient'>>, key: string | null = null): void {
+  updateText(patch: Partial<Pick<TextElement, 'effect' | 'curve' | 'list' | 'gradient' | 'anchor'>>, key: string | null = null): void {
     this.update((e) => {
       if (e.type !== 'text') return {};
       const next = { ...e, ...patch } as TextElement;
@@ -364,11 +371,33 @@ export class EditorState {
     if (ids.length) this.commit(updateElements(this.doc, ids, (e) => (e.type === 'text' ? this.fitPatch(e) : {})), 'refit');
   }
 
+  /**
+   * Centre of the part of the current page you can see (page px). The canvas
+   * sets it as you scroll and zoom; null = the page centre. Canva drops a
+   * clicked element there, so it never lands off screen.
+   */
+  viewCenter = $state.raw<{ pageId: string; x: number; y: number } | null>(null);
+
+  /** Where a clicked (not dropped) element goes: the visible centre of the current page. */
+  /** Fallback for `viewCenter`: asks the page on screen (set by the editor shell). */
+  viewProbe: (() => { pageId: string; x: number; y: number } | null) | null = null;
+
+  insertCenter(): { x: number; y: number } {
+    let v = this.viewCenter;
+    if (!v || v.pageId !== this.pageId) try { v = this.viewProbe?.() ?? null; } catch { v = null; }
+    if (v && v.pageId === this.pageId) return { x: Math.max(0, Math.min(this.doc.width, v.x)), y: Math.max(0, Math.min(this.doc.height, v.y)) };
+    return { x: this.doc.width / 2, y: this.doc.height / 2 };
+  }
+
   private place(w: number, h: number): { x: number; y: number; w: number; h: number } {
-    // Fit inside 60% of the page, centred.
+    // Fit inside 60% of the page, centred where you are looking.
     const max = Math.min(this.doc.width, this.doc.height) * 0.6;
     const s = Math.min(1, max / Math.max(w, h));
-    return { x: (this.doc.width - w * s) / 2, y: (this.doc.height - h * s) / 2, w: w * s, h: h * s };
+    const c = this.insertCenter();
+    const bw = w * s, bh = h * s;
+    // keep it on the page
+    const x = Math.max(0, Math.min(this.doc.width - bw, c.x - bw / 2)), y = Math.max(0, Math.min(this.doc.height - bh, c.y - bh / 2));
+    return { x, y, w: bw, h: bh };
   }
 
   private add(el: Element): void {
@@ -392,8 +421,9 @@ export class EditorState {
     const w = Math.min(this.renderer.textWidth(el) + 4, this.doc.width * 0.9);
     el = { ...el, w };
     el.h = this.renderer.textHeight(el);
-    el.x = (at?.x ?? this.doc.width / 2) - w / 2;
-    el.y = (at?.y ?? this.doc.height / 2) - el.h / 2;
+    const c = at ?? this.insertCenter();
+    el.x = c.x - w / 2;
+    el.y = c.y - el.h / 2;
     this.add(el);
   }
 
@@ -620,6 +650,13 @@ export class EditorState {
     return out;
   }
 
+  /** Canva's "Resize" (not "Copy & resize"): this design takes the new size, as one undoable change. */
+  resizeInPlace(t: ResizeTarget): void {
+    const d = resizeDoc(this.doc, t);
+    this.commit({ ...d, id: this.doc.id, title: this.doc.title, createdAt: this.doc.createdAt });
+    this.seal();
+  }
+
   startEditing(id: string): void {
     const hit = findElement(this.doc, id);
     if (hit?.element.type !== 'text' || hit.element.locked) return;
@@ -663,6 +700,8 @@ export class EditorState {
     this.commit(removePage(this.doc, pageId));
     this.seal();
     this.select([], this.doc.pages[Math.max(0, i - 1)]!.id);
+    // Canva: "Page deleted · Undo"
+    toast.show(`Page ${i + 1} deleted`, { action: { label: 'Undo', run: () => this.undo() } });
   }
 
   movePage(pageId: string, delta: number): void {
@@ -673,6 +712,27 @@ export class EditorState {
 
   updatePage(patch: Partial<Omit<Page, 'id' | 'elements'>>, key: string | null = null, pageId = this.pageId): void {
     this.commit(updatePage(this.doc, pageId, patch), key);
+  }
+
+  /**
+   * Bring back an earlier save (version history): its pages, assets and fonts
+   * replace the current ones as one undoable change. Id and title stay.
+   */
+  loadVersion(file: ProjectFile): void {
+    for (const [id, bytes] of file.assets) {
+      if (this.assets.has(id)) continue;
+      this.assets.set(id, bytes);
+      if (file.doc.assets[id]?.mime.startsWith('image/')) this.renderer.setImage(id, bytes);
+    }
+    for (const f of file.doc.fonts ?? []) {
+      const bytes = this.assets.get(f.asset);
+      if (bytes) this.registerFont(f, bytes);
+    }
+    this.selection = [];
+    this.editingTextId = null;
+    this.commit({ ...file.doc, id: this.doc.id, title: this.doc.title });
+    this.seal();
+    this.pageId = this.doc.pages[0]!.id;
   }
 
   rename(title: string): void {
@@ -700,7 +760,7 @@ export class EditorState {
 
   addLine(preset: LinePreset, at?: { x: number; y: number }): void {
     const len = this.unit(0.4);
-    const c = at ?? { x: this.doc.width / 2, y: this.doc.height / 2 };
+    const c = at ?? this.insertCenter();
     const bent = preset.route !== 'straight';
     const a = { x: c.x - len / 2, y: c.y - (bent ? len / 4 : 0) }, b = { x: c.x + len / 2, y: c.y + (bent ? len / 4 : 0) };
     const width = Math.max(2, this.unit(0.006));
@@ -782,7 +842,8 @@ export class EditorState {
   addTable(rows: number, cols: number): void {
     const w = this.unit(0.7), fs = Math.max(10, this.unit(0.022));
     const h = rows * fs * 2.6;
-    this.add(table(rows, cols, { x: (this.doc.width - w) / 2, y: (this.doc.height - h) / 2, w, h }, { fontSize: fs }));
+    const c = this.insertCenter();
+    this.add(table(rows, cols, { x: c.x - w / 2, y: c.y - h / 2, w, h }, { fontSize: fs }));
   }
 
   /** Apply a table operation (add a row, set a fill…) to one table. */
@@ -826,12 +887,14 @@ export class EditorState {
 
   addChart(kind: ChartKind): void {
     const w = this.unit(0.6), h = Math.round(w * 0.7);
-    this.add(chart(kind, { x: (this.doc.width - w) / 2, y: (this.doc.height - h) / 2, w, h }));
+    const c = this.insertCenter();
+    this.add(chart(kind, { x: c.x - w / 2, y: c.y - h / 2, w, h }));
   }
 
   addQr(text: string): void {
     const s = this.unit(0.3);
-    this.add(qrCode(text, { x: (this.doc.width - s) / 2, y: (this.doc.height - s) / 2, w: s, h: s }));
+    const c = this.insertCenter();
+    this.add(qrCode(text, { x: c.x - s / 2, y: c.y - s / 2, w: s, h: s }));
   }
 
   updateQr(id: string, text: string): void {

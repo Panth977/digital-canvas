@@ -2,6 +2,8 @@
   /** Hand-drawn 24×24 stroke icons. */
   export const ICONS = {
     home: 'M3 11l9-8 9 8M5 9.5V21h5v-6h4v6h5V9.5',
+    roller: 'M4 4h13v5H4zM17 6.5h3v6h-8v3M10.5 15.5h3V21h-3z',
+    animate: 'M4 18c4-1 6-4 8-8s4-6 8-6M4 12c2 0 3-1 4-3M14 20c3 0 5-2 6-5',
     undo: 'M9 14L4 9l5-5M4 9h11a5 5 0 010 10h-3',
     redo: 'M15 14l5-5-5-5M20 9H9a5 5 0 000 10h3',
     download: 'M12 3v12m0 0l-5-5m5 5l5-5M4 21h16',
@@ -12,6 +14,7 @@
     trash: 'M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14',
     copy: 'M8 8h12v12H8zM4 16V4h12',
     plus: 'M12 5v14M5 12h14',
+    minus: 'M5 12h14',
     up: 'M6 15l6-6 6 6',
     down: 'M6 9l6 6 6-6',
     lock: 'M6 11h12v10H6zM8 11V7a4 4 0 018 0v4',

@@ -50,6 +50,38 @@
   });
 
 
+  // ---- keyboard: arrows move along the rail; Esc in the panel closes it (focus goes back to the rail) ----
+  let railEl = $state<HTMLElement>();
+  function railKey(e: KeyboardEvent): void {
+    const btns = [...(railEl?.querySelectorAll<HTMLButtonElement>('button') ?? [])];
+    const i = btns.indexOf(document.activeElement as HTMLButtonElement);
+    if (i < 0) return;
+    const n = e.key === 'ArrowDown' ? i + 1 : e.key === 'ArrowUp' ? i - 1 : e.key === 'Home' ? 0 : e.key === 'End' ? btns.length - 1 : -2;
+    if (n === -2) return;
+    e.preventDefault();
+    btns[(n + btns.length) % btns.length]!.focus();
+  }
+  function panelKey(e: KeyboardEvent): void {
+    // with something selected, Esc deselects first (the window handler)
+    if (e.key !== 'Escape' || e.defaultPrevented || ed.selection.length) return;
+    const t = e.target as HTMLElement;
+    // Esc in a search box with words clears it first (Canva)
+    if (t instanceof HTMLInputElement && (t.type === 'search' || t.type === 'text') && t.value) return;
+    if ((t as HTMLElement).closest?.('[role=dialog], [role=menu], .pop')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const back = ui.isRail ? ui.panel : ui.lastRail;
+    if (ui.isRail) ui.panel = null; else ui.close();
+    railEl?.querySelector<HTMLButtonElement>(`[data-testid="tab-${back}"]`)?.focus();
+  }
+  /** Opening a section from the keyboard puts the focus in it (its search box first). */
+  function openFromKeys(e: KeyboardEvent, id: RailTab): void {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+    ui.rail(id);
+    if (ui.panel) requestAnimationFrame(() => document.querySelector<HTMLElement>('[data-testid=side-panel] input, [data-testid=side-panel] button:not(.collapse)')?.focus());
+  }
+
   function dragData(e: DragEvent, data: object): void {
     e.dataTransfer?.setData('application/x-digital-canvas', JSON.stringify(data));
     if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copy';
@@ -61,9 +93,10 @@
 </script>
 
 <aside class="side">
-  <nav class="rail" aria-label="Side panel">
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <nav class="rail" aria-label="Side panel" bind:this={railEl} onkeydown={railKey}>
     {#each TABS as t}
-      <button class:on={lit === t.id} aria-pressed={lit === t.id} onclick={() => ui.rail(t.id)} data-testid="tab-{t.id}">
+      <button class:on={lit === t.id} aria-pressed={lit === t.id} onclick={() => ui.rail(t.id)} onkeydown={(e) => openFromKeys(e, t.id)} data-testid="tab-{t.id}">
         <span class="ri"><Icon name={t.icon} size={24} /></span>
         <span>{t.label}</span>
       </button>
@@ -71,7 +104,8 @@
   </nav>
 
   {#if ui.panel}
-    <div class="drawer" class:wide={ui.panel === 'font'} data-testid="side-panel" data-text-tools>
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="drawer" class:wide={ui.panel === 'font'} data-testid="side-panel" data-text-tools onkeydown={panelKey}>
       {#if !ui.isRail}
         <ToolPanels {ed} />
       {:else}

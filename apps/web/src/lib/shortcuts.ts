@@ -1,7 +1,7 @@
 /**
  * Canva's text shortcuts, shared by the canvas (a text box selected) and the
- * in-place editor (the selected characters): ⌘⇧K uppercase, ⌘⇧L/C/R/J align,
- * ⌘⇧> / ⌘⇧< font size. Returns true when the key was one of them.
+ * in-place editor (the selected characters): ⌘⇧K uppercase, ⌘⇧X strikethrough,
+ * ⌘⇧L/C/R/J align, ⌘⇧8 / ⌘⇧7 bulleted / numbered list, ⌘⇧> / ⌘⇧< font size. Returns true when the key was one of them.
  */
 import type { EditorState } from './editor.svelte.ts';
 
@@ -13,6 +13,12 @@ export function textShortcut(ed: EditorState, e: KeyboardEvent): boolean {
   const k = e.key.toLowerCase();
   const align = { l: 'left', c: 'center', r: 'right', j: 'justify' }[k] as 'left' | 'center' | 'right' | 'justify' | undefined;
   if (k === 'k') ed.updateTextStyle({ uppercase: !st.uppercase });
+  else if (k === 'x') ed.updateTextStyle({ strike: !st.strike });
+  else if (e.code === 'Digit8' || e.code === 'Digit7') {
+    const want = e.code === 'Digit8' ? 'bullet' : 'number';
+    const t = ed.selected.find((x) => x.type === 'text');
+    ed.updateText({ list: t?.type === 'text' && t.list === want ? undefined : want });
+  }
   else if (align) ed.updateTextStyle({ align });
   else if (k === '>' || k === '.' || k === '<' || k === ',') {
     const up = k === '>' || k === '.';

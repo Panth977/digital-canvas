@@ -17,3 +17,4 @@ export * from './vector.ts';
 export * from './svg.ts';
 export * from './erase.ts';
 export * from './loose.ts';
+export * from './anim.ts';

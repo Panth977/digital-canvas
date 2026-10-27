@@ -8,7 +8,7 @@ import {
   ALL_FORMATS, AudioBufferSource, BlobSource, BufferTarget, CanvasSource, Input, Mp4OutputFormat, Output, QUALITY_HIGH,
   VideoSampleSink, getFirstEncodableAudioCodec, getFirstEncodableVideoCodec,
 } from 'mediabunny';
-import { clipTime, pageDuration, pageStart, totalDuration, walk, type Doc, type VideoElement } from '@digital-canvas/scene';
+import { animateAt, clipTime, pageDuration, pageStart, totalDuration, walk, type Doc, type VideoElement } from '@digital-canvas/scene';
 import type { EditorState } from './editor.svelte.ts';
 
 export interface Mp4Options {
@@ -140,7 +140,7 @@ export async function exportMp4(ed: EditorState, opts: Mp4Options = {}): Promise
         canvas.clear(ck.WHITE);
         canvas.save();
         canvas.scale(W / doc.width, H / doc.height);
-        ed.renderer.drawPage(canvas, doc, page);
+        ed.renderer.drawPage(canvas, doc, animateAt(doc, page, f / fps - start));
         canvas.restore();
         surface.flush();
         const img = surface.makeImageSnapshot();
