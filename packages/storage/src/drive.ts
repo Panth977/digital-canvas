@@ -13,6 +13,9 @@ const DOC_PROP = 'dcDocId';
 const ASSETS_PROP = 'dcAssets';
 const ASSET_PROP = 'dcAsset';
 
+/** Only content-hash ids (as `assetId` makes) are safe to share between designs. */
+export const isSharedAssetId = (id: string) => /^[0-9a-f]{20}\.[a-z0-9]+$/.test(id);
+
 /** A cache of asset bytes by id (ids are content hashes, so entries never go stale). */
 export interface AssetCache {
   get(id: string): Promise<Uint8Array | undefined>;
@@ -199,7 +202,7 @@ export class DriveStore implements ProjectStore {
     const file = unpack(new Uint8Array(await res.arrayBuffer()));
     this.ids.set(file.doc.id, fileId);
     // Linked assets: fetch what the file doesn't carry (a few at a time).
-    const missing = Object.keys(file.doc.assets).filter((a) => !file.assets.has(a));
+    const missing = Object.keys(file.doc.assets).filter((a) => !file.assets.has(a) && isSharedAssetId(a));
     const queue = [...missing];
     await Promise.all(Array.from({ length: Math.min(6, queue.length) }, async () => {
       for (let a = queue.shift(); a; a = queue.shift()) {
@@ -207,14 +210,14 @@ export class DriveStore implements ProjectStore {
         if (bytes) file.assets.set(a, bytes);
       }
     }));
-    for (const [a, b] of file.assets) if (!missing.includes(a)) void this.cache?.set(a, b).catch(() => {});
+    for (const [a, b] of file.assets) if (!missing.includes(a) && isSharedAssetId(a)) void this.cache?.set(a, b).catch(() => {});
     return file;
   }
 
   async save(file: ProjectFile): Promise<void> {
     const { doc } = file;
     // Assets first, so a saved design never points at something Drive doesn't have.
-    const queue = Object.keys(doc.assets).filter((a) => file.assets.has(a));
+    const queue = Object.keys(doc.assets).filter((a) => file.assets.has(a) && isSharedAssetId(a));
     await Promise.all(Array.from({ length: Math.min(4, queue.length) }, async () => {
       for (let a = queue.shift(); a; a = queue.shift()) await this.uploadAsset(a, file.assets.get(a)!, doc.assets[a]!.mime);
     }));
@@ -228,7 +231,9 @@ export class DriveStore implements ProjectStore {
     if (!fileId) meta.parents = [await this.folder()];
     const boundary = `dc${Math.random().toString(36).slice(2)}`;
     const head = `--${boundary}\r\ncontent-type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${boundary}\r\ncontent-type: ${MIME}\r\n\r\n`;
-    const body = new Blob([head, pack({ doc, assets: new Map(), thumbnail: file.thumbnail }) as BlobPart, `\r\n--${boundary}--`]);
+    // Assets with other ids (e.g. from old imports) stay inside the file.
+    const inside = new Map([...file.assets].filter(([a]) => !isSharedAssetId(a)));
+    const body = new Blob([head, pack({ doc, assets: inside, thumbnail: file.thumbnail }) as BlobPart, `\r\n--${boundary}--`]);
     const url = fileId ? `${UPLOAD}/files/${fileId}?uploadType=multipart&fields=id` : `${UPLOAD}/files?uploadType=multipart&fields=id`;
     const r = await this.json<{ id: string }>(url, { method: fileId ? 'PATCH' : 'POST', headers: { 'content-type': `multipart/related; boundary=${boundary}` }, body });
     this.ids.set(doc.id, r.id);
