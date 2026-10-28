@@ -3,6 +3,7 @@
  * workspace (the user's Google Drive, or a local folder).
  */
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { Context, type ServerOptions } from './context.ts';
 import { GUIDE, WORKFLOW } from './guide.ts';
@@ -28,6 +29,15 @@ Read the resource dcanvas://guide for sizes, type scales, font pairings, filters
 export function createServer(ws: Workspace, opts: ServerOptions = {}): McpServer {
   const ctx = new Context(ws, opts);
   const server = new McpServer({ name: opts.name ?? 'digital-canvas', version: VERSION, title: 'Digital Canvas' }, { instructions: INSTRUCTIONS, capabilities: { logging: {} } });
+
+  if (opts.relay) {
+    // Every tool call goes through the relay (it runs it here in cloud mode, else on the user's device).
+    const relay = opts.relay;
+    const register = server.registerTool.bind(server) as (name: string, config: unknown, cb: (args: Record<string, unknown>, extra: { signal?: AbortSignal }) => Promise<CallToolResult>) => unknown;
+    (server as unknown as { registerTool: typeof register }).registerTool = (name, config, cb) =>
+      register(name, config, (args, extra) => relay.call(name, args, extra, () => cb(args, extra)));
+    relay.registerTools?.({ registerTool: register } as unknown as McpServer);
+  }
 
   registerDesignTools(server, ctx);
   registerEditTools(server, ctx);

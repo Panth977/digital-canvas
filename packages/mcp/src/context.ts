@@ -10,6 +10,7 @@ import { embedFonts } from './fonts.ts';
 import { probe, type MediaInfo } from './media.ts';
 import { download } from './net.ts';
 import type { JobRunner } from './jobs.ts';
+import type { ToolRelay } from './bridge/relay.ts';
 import type { AssetInfo, Workspace } from './workspace.ts';
 
 export const DEFAULT_EDITOR_URL = 'https://digital-canvas-p977.web.app';
@@ -23,6 +24,8 @@ export interface ServerOptions {
   mode?: 'local' | 'remote';
   /** Name shown to clients. */
   name?: string;
+  /** Device bridge (remote server): decides per call whether a tool runs here or on the user's device. */
+  relay?: ToolRelay;
 }
 
 /** A tool error the agent can act on: say what was wrong and how to call it instead. */

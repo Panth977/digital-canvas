@@ -5,6 +5,8 @@
 //   keeps the Drive refresh token, encrypted, so every other device works without
 //   connecting Drive again.
 // driveToken: a fresh Drive access token for the signed-in user, with the scopes it carries.
+// aiSettings: where the AI connector runs tools for you (your device or, for allowlisted accounts,
+//   our cloud) and which device; the MCP relay (backend/mcp) reads the same users/{uid} fields.
 //
 // Connecting the whole Drive (browse it in Uploads) is incremental consent: the app
 // asks for drive.readonly on top of the granted scopes (include_granted_scopes) with
@@ -12,7 +14,8 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { HttpsError, onCall } from '@panth977/icebase-server/functions';
 import { getAdminAuth, getAdminFirestore, initializeAdminApp } from '@panth977/icebase-server/admin';
-import { collection, deleteDoc, doc, getDoc, increment, serverTimestamp, setDoc } from '@panth977/icebase/firestore';
+import { collection, deleteDoc, deleteField, doc, getDoc, increment, serverTimestamp, setDoc } from '@panth977/icebase/firestore';
+import { effectiveMode, parseAllowlist } from '../../../packages/mcp/src/bridge/routing.ts';
 import { drive, users } from '../../icebase/schema.ts';
 import config from '../../icebase.config.ts';
 import { api } from '../../icebase/api.ts';
@@ -125,4 +128,26 @@ export const driveToken = onCall(api.driveToken, { secrets: SECRETS, cors: ORIGI
   if (!t.access_token) throw new HttpsError('unavailable', t.error_description ?? t.error ?? 'Google token refresh failed');
   // The scopes this token carries: drive.readonly once the user connected their whole Drive.
   return { accessToken: t.access_token, expiresIn: t.expires_in ?? 3600, scope: t.scope ?? stored.scope ?? '' };
+});
+
+// Cloud processing is for these accounts only (env DC_CLOUD_ALLOWLIST, comma-separated; same in backend/mcp).
+const CLOUD_ALLOWLIST = parseAllowlist(process.env.DC_CLOUD_ALLOWLIST);
+
+export const aiSettings = onCall(api.aiSettings, { cors: ORIGINS, region: REGION }, async (req) => {
+  const uid = req.auth!.uid;
+  const ref = doc(collection(db, users), uid);
+  const data = (await getDoc(ref)).data() as { email?: string; processing?: 'device' | 'cloud'; activeDevice?: string } | undefined;
+  const email = data?.email ?? (req.auth!.token as { email?: string }).email ?? '';
+  const before = effectiveMode({ email, ...(data?.processing ? { processing: data.processing } : {}) }, CLOUD_ALLOWLIST);
+  const patch: Record<string, unknown> = {};
+  if (req.data.processing) {
+    if (req.data.processing === 'cloud' && !before.cloudAllowed) throw new HttpsError('permission-denied', 'Cloud processing is not available for this account');
+    patch.processing = req.data.processing;
+  }
+  if (req.data.activeDevice !== undefined) patch.activeDevice = req.data.activeDevice ? req.data.activeDevice : deleteField();
+  if (Object.keys(patch).length) await setDoc(ref, patch as never, { merge: true });
+  const processing = (patch.processing as 'device' | 'cloud' | undefined) ?? data?.processing;
+  const m = effectiveMode({ email, ...(processing ? { processing } : {}) }, CLOUD_ALLOWLIST);
+  const active = req.data.activeDevice !== undefined ? req.data.activeDevice : data?.activeDevice;
+  return { mode: m.mode, requested: m.requested, cloudAllowed: m.cloudAllowed, ...(active ? { activeDevice: active } : {}) };
 });

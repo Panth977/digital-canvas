@@ -1,11 +1,54 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    function owner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
     match /users/{uid} {
-      allow read: if request.auth != null && request.auth.uid == uid;
+      allow read: if owner(uid);
       allow write: if false;
       match /private/{doc} {
         allow read, write: if false;
+      }
+
+      // Device bridge (packages/mcp/src/bridge). A device is the user's own browser or phone,
+      // signed in with the custom token from googleSignIn; it registers itself here.
+      match /devices/{deviceId} {
+        allow read, delete: if owner(uid);
+        allow create, update: if owner(uid)
+          && deviceId.size() <= 64
+          && request.resource.data.keys().hasOnly(['name', 'platform', 'enabled', 'lastSeen', 'appVersion'])
+          && request.resource.data.name is string && request.resource.data.name.size() <= 80
+          && request.resource.data.platform is string && request.resource.data.platform.size() <= 20
+          && request.resource.data.enabled is bool
+          && request.resource.data.lastSeen == request.time
+          && (!('appVersion' in request.resource.data) || (request.resource.data.appVersion is string && request.resource.data.appVersion.size() <= 40));
+      }
+
+      // Tool calls: only the MCP relay (admin) creates and deletes them. The device may only
+      // move its job forward (pending → running → done | failed | cancelled) and attach the result.
+      match /bridgeJobs/{jobId} {
+        allow read: if owner(uid);
+        allow create, delete: if false;
+        allow update: if owner(uid)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['state', 'startedAt', 'finishedAt', 'result', 'parts', 'error'])
+          && request.resource.data.state in ['running', 'done', 'failed', 'cancelled']
+          && resource.data.state in ['pending', 'running']
+          && (!('result' in request.resource.data) || request.resource.data.result is string)
+          && (!('parts' in request.resource.data) || (request.resource.data.parts is int && request.resource.data.parts >= 1 && request.resource.data.parts <= 32))
+          && (!('error' in request.resource.data) || (request.resource.data.error is string && request.resource.data.error.size() <= 4000));
+
+        // A large result, in order. Written once by the device while the job runs.
+        match /parts/{n} {
+          allow read: if owner(uid);
+          allow create: if owner(uid)
+            && get(/databases/$(database)/documents/users/$(uid)/bridgeJobs/$(jobId)).data.state == 'running'
+            && request.resource.data.keys().hasOnly(['data', 'expiresAt'])
+            && request.resource.data.data is string
+            && request.resource.data.expiresAt is timestamp;
+          allow update, delete: if false;
+        }
       }
     }
   }

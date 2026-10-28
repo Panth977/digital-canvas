@@ -5,7 +5,7 @@
 //   node backend/scripts/deploy-mcp.mjs --build-only bundle only (backend/.icebase/mcp-functions)
 import { build } from 'esbuild';
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -42,6 +42,8 @@ mkdirSync(join(out, 'fonts'), { recursive: true });
 for (const f of readdirSync(join(repo, 'apps/web/public/fonts'))) if (/^Inter-.*\.ttf$/.test(f) || f === 'OFL.txt') copyFileSync(join(repo, 'apps/web/public/fonts', f), join(out, 'fonts', f));
 mkdirSync(join(out, 'templates'), { recursive: true });
 for (const f of readdirSync(join(repo, 'apps/web/src/templates'))) if (f.endsWith('.json')) copyFileSync(join(repo, 'apps/web/src/templates', f), join(out, 'templates', f));
+// Optional environment (e.g. DC_CLOUD_ALLOWLIST=a@x.com,b@y.com): backend/mcp/.env → the function's .env.
+if (existsSync(join(root, 'mcp/.env'))) copyFileSync(join(root, 'mcp/.env'), join(out, '.env'));
 writeFileSync(join(out, 'package.json'), JSON.stringify({ name: 'digital-canvas-mcp-functions', private: true, type: 'module', main: 'index.js', engines: { node: '22' }, dependencies: deps }, null, 2) + '\n');
 const fb = join(work, 'firebase.mcp.json');
 writeFileSync(fb, JSON.stringify({ functions: [{ source: 'mcp-functions', codebase: 'mcp', runtime: 'nodejs22' }] }, null, 2) + '\n');

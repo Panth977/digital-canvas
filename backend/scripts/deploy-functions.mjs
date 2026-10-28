@@ -4,7 +4,7 @@
 // Remove this script once that is fixed in IceBase.
 import { build } from 'esbuild';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -28,6 +28,8 @@ await build({
   alias: { '@panth977/icebase': '@jsr/panth977__icebase' },
   logLevel: 'warning',
 });
+// Optional environment (e.g. DC_CLOUD_ALLOWLIST=a@x.com,b@y.com): backend/functions/.env → the functions' .env.
+if (existsSync(join(root, 'functions/.env'))) copyFileSync(join(root, 'functions/.env'), join(out, '.env'));
 writeFileSync(join(out, 'package.json'), JSON.stringify({ name: 'digital-canvas-functions', private: true, type: 'module', main: 'index.js', engines: { node: '22' }, dependencies: deps }, null, 2) + '\n');
 const fb = join(root, '.icebase/firebase.json');
 writeFileSync(fb, JSON.stringify({ functions: { source: 'functions', runtime: 'nodejs22' } }, null, 2) + '\n');

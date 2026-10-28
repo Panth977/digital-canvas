@@ -27,6 +27,8 @@ import {
   checkAuthorizeRequest, decrypt, encrypt, exchangeCode, idClaims, isAllowedRedirectUri, loadClient, redirectWith, refresh, registerClient, revokeToken, verifyAccess,
 } from './oauth.ts';
 import type { OAuthStore } from './store.ts';
+import { Relay } from '../bridge/relay.ts';
+import type { BridgeStore } from '../bridge/store.ts';
 
 export interface GoogleConfig {
   clientId: string;
@@ -48,6 +50,12 @@ export interface RemoteOptions {
   jobs?: JobRunner | ((uid: string) => JobRunner);
   editorUrl?: string;
   now?: () => number;
+  /**
+   * Device bridge: tool calls run on the user's own device (relayed through
+   * this mailbox) unless the user is allowlisted for cloud processing and
+   * chose it. Without it every call runs here (the local CLI, older setups).
+   */
+  bridge?: { store: BridgeStore; allowlist: readonly string[]; pickupMs?: number; callMs?: number };
 }
 
 type Req = IncomingMessage & { body?: unknown; rawBody?: Buffer };
@@ -363,15 +371,22 @@ export function createRemoteHandler(opts: RemoteOptions): (req: IncomingMessage,
     const tok = bearer(req);
     const row = tok ? await verifyAccess(store, tok, now()) : null;
     if (!row) return unauthorized(req, res, !!tok);
-    let first: { token: string; exp: number; scope: string };
-    try { first = await driveToken(row.uid); } catch (e) {
-      if (e instanceof NeedsAuth) return unauthorized(req, res, true, 'Google Drive is no longer connected: sign in again');
-      throw e;
+    const b = opts.bridge;
+    const relay = b ? new Relay({ store: b.store, uid: row.uid, allowlist: b.allowlist, now, ...(b.pickupMs ? { pickupMs: b.pickupMs } : {}), ...(b.callMs ? { callMs: b.callMs } : {}) }) : undefined;
+    const cloud = relay ? (await relay.mode()).mode === 'cloud' : true;
+    // Cloud processing needs a Drive token now (and re-auth when it was revoked); in device mode the
+    // device brings its own, and the relay only touches Drive for the rare design resource read.
+    let scope: string | undefined;
+    if (cloud) {
+      try { scope = (await driveToken(row.uid)).scope; } catch (e) {
+        if (e instanceof NeedsAuth) return unauthorized(req, res, true, 'Google Drive is no longer connected: sign in again');
+        throw e;
+      }
     }
     const tokenSource = async (force?: boolean) => (await driveToken(row.uid, !!force)).token;
-    const ws = opts.workspaceFor ? opts.workspaceFor(row.uid, () => tokenSource(), first.scope) : new DriveWorkspace(tokenSource, first.scope);
+    const ws = opts.workspaceFor ? opts.workspaceFor(row.uid, () => tokenSource(), scope ?? '') : new DriveWorkspace(tokenSource, scope);
     const jobs = typeof opts.jobs === 'function' ? opts.jobs(row.uid) : opts.jobs;
-    const server = createServer(ws, { mode: 'remote', ...(jobs ? { jobs } : {}), ...(opts.editorUrl ? { editorUrl: opts.editorUrl } : {}) });
+    const server = createServer(ws, { mode: 'remote', ...(jobs ? { jobs } : {}), ...(opts.editorUrl ? { editorUrl: opts.editorUrl } : {}), ...(relay ? { relay } : {}) });
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     res.on('close', () => { void transport.close(); void server.close(); });
     await server.connect(transport);

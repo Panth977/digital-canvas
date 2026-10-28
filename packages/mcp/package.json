@@ -18,6 +18,9 @@
   },
   "exports": {
     ".": "./src/index.ts",
+    "./core": "./src/core.ts",
+    "./bridge": "./src/bridge/index.ts",
+    "./browser": "./src/browser/index.ts",
     "./remote": "./src/remote/index.ts"
   },
   "files": [

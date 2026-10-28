@@ -5,6 +5,10 @@
 //            OAuth 2.1 (DCR + PKCE) with Google as identity; MCP Streamable HTTP, stateless.
 // mcpExport: Cloud Tasks worker for long video exports (status in users/{uid}/mcpJobs).
 //
+// Processing: tools run on the user's own device (the web app / Android app relays them through
+// Firestore: see packages/mcp/src/bridge) unless the user is on the cloud allowlist
+// (DC_CLOUD_ALLOWLIST, default ppanth977@gmail.com) and chose cloud. Then they run here as before.
+//
 // ffmpeg comes from ffmpeg-static (GPL), a dependency of the deployed function only:
 // it runs on our server and is not distributed with @digital-canvas/mcp.
 import { createRequire } from 'node:module';
@@ -18,6 +22,8 @@ import { runJob } from '../../../packages/mcp/src/server.ts';
 import { DriveWorkspace } from '../../../packages/mcp/src/workspace.ts';
 import { GOOGLE_CLIENT_ID } from '../../google.ts';
 import { FirestoreOAuthStore } from './store.ts';
+import { FirestoreBridgeStore } from './bridge.ts';
+import { parseAllowlist } from '../../../packages/mcp/src/bridge/routing.ts';
 import { REGION, TaskQueueJobs, jobDoc, type ExportTask } from './jobs.ts';
 
 try {
@@ -38,6 +44,7 @@ const getHandler = () => (handler ??= createRemoteHandler({
   google: { clientId: GOOGLE_CLIENT_ID, clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? '', tokenKey: process.env.TOKEN_KEY ?? '' },
   jobs: (uid) => new TaskQueueJobs(db, uid),
   editorUrl: PUBLIC_BASE,
+  bridge: { store: new FirestoreBridgeStore(db), allowlist: parseAllowlist(process.env.DC_CLOUD_ALLOWLIST) },
 }));
 
 export const mcp = onRequest(

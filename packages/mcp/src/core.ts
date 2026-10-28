@@ -12,3 +12,4 @@ export { renderPage, renderGrid } from './render.ts';
 export { exportMp4, exportGif, drawAt } from './video.ts';
 export { setPlatform, platform, hasPlatform, type Platform, type TemplateEntry, type VideoExportOptions } from './platform.ts';
 export { engine, withRenderer, type Engine } from './engine.ts';
+export * from './bridge/index.ts';
