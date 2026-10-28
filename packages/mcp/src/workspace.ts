@@ -9,8 +9,8 @@
  * and in the Cloud Function (one Drive workspace per signed-in user).
  */
 import {
-  DriveBrowser, DriveStore, assetId, tokenScopes,
-  DRIVE_READONLY_SCOPE, type AssetCache, type DriveItem, type MediaKind, type ProjectStore, type TokenSource,
+  DriveBrowser, DriveStore, assetId,
+  type AssetCache, type DriveItem, type MediaKind, type ProjectStore, type TokenSource,
 } from '@digital-canvas/storage';
 
 export interface AssetInfo {
@@ -66,8 +66,11 @@ export interface Workspace {
   getAsset(id: string): Promise<Uint8Array | undefined>;
   /** Keep a file in the uploads library (once per content). `extra`: sizes/durations measured on import (kept where the store can). */
   putAsset(bytes: Uint8Array, mime: string, name?: string, extra?: Partial<AssetInfo>): Promise<AssetInfo>;
-  /** Files in the user's Drive (whole Drive with drive.readonly, else the files this app can see). */
-  searchDrive?(q: DriveSearch): Promise<{ items: DriveHit[]; nextPageToken?: string; wholeDrive: boolean }>;
+  /**
+   * Drive files this app can see under `drive.file`: its own folder plus the files the user
+   * picked in the app (Uploads › Google Drive) or opened with it. Not the rest of Drive.
+   */
+  searchDrive?(q: DriveSearch): Promise<{ items: DriveHit[]; nextPageToken?: string }>;
   readDriveFile?(fileId: string): Promise<{ bytes: Uint8Array; mime: string; name: string }>;
   saveExport(name: string, bytes: Uint8Array, mime: string): Promise<ExportResult>;
 }
@@ -97,7 +100,6 @@ export class MemoryAssetCache implements AssetCache {
 }
 
 const sharedCache = new MemoryAssetCache();
-const API = 'https://www.googleapis.com/drive/v3';
 
 function kindOf(mime: string): DriveHit['kind'] {
   if (mime === 'application/vnd.google-apps.folder') return 'folder';
@@ -117,18 +119,11 @@ export class DriveWorkspace implements Workspace {
   readonly label = 'Google Drive';
   readonly store: DriveStore;
   private browser: DriveBrowser;
-  private scopes: Promise<string[]> | null = null;
 
-  /** `scope`: the space-separated scopes the token carries, when known (else asked from Google). `cache`: asset bytes kept across calls (default 256 MB, shared). */
-  constructor(private token: TokenSource, scope?: string, cache: AssetCache = sharedCache) {
+  /** `_scope`: unused (the app only ever has drive.file). `cache`: asset bytes kept across calls (default 256 MB, shared). */
+  constructor(private token: TokenSource, _scope?: string, cache: AssetCache = sharedCache) {
     this.store = new DriveStore(token, 'Digital Canvas', cache);
     this.browser = new DriveBrowser(token);
-    if (scope) this.scopes = Promise.resolve(scope.split(/\s+/));
-  }
-
-  private granted(): Promise<string[]> {
-    this.scopes ??= this.token().then((t) => tokenScopes(t)).catch(() => []);
-    return this.scopes;
   }
 
   async listAssets(): Promise<AssetInfo[]> {
@@ -148,18 +143,16 @@ export class DriveWorkspace implements Workspace {
   }
 
   async searchDrive(q: DriveSearch) {
-    const wholeDrive = (await this.granted()).includes(DRIVE_READONLY_SCOPE);
     const loc = q.folderId ? { source: 'my-drive' as const, folderId: q.folderId } : q.query?.trim() ? { source: 'my-drive' as const, search: q.query } : { source: 'recent' as const };
     const page = await this.browser.list(loc, q.kind ?? 'all', q.pageToken, true);
-    return { items: page.items.map(hit), ...(page.nextPageToken ? { nextPageToken: page.nextPageToken } : {}), wholeDrive };
+    return { items: page.items.map(hit), ...(page.nextPageToken ? { nextPageToken: page.nextPageToken } : {}) };
   }
 
   async readDriveFile(fileId: string) {
-    const item = await this.browser.folder(fileId).catch(async () => {
-      const t = await this.token();
-      const r = await fetch(`${API}/files/${encodeURIComponent(fileId)}?fields=id,name,mimeType,size&supportsAllDrives=true`, { headers: { Authorization: `Bearer ${t}` } });
-      if (!r.ok) throw new Error(r.status === 404 ? `Drive file ${fileId} not found (or this app may not read it: connect the whole Drive in the app, or pass a file the app created)` : `Google Drive: HTTP ${r.status}`);
-      return (await r.json()) as DriveItem;
+    const item = await this.browser.file(fileId).catch((e: { status?: number; message?: string }) => {
+      throw new Error(e.status === 404
+        ? `Drive file ${fileId} not found, or Digital Canvas may not read it (it only sees files the user picked in the app's Uploads › Google Drive, or files it created). Ask the user to pick it there.`
+        : String(e.message ?? e));
     });
     const bytes = await this.browser.download(item);
     return { bytes, mime: item.mimeType, name: item.name };

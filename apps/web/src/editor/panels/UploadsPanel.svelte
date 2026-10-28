@@ -1,13 +1,13 @@
 <script lang="ts">
-  import type { DriveItem, LibraryAsset, MediaKind } from '@digital-canvas/storage';
-  import { folderIdFromLink } from '@digital-canvas/storage';
+  import type { LibraryAsset, MediaKind } from '@digital-canvas/storage';
   import type { EditorState } from '../../lib/editor.svelte.ts';
   import Icon from '../../lib/Icon.svelte';
   import { IMAGE_TYPES, objectUrl, pickFiles } from '../../lib/files.ts';
   import { AUDIO_TYPES, VIDEO_TYPES, formatTime } from '../../lib/media.ts';
   import { account } from '../../lib/account.svelte.ts';
-  import { driveLib, SOURCES } from '../../lib/drivelib.svelte.ts';
+  import { driveLib } from '../../lib/drivelib.svelte.ts';
   import { isNative } from '../../lib/native/platform.ts';
+  import { mobile } from '../../lib/mobile.svelte.ts';
 
   let { ed }: { ed: EditorState } = $props();
 
@@ -17,7 +17,6 @@
 
   let uploadError = $state('');
   let notice = $state('');
-  let linkText = $state('');
   let dragOver = $state(false);
   /** Download progress by item key (0..1). */
   let progress = $state<Record<string, number>>({});
@@ -28,16 +27,6 @@
     { id: 'video', label: 'Videos' },
     { id: 'audio', label: 'Audio' },
   ];
-
-  /** Small icons this panel needs that the shared set doesn't have. */
-  const GLYPH: Record<string, string> = {
-    'my-drive': 'M8 3h8l6 11-4 7H6l-4-7zM8 3l6 11h8M2 14h12l-4 7',
-    computers: 'M3 5h18v11H3zM8 20h8M12 16v4',
-    shared: 'M9 11a3 3 0 100-6 3 3 0 000 6zM3 19c0-3 3-5 6-5s6 2 6 5M16 5a3 3 0 010 6M18 14c2 .5 3 2.5 3 5',
-    'shared-drives': 'M3 6h18v5H3zM3 13h18v5H3zM7 8.5h.01M7 15.5h.01',
-    starred: 'M12 3l2.7 5.6 6.1.8-4.5 4.2 1.1 6.1L12 16.8 6.6 19.7l1.1-6.1L3.2 9.4l6.1-.8z',
-    recent: 'M12 7v5l3 2M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
-  };
 
   // ---------------- Uploads tab ----------------
 
@@ -51,6 +40,8 @@
 
   const usable = (mime: string) => /^(image|video|audio)\//.test(mime);
   const matches = (mime: string, k: MediaKind) => k === 'all' || mime.startsWith(`${k}/`);
+
+  const fromLib = (a: LibraryAsset): Entry => ({ id: a.id, mime: a.mime, name: a.name ?? a.id, ...(a.duration ? { duration: a.duration } : {}), lib: a });
 
   /** This design's media plus everything in `Digital Canvas/assets` (your uploads), newest first. */
   const entries = $derived.by(() => {
@@ -67,16 +58,18 @@
     for (const a of lib.uploads) {
       if (seen.has(a.id) || !usable(a.mime)) continue;
       seen.add(a.id);
-      out.push({ id: a.id, mime: a.mime, name: a.name ?? a.id, ...(a.duration ? { duration: a.duration } : {}), lib: a });
+      out.push(fromLib(a));
     }
     return out.filter((e) => matches(e.mime, lib.kind));
   });
   const visuals = $derived(entries.filter((e) => !e.mime.startsWith('audio/')));
   const sounds = $derived(entries.filter((e) => e.mime.startsWith('audio/')));
 
+  // Both tabs list `Digital Canvas/assets` (the Drive tab shows the ones picked from Drive).
   $effect(() => {
     void account.user;
-    if (lib.tab === 'uploads') void lib.loadUploads();
+    void lib.tab;
+    void lib.loadUploads();
   });
 
   /** The app (apps/mobile) adds a photo-library button; "Upload files" stays the file picker. */
@@ -111,7 +104,11 @@
     void addFiles([...e.dataTransfer.files]);
   }
 
+  /** Thumbnails made from downloaded bytes, by asset id (kept when the listing refreshes). */
+  let fetched = $state<Record<string, string>>({});
+
   function entryThumb(e: Entry): string | undefined {
+    if (fetched[e.id]) return fetched[e.id];
     if (e.mime.startsWith('image/')) {
       const b = ed.assets.get(e.id);
       if (b) return objectUrl(b, e.mime);
@@ -156,7 +153,7 @@
       if (!hit?.isIntersecting) return;
       io.disconnect();
       const b = await entryBytes(e).catch(() => undefined);
-      if (b) img.src = objectUrl(b, e.mime);
+      if (b) fetched = { ...fetched, [e.id]: objectUrl(b, e.mime) };
     });
     io.observe(img);
     return { destroy: () => io.disconnect() };
@@ -164,65 +161,20 @@
 
   // ---------------- Google Drive tab ----------------
 
-  let checking = $state(false);
-  $effect(() => {
-    if (lib.tab !== 'drive' || !account.user || account.scopes) return;
-    checking = true;
-    account.checkScopes().catch(() => {}).finally(() => (checking = false));
-  });
-
-  let loadedFor = '';
-  $effect(() => {
-    const key = `${account.user?.uid}:${account.wholeDrive}`;
-    if (lib.tab === 'drive' && account.wholeDrive && loadedFor !== key) {
-      loadedFor = key;
-      void lib.load();
-    }
-  });
-
-  async function connect(): Promise<void> {
-    if (await account.connectWholeDrive()) {
-      lib.drive?.clear();
-      void lib.load(true);
-    }
-  }
-
   /** Bigger Drive thumbnails than the default 220 px. */
   const sized = (link: string) => link.replace(/=s\d+$/, '=s400');
 
-  async function useDrive(item: DriveItem, drop?: Drop): Promise<void> {
-    if (item.isFolder) return lib.open(item);
-    const d = lib.drive;
-    if (!d) return;
-    await withProgress(`d:${item.id}`, async (onProgress) => {
-      const bytes = await d.download(item, onProgress);
-      await place(bytes, item.mimeType, item.name, drop);
-    });
+  /** "From Google Drive": files picked with Google Picker before (they live in Uploads). */
+  const picked = $derived(lib.picked.filter((a) => usable(a.mime)).map(fromLib));
+  const pickedVisuals = $derived(picked.filter((e) => !e.mime.startsWith('audio/')));
+  const pickedSounds = $derived(picked.filter((e) => e.mime.startsWith('audio/')));
+
+  /** Google Picker; picked files are copied into Uploads and listed below. One file: also placed on the page. */
+  async function chooseFromDrive(): Promise<void> {
+    notice = '';
+    const got = await lib.pick({ phone: mobile.on });
+    if (got.length === 1) await useEntry(fromLib(got[0]!));
   }
-
-  function useLink(): void {
-    const id = folderIdFromLink(linkText);
-    if (!id) {
-      lib.error = 'Paste a link to a Google Drive folder.';
-      return;
-    }
-    linkText = '';
-    void lib.openLink(id);
-  }
-
-  function sentinel(el: HTMLElement) {
-    const io = new IntersectionObserver(([hit]) => {
-      if (hit?.isIntersecting) void lib.more();
-    }, { rootMargin: '400px' });
-    io.observe(el);
-    return { destroy: () => io.disconnect() };
-  }
-
-  /** Thumbnails Google refused (expired links): show a type icon instead. */
-  let broken = $state(new Set<string>());
-
-  const folders = $derived(lib.items.filter((i) => i.isFolder));
-  const files = $derived(lib.items.filter((i) => !i.isFolder));
 
   // ---------------- placing bytes on the page ----------------
 
@@ -273,7 +225,7 @@
     }
   }
 
-  function dragStart(e: DragEvent, data: { from: 'upload'; id: string } | { from: 'drive'; id: string }): void {
+  function dragStart(e: DragEvent, data: { from: 'upload'; id: string }): void {
     e.dataTransfer?.setData(DRAG_TYPE, JSON.stringify(data));
     if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copy';
   }
@@ -286,15 +238,10 @@
       e.preventDefault();
       e.stopPropagation();
       if (!target) return;
-      const data = JSON.parse(e.dataTransfer.getData(DRAG_TYPE)) as { from: 'upload' | 'drive'; id: string };
+      const data = JSON.parse(e.dataTransfer.getData(DRAG_TYPE)) as { from: 'upload'; id: string };
       const drop = { x: e.clientX, y: e.clientY, target };
-      if (data.from === 'drive') {
-        const item = lib.items.find((i) => i.id === data.id);
-        if (item) void useDrive(item, drop);
-      } else {
-        const entry = entries.find((x) => x.id === data.id);
-        if (entry) void useEntry(entry, drop);
-      }
+      const entry = entries.find((x) => x.id === data.id) ?? picked.find((x) => x.id === data.id);
+      if (entry) void useEntry(entry, drop);
     };
     window.addEventListener('drop', onDrop, true);
     return () => window.removeEventListener('drop', onDrop, true);
@@ -374,87 +321,71 @@
         <p>Sign in with Google to use photos, videos and sounds from your Drive.</p>
         <button class="btn primary cta" disabled={account.busy} onclick={() => account.signIn()}>Sign in with Google</button>
       </div>
-    {:else if !account.wholeDrive}
-      <div class="connect" data-testid="drive-connect">
+    {:else if native}
+      <!-- Google no longer shows its Drive picker inside an app's WebView: use the phone's own pickers. -->
+      <div class="connect" data-testid="drive-native">
         <Icon name="drive" size={28} />
-        <p>Browse your whole Google Drive here: My Drive, your computers' backups, files shared with you, starred and recent. Click or drag any image, video or sound onto the page.</p>
-        <button class="btn primary cta" disabled={account.busy || checking} data-testid="connect-drive" onclick={connect}>{checking ? 'Checking…' : 'Connect your whole Google Drive'}</button>
-        <p class="hint small">Digital Canvas only reads your Drive; it never changes or deletes your files. Google may warn that the app isn't verified yet: choose <b>Advanced → Continue</b>.</p>
-        {#if account.error}<p class="err">{account.error}</p>{/if}
+        <p>Add photos, videos and sounds from Google Drive with your phone's file picker: choose <b>Google Drive</b> under Browse (iPhone) or in the menu (Android).</p>
+        <button class="btn primary cta" onclick={upload} data-testid="drive-native-files"><Icon name="upload" size={18} /> Choose files</button>
+        <button class="btn cta" onclick={uploadPhotos}><Icon name="image" size={18} /> Photos and videos</button>
       </div>
+      {#if uploadError}<p class="err">{uploadError}</p>{/if}
     {:else}
-      <form class="search" onsubmit={(e) => { e.preventDefault(); lib.find(lib.search); }}>
-        <Icon name="search" size={18} />
-        <input placeholder="Search your Drive" bind:value={lib.search} data-testid="drive-search" aria-label="Search Google Drive" />
-      </form>
-      <div class="sources" role="group" aria-label="Drive sections">
-        {#each SOURCES as s}
-          <button class="src" class:on={lib.source === s.id && !lib.loc.search} data-testid="drive-src-{s.id}" onclick={() => lib.go(s.id)}>
-            <svg class="svgi" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d={GLYPH[s.id]} /></svg>{s.label}
-          </button>
-        {/each}
+      <div class="connect pick" class:phone={mobile.on} data-testid="drive-pick-panel">
+        {#if !mobile.on}<span class="badge"><Icon name="drive" size={30} /></span>{/if}
+        <h3>Your Google Drive photos, videos and audio</h3>
+        <p>Pick from My Drive, Shared with me, Starred, Recent or Shared drives.</p>
+        <button class="btn primary cta big" disabled={lib.picking} data-testid="drive-pick" onclick={chooseFromDrive}>
+          <Icon name="drive" size={18} /> {lib.picking ? 'Opening Google Drive…' : 'Choose from Google Drive'}
+        </button>
+        <p class="hint small">Digital Canvas gets only the files you pick, never the rest of your Drive. They are copied once into your “Digital Canvas” folder, ready in every design on every device.</p>
       </div>
-      <div class="kinds" role="group" aria-label="Show">
-        {#each KINDS as k}
-          <button class="chip" class:on={lib.kind === k.id} aria-pressed={lib.kind === k.id} data-testid="drive-kind-{k.id}" onclick={() => lib.setKind(k.id)}>{k.label}</button>
-        {/each}
-      </div>
-      <nav class="crumbs" aria-label="Folder path" data-testid="drive-crumbs">
-        {#each lib.crumbs as c, i}
-          {#if i}<span class="sep">›</span>{/if}
-          <button disabled={i === lib.crumbs.length - 1} onclick={() => lib.back(i)}>{c.name}</button>
-        {/each}
-        <button class="refresh" title="Refresh" aria-label="Refresh" onclick={() => lib.load(true)}>↻</button>
-      </nav>
-
-      {#if lib.error}<p class="err">{lib.error}</p>{/if}
+      {#if lib.pickError}<p class="err" data-testid="drive-error">{lib.pickError}</p>{/if}
       {#if notice}<p class="err">{notice}</p>{/if}
 
-      {#if folders.length}
-        <div class="folders" data-testid="drive-folders">
-          {#each folders as f (f.id)}
-            <button class="folder" title={f.name} data-testid="drive-folder" onclick={() => lib.open(f)}>
-              {#if lib.source === 'computers' && !lib.loc.folderId}
-                <svg class="svgi" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d={GLYPH.computers} /></svg>
-              {:else}<Icon name="folder" size={16} />{/if}
-              <span>{f.name}</span>
-            </button>
+      {#if lib.importing.length || picked.length || lib.kind !== 'all'}
+        <h3 class="sub">From Google Drive</h3>
+        <div class="kinds" role="group" aria-label="Show">
+          {#each KINDS as k}
+            <button class="chip" class:on={lib.kind === k.id} aria-pressed={lib.kind === k.id} data-testid="drive-kind-{k.id}" onclick={() => lib.setKind(k.id)}>{k.label}</button>
           {/each}
         </div>
       {/if}
-      {#if files.length}
-        <div class="grid" data-testid="drive-files">
-          {#each files as f (f.id)}
-            {@const key = `d:${f.id}`}
-            <button class="asset" class:vid={f.mimeType.startsWith('video/')} class:audio={f.mimeType.startsWith('audio/')} title={f.name} draggable="true" data-testid="drive-file"
-              ondragstart={(ev) => dragStart(ev, { from: 'drive', id: f.id })} onclick={() => useDrive(f)}>
-              {#if f.thumbnailLink && !broken.has(f.id)}
-                <img src={sized(f.thumbnailLink)} alt={f.name} loading="lazy" referrerpolicy="no-referrer"
-                  onerror={() => (broken = new Set(broken).add(f.id))} />
-              {:else}
+      {#if lib.importing.length || pickedVisuals.length}
+        <div class="grid" data-testid="drive-picked-grid">
+          {#each lib.importing as f (f.id)}
+            <div class="tile">
+              <div class="asset" title={f.name} data-testid="drive-importing">
                 <span class="ph"><Icon name={f.mimeType.startsWith('audio/') ? 'music' : f.mimeType.startsWith('video/') ? 'video' : 'image'} size={28} /></span>
-              {/if}
-              <span class="name">{f.name}</span>
-              {#if f.duration}<span class="dur">{formatTime(f.duration)}</span>{/if}
-              {#if key in progress}<span class="prog" style="--p:{pct(key)}" data-testid="drive-progress">{pct(key)}</span>{/if}
-            </button>
+                <span class="name">{f.name}</span>
+                <span class="prog" style="--p:{Math.round(f.progress * 100)}%" data-testid="drive-progress">{Math.round(f.progress * 100)}%</span>
+              </div>
+            </div>
+          {/each}
+          {#each pickedVisuals as e (e.id)}
+            {@const key = `u:${e.id}`}
+            <div class="tile">
+              <button class="asset" class:vid={e.mime.startsWith('video/')} title={e.name} draggable="true" data-testid="drive-picked"
+                ondragstart={(ev) => dragStart(ev, { from: 'upload', id: e.id })} onclick={() => useEntry(e)}>
+                <img src={entryThumb(e)} alt={e.name} loading="lazy" referrerpolicy="no-referrer" use:lazyBytes={e} />
+                <span class="name">{e.name}</span>
+                {#if e.mime.startsWith('video/')}<span class="dur">{e.duration ? formatTime(e.duration) : 'Video'}</span>{/if}
+                {#if key in progress}<span class="prog" style="--p:{pct(key)}">{pct(key)}</span>{/if}
+              </button>
+            </div>
           {/each}
         </div>
       {/if}
-      {#if lib.loading}<p class="hint">Loading…</p>
-      {:else if !lib.items.length && !lib.error}
-        <p class="hint">{lib.source === 'computers' && !lib.loc.folderId ? 'No backed-up computers found.' : 'Nothing here you can add to a design.'}</p>
-      {/if}
-      {#if lib.next}<div use:sentinel class="sentinel" aria-hidden="true"></div>{/if}
-      {#if lib.source === 'computers' && !lib.loc.folderId && !lib.loc.search}
-        <form class="link" onsubmit={(e) => { e.preventDefault(); useLink(); }}>
-          <p class="hint small">Computers backed up with Google Drive for desktop. Missing one? Open it in Drive and paste the folder link here.</p>
-          <div class="inline">
-            <input class="input" placeholder="https://drive.google.com/drive/folders/…" bind:value={linkText} data-testid="drive-link" aria-label="Drive folder link" />
-            <button class="btn">Open</button>
-          </div>
-        </form>
-      {/if}
+      {#each pickedSounds as e (e.id)}
+        {@const key = `u:${e.id}`}
+        <div class="sound">
+          <button class="row" title="Add {e.name}" draggable="true" data-testid="drive-picked" ondragstart={(ev) => dragStart(ev, { from: 'upload', id: e.id })} onclick={() => useEntry(e)}>
+            <Icon name="music" size={14} /> <span>{e.name}</span> <em>{key in progress ? pct(key) : e.duration ? formatTime(e.duration) : ''}</em>
+          </button>
+        </div>
+      {/each}
+      {#if lib.uploadsLoading && !picked.length}<p class="hint">Loading…</p>
+      {:else if lib.kind !== 'all' && !picked.length && !lib.importing.length}<p class="hint">Nothing picked of this kind yet.</p>{/if}
     {/if}
   {/if}
 </div>
@@ -484,7 +415,7 @@
   .asset img:not([src]) { visibility: hidden; }
   .ph { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); }
   .name { position: absolute; left: 0; right: 0; bottom: 0; padding: 14px 6px 4px; font-size: 11px; text-align: left; color: #fff; background: linear-gradient(transparent, rgba(0,0,0,.6)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0; transition: opacity .12s; }
-  .asset:hover .name, .asset.audio .name, .ph + .name { opacity: 1; }
+  .asset:hover .name, .ph + .name { opacity: 1; }
   .dur { position: absolute; right: 4px; top: 4px; background: rgba(0,0,0,.65); color: #fff; font-size: 11px; padding: 1px 5px; border-radius: 4px; }
   .prog { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-weight: 700; font-size: 13px; background: linear-gradient(to right, rgba(139,61,255,.55) var(--p), rgba(0,0,0,.5) var(--p)); }
   .del { position: absolute; top: 4px; right: 4px; width: 26px; height: 26px; border-radius: 6px; border: 0; background: rgba(0,0,0,.6); color: #fff; display: grid; place-items: center; opacity: 0; transition: opacity .12s; padding: 0; }
@@ -499,25 +430,9 @@
   .connect { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; padding: 18px 4px; color: var(--ink-2); }
   .connect p { margin: 0; line-height: 1.5; font-size: 13px; }
   .connect .hint { font-size: 12px; }
-  .search { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--field); color: var(--muted); }
-  .search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
-  .search input { flex: 1; min-width: 0; border: 0; background: none; outline: none; color: var(--ink); }
-  .sources { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
-  .src { display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: none; font-size: 12px; font-weight: 600; color: var(--ink-2); white-space: nowrap; overflow: hidden; }
-  .src:hover { background: var(--hover); }
-  .src.on { background: var(--accent-soft); border-color: transparent; color: var(--accent); }
-  .src .svgi { flex-shrink: 0; width: 16px; height: 16px; }
-  .crumbs { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; margin-top: 12px; font-size: 13px; }
-  .crumbs button { border: 0; background: none; padding: 2px 4px; border-radius: 4px; font-weight: 600; color: var(--accent); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .crumbs button:disabled { color: var(--ink); cursor: default; }
-  .crumbs button:not(:disabled):hover { background: var(--hover); }
-  .crumbs .sep { color: var(--muted); }
-  .crumbs .refresh { margin-left: auto; color: var(--muted); font-size: 15px; }
-  .folders { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-top: 10px; }
-  .folder { display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--chip); font-size: 13px; text-align: left; min-width: 0; }
-  .folder:hover { border-color: var(--accent); }
-  .folder span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-  .sentinel { height: 1px; }
-  .link { margin-top: 14px; }
-  .inline { display: flex; gap: 6px; margin-top: 6px; }
+  .pick { padding: 22px 6px 10px; }
+  .pick.phone { padding-top: 6px; }
+  .pick h3 { margin: 4px 0 0; font-size: 16px; color: var(--ink); }
+  .pick .badge { width: 56px; height: 56px; border-radius: 16px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); }
+  .cta.big { height: 48px; font-size: 15px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
 </style>

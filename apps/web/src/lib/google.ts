@@ -39,13 +39,13 @@ export class SignInCancelled extends Error {
   override name = 'SignInCancelled';
 }
 
-/** Ask Google for an authorization code. `consent` forces a new refresh token; `scopes` adds to the usual ones. */
-export async function requestCode(opts: { consent?: boolean; hint?: string; scopes?: string[] } = {}): Promise<string> {
+/** Ask Google for an authorization code. `consent` forces a new refresh token. */
+export async function requestCode(opts: { consent?: boolean; hint?: string } = {}): Promise<string> {
   const oauth2 = await gis();
   return new Promise((resolve, reject) => {
     const client = oauth2.initCodeClient({
       client_id: GOOGLE_CLIENT_ID,
-      scope: [...GOOGLE_SCOPES, ...(opts.scopes ?? [])].join(' '),
+      scope: GOOGLE_SCOPES.join(' '),
       ux_mode: 'popup',
       prompt: opts.consent ? 'consent' : 'select_account',
       login_hint: opts.hint,
@@ -57,7 +57,7 @@ export async function requestCode(opts: { consent?: boolean; hint?: string; scop
   });
 }
 
-export interface CodeOptions { consent?: boolean; hint?: string; scopes?: string[] }
+export interface CodeOptions { consent?: boolean; hint?: string }
 
 /**
  * An authorization code plus the redirect URI it was issued for (what the
@@ -73,13 +73,13 @@ export async function getCode(opts: CodeOptions = {}): Promise<{ code: string; r
 export const CALLBACK_PATH = '/auth/callback';
 
 /** Same as requestCode, but leaves the page: Google sends the browser back to /auth/callback. */
-export async function redirectForCode(opts: { consent?: boolean; hint?: string; returnTo?: string; scopes?: string[] } = {}): Promise<never> {
+export async function redirectForCode(opts: { consent?: boolean; hint?: string; returnTo?: string } = {}): Promise<never> {
   const oauth2 = await gis();
   const state = crypto.randomUUID();
   sessionStorage.setItem('dc-oauth', JSON.stringify({ state, returnTo: opts.returnTo ?? location.hash }));
   oauth2.initCodeClient({
     client_id: GOOGLE_CLIENT_ID,
-    scope: [...GOOGLE_SCOPES, ...(opts.scopes ?? [])].join(' '),
+    scope: GOOGLE_SCOPES.join(' '),
     ux_mode: 'redirect',
     redirect_uri: location.origin + CALLBACK_PATH,
     state,

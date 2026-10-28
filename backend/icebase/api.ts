@@ -11,7 +11,7 @@ export const api = defineApi({
       driveConnected: f.boolean(),
       accessToken: f.optional(f.string()),
       expiresIn: f.optional(f.number()),
-      /** Space-separated scopes Google granted (drive.readonly once the whole Drive is connected). */
+      /** Space-separated scopes Google granted. */
       scope: f.optional(f.string()),
     }),
     errors: { 'invalid-argument': 'The code was rejected by Google', 'permission-denied': 'Drive access was not granted' },

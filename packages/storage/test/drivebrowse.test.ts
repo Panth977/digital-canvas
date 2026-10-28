@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DriveBrowser, FOLDER_MIME, folderIdFromLink, kindClause, listParams, quote, tokenScopes } from '../src/index.ts';
+import { DriveBrowser, FOLDER_MIME, kindClause, listParams, quote } from '../src/index.ts';
 
 const q = (p: URLSearchParams) => p.get('q')!;
 
@@ -20,23 +20,18 @@ describe('listParams (Drive query builder)', () => {
   });
 
   it('scopes a shared-drive folder to that drive', () => {
-    const p = listParams({ source: 'shared-drives', folderId: 'D1', driveId: 'D1' });
+    const p = listParams({ source: 'my-drive', folderId: 'D1', driveId: 'D1' });
     expect(p.get('corpora')).toBe('drive');
     expect(p.get('driveId')).toBe('D1');
   });
 
-  it('builds the special sections', () => {
-    expect(q(listParams({ source: 'shared' }))).toMatch(/^sharedWithMe and /);
-    expect(q(listParams({ source: 'starred' }))).toMatch(/^starred and /);
+  it('lists recent media', () => {
     const recent = listParams({ source: 'recent' }, 'video');
     expect(q(recent)).toBe("mimeType contains 'video/' and trashed = false");
     expect(recent.get('orderBy')).toBe('recency desc');
-    const comp = listParams({ source: 'computers' });
-    expect(q(comp)).toBe(`'me' in owners and mimeType = '${FOLDER_MIME}' and trashed = false`);
-    expect(comp.get('fields')).toContain('parents');
   });
 
-  it('searches the whole Drive by name, escaping quotes', () => {
+  it('searches by name, escaping quotes', () => {
     const p = listParams({ source: 'my-drive', folderId: 'F1', search: " Tom's \\ pic " });
     expect(q(p)).toBe(`name contains 'Tom\\'s \\\\ pic' and (mimeType = '${FOLDER_MIME}' or (mimeType contains 'image/' or mimeType contains 'video/' or mimeType contains 'audio/')) and trashed = false`);
     expect(p.get('corpora')).toBe('allDrives');
@@ -45,21 +40,16 @@ describe('listParams (Drive query builder)', () => {
   it('helpers', () => {
     expect(quote("a'b")).toBe("'a\\'b'");
     expect(kindClause('audio')).toBe("mimeType contains 'audio/'");
-    expect(folderIdFromLink('https://drive.google.com/drive/folders/1AbCdEfGhIjKlMn?usp=sharing')).toBe('1AbCdEfGhIjKlMn');
-    expect(folderIdFromLink('https://drive.google.com/open?id=1AbCdEfGhIjKlMn')).toBe('1AbCdEfGhIjKlMn');
-    expect(folderIdFromLink('not a link')).toBeNull();
   });
 });
 
-/** A fake Drive: a My Drive tree, a computer backup and a shared drive. */
+/** A fake Drive: a My Drive tree. */
 function fakeDrive() {
   const F = FOLDER_MIME;
   const files = [
     { id: 'root-photos', name: 'Photos', mimeType: F, parents: ['ROOT'] },
     { id: 'cat', name: 'cat.png', mimeType: 'image/png', parents: ['root-photos'], size: '6', thumbnailLink: 'https://lh3/x=s220', imageMediaMetadata: { width: 40, height: 30 } },
     { id: 'clip', name: 'clip.mp4', mimeType: 'video/mp4', parents: ['root-photos'], videoMediaMetadata: { width: 64, height: 36, durationMillis: '2500' } },
-    { id: 'mac', name: 'MacBook Pro', mimeType: F }, // a computer: owned folder without a parent
-    { id: 'mac-desktop', name: 'Desktop', mimeType: F, parents: ['mac'] },
     { id: 'other', name: 'Old', mimeType: F, parents: ['ROOT'] },
   ];
   const calls: URL[] = [];
@@ -69,15 +59,10 @@ function fakeDrive() {
     const auth = new Headers(init?.headers).get('authorization');
     if (auth !== 'Bearer good') return new Response('{}', { status: 401 });
     const json = (v: unknown) => new Response(JSON.stringify(v), { headers: { 'content-type': 'application/json' } });
-    if (url.pathname === '/drive/v3/drives') return json({ drives: [{ id: 'D1', name: 'Team' }] });
+    if (url.pathname === '/drive/v3/files/cat' && !url.searchParams.get('alt')) return json(files.find((f) => f.id === 'cat'));
     if (url.pathname === '/drive/v3/files/cat' && url.searchParams.get('alt') === 'media') return new Response(new Uint8Array([1, 2, 3, 4, 5, 6]), { headers: { 'content-length': '6' } });
     if (url.pathname === '/drive/v3/files') {
       const query = url.searchParams.get('q')!;
-      if (query.startsWith("'me' in owners")) {
-        // two pages, to check the computers scan follows nextPageToken
-        const page = url.searchParams.get('pageToken') ? files.filter((f) => f.mimeType === F).slice(2) : files.filter((f) => f.mimeType === F).slice(0, 2);
-        return json({ files: page.map(({ id, name, mimeType, parents }) => ({ id, name, mimeType, ...(parents ? { parents } : {}) })), ...(url.searchParams.get('pageToken') ? {} : { nextPageToken: 'p2' }) });
-      }
       const parent = /^'([^']+)' in parents/.exec(query)?.[1];
       const want = parent === 'root' ? 'ROOT' : parent;
       const all = files.filter((f) => f.parents?.includes(want!));
@@ -113,20 +98,11 @@ describe('DriveBrowser', () => {
     expect(d.calls.length).toBe(n + 1); // fresh
   });
 
-  it('finds computers (parentless folders you own) across pages and opens their backups', async () => {
+  it('reads one file\'s metadata (a picked file)', async () => {
     const d = fakeDrive();
     const b = new DriveBrowser(d.tokens, d.fetchFn);
-    const comps = await b.list({ source: 'computers' });
-    expect(comps.items.map((i) => i.name)).toEqual(['MacBook Pro']);
-    const inside = await b.list({ source: 'computers', folderId: 'mac' });
-    expect(inside.items.map((i) => i.name)).toEqual(['Desktop']);
-  });
-
-  it('lists shared drives as folders', async () => {
-    const d = fakeDrive();
-    const b = new DriveBrowser(d.tokens, d.fetchFn);
-    const r = await b.list({ source: 'shared-drives' });
-    expect(r.items).toEqual([{ id: 'D1', name: 'Team', mimeType: FOLDER_MIME, isFolder: true, driveId: 'D1' }]);
+    expect(await b.file('cat')).toMatchObject({ id: 'cat', name: 'cat.png', mimeType: 'image/png', size: 6 });
+    await expect(b.file('nope')).rejects.toMatchObject({ status: 404 });
   });
 
   it('downloads with progress', async () => {
@@ -138,8 +114,4 @@ describe('DriveBrowser', () => {
     expect(seen.at(-1)).toBe(1);
   });
 
-  it('reads token scopes from tokeninfo', async () => {
-    const f = async (u: string) => new Response(JSON.stringify({ scope: u.includes('tok') ? 'openid https://www.googleapis.com/auth/drive.readonly' : '' }));
-    expect(await tokenScopes('tok', f)).toEqual(['openid', 'https://www.googleapis.com/auth/drive.readonly']);
-  });
 });

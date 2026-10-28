@@ -2,7 +2,7 @@
  * Signing the LOCAL server (npx @digital-canvas/mcp) in through the Digital
  * Canvas server, so the user's machine never holds the Google client secret:
  *
- *   const login = (await loadLogin(base)) ?? await login(base, { scopes: ['drive.readonly'] });
+ *   const login = (await loadLogin(base)) ?? await login(base, { scopes: [] });
  *   const src = serverTokenSource(base, login);
  *   new DriveWorkspace(src.token, await src.scope());
  *

@@ -6,5 +6,13 @@ export const GOOGLE_SCOPES = ['openid', 'email', 'profile', 'https://www.googlea
 
 export const REGION = 'asia-south1';
 
-/** Optional, asked for only when you connect your whole Drive (Uploads → Google Drive). A restricted scope. */
-export const DRIVE_READONLY_SCOPE = 'https://www.googleapis.com/auth/drive.readonly';
+/** Project number of digital-canvas-p977: Google Picker's App ID (picked files are granted to this app). */
+export const GOOGLE_APP_ID = '753251746130';
+
+/**
+ * Browser API key for Google Picker (Uploads → Google Drive). Not a secret:
+ * restricted to the Picker API and to the referrers https://digital-canvas-p977.web.app/*,
+ * https://digital-canvas-p977.firebaseapp.com/* and http://localhost:*
+ * (key "Digital Canvas Picker (browser)" in the Cloud console).
+ */
+export const PICKER_API_KEY = 'AIzaSyB-9H6XW6rs6RAFgaLvHNee8OnCwkhCRgw';

@@ -118,7 +118,7 @@ test('Drive: version history lists earlier saves and restores one (undoable); tr
   await page.goto('/');
   const d = new FakeDrive();
   await d.install(page);
-  await fakeSignIn(page, ['https://www.googleapis.com/auth/drive.file']);
+  await fakeSignIn(page);
   await expect(page.getByTestId('store-label')).toContainText('Google Drive');
   await page.getByTestId('preset-instagram-post').click();
   await page.waitForFunction(() => !!(window as any).__dc);

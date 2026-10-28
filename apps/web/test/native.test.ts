@@ -6,7 +6,7 @@ import { GOOGLE_CLIENT_ID } from '@digital-canvas/backend/google';
 
 describe('native sign-in', () => {
   it('asks Google for an offline code for the hosted callback', () => {
-    const u = new URL(nativeAuthUrl({ consent: true, hint: 'a@b.c', scopes: ['x'] }, 'dcapp.1'));
+    const u = new URL(nativeAuthUrl({ consent: true, hint: 'a@b.c' }, 'dcapp.1'));
     expect(u.origin + u.pathname).toBe('https://accounts.google.com/o/oauth2/v2/auth');
     const q = Object.fromEntries(u.searchParams);
     expect(q).toMatchObject({
@@ -20,7 +20,7 @@ describe('native sign-in', () => {
       state: 'dcapp.1',
     });
     expect(q.scope!.split(' ')).toContain('https://www.googleapis.com/auth/drive.file');
-    expect(q.scope!.split(' ')).toContain('x');
+    expect(q.scope!.split(' ')).not.toContain('https://www.googleapis.com/auth/drive.readonly');
     expect(new URL(nativeAuthUrl({}, 's')).searchParams.get('prompt')).toBe('select_account');
   });
 

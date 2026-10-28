@@ -4,7 +4,7 @@
  *   (no command)            stdio MCP server on your Google Drive (signs in on first run)
  *   --store folder <dir>    work on a local folder instead (no Google account)
  *   --http <port>           serve MCP over Streamable HTTP on localhost instead of stdio
- *   login [--whole-drive]   sign in (opens the browser); --whole-drive also asks to read all of Drive
+ *   login                   sign in (opens the browser)
  *   logout                  forget the sign-in
  *   status                  who is signed in, where designs go, whether ffmpeg is there
  *
@@ -25,14 +25,13 @@ import { DEFAULT_SERVER, clearLogin, loadLogin, login, loginFile, serverTokenSou
 const log = (...a: unknown[]) => console.error('[digital-canvas]', ...a);
 
 function args(argv: string[]) {
-  const out: { cmd?: string; store?: string; dir?: string; http?: number; wholeDrive?: boolean; server: string; help?: boolean } = { server: (process.env.DC_SERVER ?? DEFAULT_SERVER).replace(/\/$/, '') };
+  const out: { cmd?: string; store?: string; dir?: string; http?: number; server: string; help?: boolean } = { server: (process.env.DC_SERVER ?? DEFAULT_SERVER).replace(/\/$/, '') };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     if (a === '--store') { out.store = argv[++i]; if (out.store === 'folder') out.dir = argv[++i]; }
     else if (a.startsWith('--store=')) out.store = a.slice(8);
     else if (a === '--folder' || a === '--dir') { out.store = 'folder'; out.dir = argv[++i]; }
     else if (a === '--http') out.http = Number(argv[++i]);
-    else if (a === '--whole-drive') out.wholeDrive = true;
     else if (a === '--server') out.server = argv[++i]!.replace(/\/$/, '');
     else if (a === '-h' || a === '--help') out.help = true;
     else if (a === '-v' || a === '--version') out.cmd = 'version';
@@ -60,7 +59,7 @@ async function workspace(o: ReturnType<typeof args>): Promise<Workspace> {
   let saved = loadLogin(o.server);
   if (!saved) {
     log('First run: signing you in to Digital Canvas (Google Drive)…');
-    saved = await login(o.server, { openBrowser, scopes: o.wholeDrive ? ['drive.readonly'] : [], clientName: 'Digital Canvas MCP (local)' });
+    saved = await login(o.server, { openBrowser, scopes: [], clientName: 'Digital Canvas MCP (local)' });
     log(`Signed in. Token saved to ${loginFile()}`);
   }
   const src = serverTokenSource(o.server, saved);
@@ -72,7 +71,7 @@ const HELP = `Digital Canvas MCP server ${VERSION}
   npx @digital-canvas/mcp                      stdio server on your Google Drive (first run opens the browser to sign in)
   npx @digital-canvas/mcp --store folder DIR   work on a local folder instead (no account needed)
   npx @digital-canvas/mcp --http 8787          Streamable HTTP on http://127.0.0.1:8787/mcp
-  npx @digital-canvas/mcp login [--whole-drive]
+  npx @digital-canvas/mcp login
   npx @digital-canvas/mcp logout | status
 
 Claude Code:     claude mcp add digital-canvas -- npx -y @digital-canvas/mcp
@@ -85,7 +84,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   if (o.help) { console.error(HELP); return; }
   if (o.cmd === 'version') { console.log(VERSION); return; }
   if (o.cmd === 'login') {
-    const l = await login(o.server, { openBrowser, scopes: o.wholeDrive ? ['drive.readonly'] : [], clientName: 'Digital Canvas MCP (local)' });
+    const l = await login(o.server, { openBrowser, scopes: [], clientName: 'Digital Canvas MCP (local)' });
     log(`Signed in (${l.scope || 'drive'}). Saved to ${loginFile()}`);
     return;
   }

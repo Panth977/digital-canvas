@@ -20,7 +20,7 @@ Licence: Apache-2.0.
 2. Enter the URL `https://digital-canvas-p977.web.app/mcp` and click **Connect**.
 3. Sign in with Google. The connector uses OAuth 2.1 with dynamic client registration and PKCE, so there is no key to paste.
 
-To let the agent search your whole Drive (read-only) and not only the files Digital Canvas created, connect the whole Drive once in the app (**Uploads › Google Drive**). Clients that send `scope=drive.readonly` get asked for it directly.
+Digital Canvas only has per-file Drive access (`drive.file`): the agent sees the Digital Canvas folder and the files you picked in the app (**Uploads › Google Drive › Choose from Google Drive**). To give it more of your photos or videos, pick them there.
 
 **Where the work runs.** With the remote connector, the tools run **on one of your own devices**: open Digital Canvas (browser, installed app or Android app) and turn on **File › Settings › AI and devices › Let AI use this device**. Our server is then only a relay (see [Device bridge](#device-bridge)). A few accounts on a server-side allowlist may instead choose **cloud processing**, where the tools run in our function as before.
 
@@ -41,7 +41,7 @@ claude mcp add digital-canvas -- npx -y @digital-canvas/mcp                     
 }
 ```
 
-On the first run a browser window opens so you can sign in with Google. Sign-in goes through the Digital Canvas server, so your computer never holds the Google client secret. The server keeps its own refresh token in `~/.config/digital-canvas/mcp-login.json` (mode 0600). `npx @digital-canvas/mcp login --whole-drive` also asks for read-only access to your whole Drive. `logout` and `status` do what they say.
+On the first run a browser window opens so you can sign in with Google. Sign-in goes through the Digital Canvas server, so your computer never holds the Google client secret. The server keeps its own refresh token in `~/.config/digital-canvas/mcp-login.json` (mode 0600). `logout` and `status` do what they say.
 
 ### Without a Google account
 
@@ -76,7 +76,7 @@ Everything else (rendering, PDF, GIF) is pure WebAssembly ([CanvasKit](https://s
 | Designs | `list_designs`, `open_design` (compact outline: pages, element ids, boxes, text, fonts, colours), `create_design` (preset or w×h, optional template; video presets start timed), `duplicate_design`, `rename_design`, `resize_design` (Magic-Resize-style copy to another size), `delete_design` (to the Drive bin), `open_in_editor`, `list_size_presets` (270+ sizes) |
 | Editing | `add_elements` (batch: text with any Google Font, effects and mixed runs; shapes and gradients; lines/arrows; images and videos by asset id, URL or Drive id with cover/contain fit, focus point, masks, filters, adjustments and effects; Iconify icons; QR codes; charts; tables; SVG paths; groups; animations; timing), `update_elements` (batch patches; text re-measures), `delete_elements`, `arrange_elements`, `align_elements` (align + distribute), `group_elements`, `add_page`, `duplicate_page`, `delete_page`, `move_page`, `set_page` (background colour/gradient or photo/video with tint, duration, transition, page animation, notes) |
 | Templates & brand | `list_templates`, `apply_template` (scaled to the design, `replace_text` slots), `get_brand_kit`, `apply_brand` (brand colours replace accents, brand fonts by role, logo in a corner) |
-| Assets & content | `list_assets` (Drive "Digital Canvas/assets"), `search_drive` (whole Drive with `drive.readonly`, else app files; folders, thumbnails), `import_from_drive`, `import_from_url`, `search_stock` (Openverse, Wikimedia Commons and NASA photos/video/audio; Iconify icons, graphics and stickers), `import_stock` (keeps the credit), `search_fonts` (about 2,000 Google Fonts, embedded on use) |
+| Assets & content | `list_assets` (Drive "Digital Canvas/assets"), `search_drive` (files the app may see: its folder plus files picked in the app; thumbnails), `import_from_drive`, `import_from_url`, `search_stock` (Openverse, Wikimedia Commons and NASA photos/video/audio; Iconify icons, graphics and stickers), `import_stock` (keeps the credit), `search_fonts` (about 2,000 Google Fonts, embedded on use) |
 | Seeing | `render_page` (PNG image content; `show_ids` draws numbered outlines; `at` shows a moment of a video), `render_thumbnail_grid`, `check_design` |
 | Video | `assemble_video` (clips/photos → pages, trims, per-clip text, transitions, music with fades, captions from a transcript, title and end cards), `set_audio` (add/update/remove; start, offset, volume, fades), `add_captions` (exact times or a transcript; captions can span page boundaries) |
 | Export | `export_image` (PNG/JPG per page; links plus inline preview), `export_pdf` (vector, or raster at a DPI), `export_gif`, `export_video` (H.264/AAC MP4, runs as a job; returns the result when finished, else a `job_id`), `get_export` |
