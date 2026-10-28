@@ -99,8 +99,8 @@ for key, pages in uses.items():
             bonus = -abs(w - want_w.get(weight, 400)) / 2000 + (0.05 if it == (style == 'italic') else 0)
             return hit / len(chars) + bonus
         best = max(cands, key=score)
-        if score(best) < 0.99:
-            # text in a font whose subset has no readable cmap (chars unknown): take an unknown one
+        if score(best) < 0.5:
+            # most of the text in no readable subset: it was drawn with a font whose cmap is unreadable (e.g. a ₹ alone stays with its face)
             blind = [v for v in cands if not set(v['chars']) - {' '}]
             if blind: best = blind[0]
         votes[best['name']] += len(chars)

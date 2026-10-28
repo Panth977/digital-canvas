@@ -660,6 +660,22 @@ function makePlate(cp: CanvaPage): void {
     const d = (a: number[], b: number[]) => Math.hypot(a[0]! - b[0]!, a[1]! - b[1]!, a[2]! - b[2]!);
     const first = bands[0]!, far = bands[bands.length - 1]!;
     if (process.env.DC_DEBUG) console.error('outline', JSON.stringify(t.text), bands.map((b) => `${b.med}/${b.same.toFixed(2)}`).join(' '));
+    // Text the same colour as what's around it would be invisible, yet Canva shows it: the colour that
+    // does show inside the box is an unreported outline (e.g. dark letters with a white rim).
+    if (d(far.med, hexRgb(t.style.color)) < 40) {
+      const x0 = Math.max(0, Math.floor(t.x * s)), y0 = Math.max(0, Math.floor(t.y * s));
+      const x1 = Math.min(W, Math.ceil((t.x + t.w) * s)), y1 = Math.min(H, Math.ceil((t.y + t.h) * s));
+      const ink: number[][] = [];
+      for (let j = y0; j < y1; j += 2) for (let i = x0; i < x1; i += 2) {
+        const q = (j * W + i) * 4, p = [px[q]!, px[q + 1]!, px[q + 2]!];
+        if (d(p, far.med) > 90) ink.push(p);
+      }
+      if (ink.length > 40) {
+        const med = [0, 1, 2].map((k) => ink.map((p) => p[k]!).sort((x, y) => x - y)[ink.length >> 1]!);
+        gap('outline on text matching its background (colour from Canva\'s render)');
+        return { ...t, effect: { type: 'outline', thickness: 60, color: '#' + med.map((v) => v.toString(16).padStart(2, '0')).join('') } };
+      }
+    }
     if (first.same < 0.45 || d(first.med, hexRgb(t.style.color)) < 60 || d(first.med, far.med) < 60) return t;
     let k = 0;
     while (k + 1 < bands.length - 1 && d(bands[k + 1]!.med, first.med) < 60 && bands[k + 1]!.same >= 0.4) k++;
@@ -726,13 +742,44 @@ function makePlate(cp: CanvaPage): void {
     }
     // Our face can be a little wider than Canva's (another build of the font): when the text wraps
     // into more lines than Canva's box holds, widen the box (up to 25%) instead of adding a line.
-    if (!t.curve && measure!.fitText(t).h > t.h * 1.2) {
+    // lines as Canva laid them out vs ours (one line's height from a single-letter box)
+    const lineH = measure!.fitText({ ...t, text: 'X', runs: undefined, w: 100000 }).h || 1;
+    // one line in Canva: a box one line tall, or a single word (a word never breaks)
+    const canvaOneLine = !t.text.trim().includes("\n") && (Math.round(t.h / lineH) <= 1 || !/\s/.test(t.text.trim()));
+    const moreLines = () => Math.round(measure!.fitText(t).h / lineH) > (canvaOneLine ? 1 : Math.max(1, Math.round(t.h / lineH)));
+    if (!t.curve && canvaOneLine && moreLines()) {
+      // Canva shows one line: never break it. Widen up to 25% (keeping the alignment), then scale the
+      // text so its natural width fits (a stand-in face can be much wider, e.g. Genty → Shrikhand).
+      const natural = measure!.textWidth(t) * 1.02, w0 = t.w, w = Math.min(natural, w0 * 1.25);
+      const k = Math.max(0.5, Math.min(1, w / natural));
+      const dx = t.style.align === 'center' || t.style.align === 'justify' ? (w - w0) / 2 : t.style.align === 'right' ? w - w0 : 0;
+      t = {
+        ...t, w: Math.max(w, w0), x: t.x - Math.max(0, dx),
+        style: { ...t.style, fontSize: t.style.fontSize * k },
+        ...(t.runs ? { runs: t.runs.map((r) => (r.style?.fontSize ? { ...r, style: { ...r.style, fontSize: r.style.fontSize * k } } : r)) } : {}),
+      };
+      if (k < 1) gap('text shrunk to fit (stand-in font wider than Canva\'s)');
+    } else if (!t.curve && measure!.fitText(t).h > t.h * 1.2 && moreLines()) {
       const w0 = t.w;
       let w = w0;
       while (w < w0 * 1.25 && measure!.fitText({ ...t, w }).h > t.h * 1.2) w *= 1.03;
       if (measure!.fitText({ ...t, w }).h <= t.h * 1.2) {
         const dx = t.style.align === 'center' || t.style.align === 'justify' ? (w - w0) / 2 : t.style.align === 'right' ? w - w0 : 0;
         t = { ...t, w, x: t.x - dx };
+      } else {
+        // Still wraps (a lookalike face much wider than Canva's, e.g. Genty → Shrikhand): shrink the
+        // text, all runs alike, until it fits Canva's lines again (down to 70%), keeping the box.
+        const sized = (k: number): TextElement => ({
+          ...t,
+          style: { ...t.style, fontSize: t.style.fontSize * k },
+          ...(t.runs ? { runs: t.runs.map((r) => (r.style?.fontSize ? { ...r, style: { ...r.style, fontSize: r.style.fontSize * k } } : r)) } : {}),
+        });
+        let k = 1;
+        while (k > 0.7 && measure!.fitText(sized(k)).h > t.h * 1.2) k -= 0.03;
+        if (measure!.fitText(sized(k)).h <= t.h * 1.2) {
+          t = sized(k);
+          gap('text shrunk to fit (stand-in font wider than Canva\'s)');
+        }
       }
     }
     t = findOutline(t);
