@@ -12,6 +12,21 @@
 </ol>
 <p>Then ask, for example: <i>“Make an Instagram post for our Friday night market using the photos in my ‘Market 2026’ Drive folder.”</i></p>
 
+<h2>Let AI use your device</h2>
+<p>With the connector above, the work (opening your designs, rendering previews, exporting PNG, PDF and MP4) happens <b>on one of your own devices</b>, not on our servers. Our server only passes the AI's requests to your device and the answers back.</p>
+<ol>
+  <li>Open Digital Canvas on a computer or phone, signed in with the same Google account.</li>
+  <li>Go to <b>File › Settings › AI and devices</b> (on the home page: <b>AI</b>) and turn on <b>Let AI use this device</b>.</li>
+  <li>Keep it open while the AI works. A small “AI is working on this device” sign shows when it is busy.</li>
+</ol>
+<p>Several devices on? The AI asks you which one to use (or pick one in the same panel). If none is on, it tells you to open Digital Canvas.</p>
+<ul>
+  <li><b>Computer (browser or installed app):</b> works while the tab or window is open; a visible window answers fastest because browsers slow down background tabs.</li>
+  <li><b>Android app:</b> keeps working in the background while the switch is on (Android shows a notification).</li>
+  <li><b>iPhone and iPad:</b> only while Digital Canvas is open on screen. iOS pauses apps in the background.</li>
+</ul>
+<p>Some accounts can choose <b>cloud processing</b> in the same panel instead: then our server does the work and no device needs to be open.</p>
+
 <h2>Claude Code</h2>
 <pre><code>claude mcp add --transport http digital-canvas https://digital-canvas-p977.web.app/mcp</code></pre>
 <p>or run it on your computer (opens the browser to sign in the first time):</p>
@@ -24,7 +39,7 @@
     "digital-canvas": { "command": "npx", "args": ["-y", "@digital-canvas/mcp"] }
   }
 }</code></pre>
-<p>Work on a folder on your computer instead of Google Drive: <code>"args": ["-y", "@digital-canvas/mcp", "--store", "folder", "/path/to/Designs"]</code>. Video export on your computer needs <a href="https://ffmpeg.org/download.html">ffmpeg</a>.</p>
+<p>The local server always runs on your computer, so it needs no device switch. Work on a folder on your computer instead of Google Drive: <code>"args": ["-y", "@digital-canvas/mcp", "--store", "folder", "/path/to/Designs"]</code>. Video export on your computer needs <a href="https://ffmpeg.org/download.html">ffmpeg</a>.</p>
 
 <h2>What it can see</h2>
 <p>Only your Digital Canvas folder and files the app created or you opened with it — unless you connected your whole Drive in <b>Uploads › Google Drive</b>, in which case it can also find (read-only) your photos and videos elsewhere in Drive. Remove access any time at <a href="https://myaccount.google.com/permissions">Google account › Third-party access</a>.</p>

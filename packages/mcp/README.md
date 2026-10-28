@@ -22,6 +22,8 @@ Licence: Apache-2.0.
 
 To let the agent search your whole Drive (read-only) and not only the files Digital Canvas created, connect the whole Drive once in the app (**Uploads › Google Drive**). Clients that send `scope=drive.readonly` get asked for it directly.
 
+**Where the work runs.** With the remote connector, the tools run **on one of your own devices**: open Digital Canvas (browser, installed app or Android app) and turn on **File › Settings › AI and devices › Let AI use this device**. Our server is then only a relay (see [Device bridge](#device-bridge)). A few accounts on a server-side allowlist may instead choose **cloud processing**, where the tools run in our function as before.
+
 ### Claude Code
 
 ```sh
@@ -78,6 +80,7 @@ Everything else (rendering, PDF, GIF) is pure WebAssembly ([CanvasKit](https://s
 | Seeing | `render_page` (PNG image content; `show_ids` draws numbered outlines; `at` shows a moment of a video), `render_thumbnail_grid`, `check_design` |
 | Video | `assemble_video` (clips/photos → pages, trims, per-clip text, transitions, music with fades, captions from a transcript, title and end cards), `set_audio` (add/update/remove; start, offset, volume, fades), `add_captions` (exact times or a transcript; captions can span page boundaries) |
 | Export | `export_image` (PNG/JPG per page; links plus inline preview), `export_pdf` (vector, or raster at a DPI), `export_gif`, `export_video` (H.264/AAC MP4, runs as a job; returns the result when finished, else a `job_id`), `get_export` |
+| Devices (remote connector) | `get_processing_mode` (device or cloud, device in use), `list_devices` (online/offline, which is chosen / in use), `use_device` (id, name or `auto`; stays chosen) |
 
 All exports are saved to **Google Drive › Digital Canvas › Exports** (or `Exports/` in a folder store) and come back as links (`resource_link`), plus an inline image where that makes sense.
 
@@ -110,21 +113,47 @@ Each prompt walks the agent through: gather assets → pick a template or layout
 
 ## How it works
 
-- **Engine.** It uses the same document model (`@digital-canvas/scene`) and the same CanvasKit renderer (`@digital-canvas/render`) as the editor, running in Node. Agents' pictures, exports and the editor are therefore pixel-identical.
+- **Engine.** It uses the same document model (`@digital-canvas/scene`) and the same CanvasKit renderer (`@digital-canvas/render`) as the editor, in Node or in the browser (device bridge). Agents' pictures, exports and the editor are therefore pixel-identical.
 - **Storage.** `@digital-canvas/storage`'s `DriveStore` keeps the layout the web app uses. Designs live in `Digital Canvas/`, shared assets in `Digital Canvas/assets/` (content-hash ids, stored once), and the brand kit in `brand.json`.
-- **Video.** Frames come from scene `animateAt` (animations, element timing) and `frameAt` (page transitions). ffmpeg decodes the clips and mixes sound (trim, volume, fades).
+- **Video.** Frames come from scene `animateAt` (animations, element timing) and `frameAt` (page transitions). In Node, ffmpeg decodes the clips and mixes sound (trim, volume, fades); in a browser, WebCodecs (Mediabunny) does, with the mix in JS.
 - **Remote.** The remote server (`./remote`) is framework-free Node HTTP:
   - OAuth 2.1 authorization server: DCR, PKCE S256, refresh rotation with reuse detection, and revocation.
   - The authorize step signs the user in with Google. The Drive refresh token is stored encrypted (AES-256-GCM) next to the web app's.
   - `/mcp` is stateless Streamable HTTP with JSON responses.
   - `/oauth/drive-token` serves local CLIs.
-  - It is deployed as the Firebase function `mcp` (asia-south1, `minInstances: 0`). Long video exports go to the `mcpExport` task queue (see `backend/mcp`).
+  - It is deployed as the Firebase function `mcp` (asia-south1, `minInstances: 0`). In cloud mode, long video exports go to the `mcpExport` task queue (see `backend/mcp`); in device mode it relays (see Device bridge).
+
+## Device bridge
+
+Claude's custom connectors talk to a URL, never peer to peer, so the remote server stays the MCP endpoint and becomes a thin **relay**; the work happens on the user's device. Code: `src/bridge/`.
+
+```
+Claude ──MCP──▶ /mcp (Cloud Function: OAuth, tool list, routing)
+                  │ write job                     ▲ result (≤ 900 KB inline, else parts)
+                  ▼                               │
+        Firestore users/{uid}/bridgeJobs/{id} ◀── device (web app / PWA / Android app)
+                                                  main thread: listens, heartbeats (users/{uid}/devices/{id})
+                                                  Web Worker:  the same tools on the browser platform
+```
+
+- **Processing mode.** `users/{uid}.processing` is `'device' | 'cloud'`, set in the app (callable `aiSettings`). Cloud is allowed only for emails in `DC_CLOUD_ALLOWLIST` (default `ppanth977@gmail.com`); for everyone else the relay forces device, whatever is stored. Allowlisted users default to cloud and may pick device.
+- **Routing** (`routing.ts`, pure): the chosen device (`users/{uid}.activeDevice`, set by `use_device` or the app) when it is online; else the only online device; else an error the agent can act on: *no device* (ask the user to open Digital Canvas and turn on "Let AI use this device") or *several devices* (ask the user which, then `use_device`). Online = enabled and a heartbeat in the last 60 s (server time).
+- **Relay tools:** `get_processing_mode`, `list_devices`, `use_device` (always run in the relay). Catalogue tools that touch neither Drive nor the renderer (`list_size_presets`, `search_fonts`, `search_stock`, `list_templates` without a design) also stay in the relay. Every other call becomes a job.
+- **Job lifecycle.** The relay writes `{device, tool, args, state: 'pending', expiresAt}` and watches it. The device marks it `running` at once (else after 20 s the relay reports that the device did not pick it up), runs the tool, and writes `done` with the result JSON, or `failed` with an error. Results over 900 KB (render_page PNGs, previews) are split into `parts/{n}` documents (Firestore's 1 MiB limit). Exports never travel this way: the device saves PNG/PDF/MP4 to the user's Drive and returns links. The relay deletes the job and its parts when it has the answer; a TTL policy on `expiresAt` (1 h) sweeps anything left. A call gives up after 240 s; while a job runs the relay checks every 30 s that the device is still online.
+- **Security.** Devices sign in to Firebase with the custom token our `googleSignIn` function mints (`uid = google:<sub>`, the same uid the OAuth connector uses). Firestore rules let a user read and write only their own `devices`, read their own `bridgeJobs`, and only move a job forward (`pending → running → done | failed | cancelled`, result fields only); jobs are created and deleted by the relay (admin) alone. `lastSeen` must be the server's time.
+- **Device side** (`device.ts`): `DeviceAgent` (registry + heartbeat + job queue, one job at a time) next to the mailbox; `ToolHost` (the tools over an in-memory MCP client, so arguments are validated as on a server) where the work happens. In the web app the agent is in `apps/web/src/lib/bridge/bridge.svelte.ts`, the tools in a module Web Worker (`worker.ts`), and the worker also drives the heartbeat (background tabs throttle page timers).
+- **Platforms** (`src/platform.ts`): the tool core has no `node:*` imports. Node (`src/node/`): CanvasKit from node_modules, fonts and templates from disk, ffmpeg for frames and MP4, DNS checks for URL imports. Browser (`src/browser/`): CanvasKit WASM, WebCodecs through Mediabunny for clip frames and MP4 (H.264/AAC where available, else VP9/Opus), sound mixed in JS (no Web Audio, so it works in a worker).
+- **Where devices can work.** Desktop browsers and the installed app: while the tab/window is open (a visible window answers fastest; background tabs are throttled but keep working). Android app: a foreground service with a notification keeps it running in the background while the toggle is on. iOS app and iOS Safari: only while Digital Canvas is open on screen (iOS suspends background apps; there is no equivalent of the Android service).
+
+Package entry points: `@digital-canvas/mcp` (Node: sets the Node platform), `./core` (platform-neutral), `./browser` (core + browser platform + bridge), `./bridge`, `./remote`.
 
 ## Develop
 
 ```sh
 npm start -w @digital-canvas/mcp -- --store folder /tmp/designs   # run from source (tsx)
-npx vitest run packages/mcp                                        # tool + OAuth tests (no network)
+npx vitest run packages/mcp                                        # tool + OAuth + bridge tests (no network)
+npm run test:bridge-emu                                            # bridge mailbox + Firestore rules on the emulator
+DC_PORT=5209 npx playwright test e2e/bridge.spec.ts                # MCP client → relay → a browser page as the device
 npx tsx tools/mcp-demo.ts /tmp/out                                 # end-to-end demo over stdio
 npm run build:mcp                                                  # bundle to packages/mcp/dist for npm
 npm run deploy:mcp                                                 # Cloud Function (then npm run deploy:web for the /mcp rewrite)
@@ -140,3 +169,4 @@ Environment variables:
 | `DC_GOOGLE_ACCESS_TOKEN` | Use a raw Drive token, for testing |
 | `DC_OFFLINE=1` | Turn off font downloads (tests) |
 | `DC_FONTS_DIR` / `DC_TEMPLATES_DIR` | Override the bundled resources |
+| `DC_CLOUD_ALLOWLIST` | Functions only: emails allowed to process in the cloud (comma-separated; default `ppanth977@gmail.com`). Put it in `backend/mcp/.env` and `backend/functions/.env`; the deploy scripts copy them |

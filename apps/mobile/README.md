@@ -147,3 +147,10 @@ Native clients have no secret, so the backend would need to exchange their codes
 - **Photos**: Uploads has a *Photos and videos* button (system photo picker, several at once); image-only pickers elsewhere also open the photo library. Picked items become `File`s, so the normal upload path (Drive `Digital Canvas/assets`) is unchanged. Usage strings: `NSPhotoLibraryUsageDescription`, `NSCameraUsageDescription`, `NSPhotoLibraryAddUsageDescription`; Android uses the system Photo Picker (`READ_EXTERNAL_STORAGE` only up to API 32).
 - **App links**: `com.panth977.digitalcanvas://new[?w=&h=&title=]` makes a design and opens it; `com.panth977.digitalcanvas://open/d/<id>` opens one. iOS asks before opening a link from outside, so for scripted simulator runs the start page also accepts `?applink=new` (via Capacitor `server.appStartPath`).
 - The PWA service worker is **not** used inside the app (the files are already on the device), so offline Drive caching is a browser/PWA feature only.
+
+## AI on this device (device bridge)
+
+"Let AI use this device" (File › Settings › AI and devices) makes the app run the AI connector's tool calls (see packages/mcp/README.md, Device bridge).
+
+- **Android:** while it is on, the local plugin `BridgeKeepAlive` (`android/app/src/main/java/com/panth977/digitalcanvas/BridgeKeepAlivePlugin.java`) starts `BridgeKeepAliveService`, a foreground service of type `specialUse` with a quiet ongoing notification and a partial wake lock, so the app keeps answering in the background. It asks for the notification permission on Android 13+ (the service runs either way). Turning the switch off stops it. Play Store review needs the `specialUse` justification (in the manifest's `PROPERTY_SPECIAL_USE_FGS_SUBTYPE`).
+- **iOS:** there is no equivalent background mode for this; the app works for the AI only while it is open on screen. The panel says so.
