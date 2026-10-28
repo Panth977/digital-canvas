@@ -70,3 +70,20 @@ export async function pngBytes(page: Page, w: number, h: number, color: string):
   }, [w, h, color]);
   return Buffer.from(b64, 'base64');
 }
+
+/**
+ * Stand in for an installed app window with Window Controls Overlay: Chromium sets the
+ * env(titlebar-area-*) values; app.css reads them as --tb-*, which a test can set.
+ * (CDP's Overlay.setShowWindowControlsOverlay does not set them in Playwright's Chromium.)
+ */
+export async function fakeWco(page: Page, on: boolean, x = 78): Promise<void> {
+  await page.evaluate(([on, x]) => {
+    const s = document.documentElement.style;
+    if (on) {
+      s.setProperty('--tb-x', `${x}px`);
+      s.setProperty('--tb-y', '0px');
+      s.setProperty('--tb-w', `calc(100vw - ${x}px)`);
+      s.setProperty('--tb-h', '36px');
+    } else for (const k of ['--tb-x', '--tb-y', '--tb-w', '--tb-h']) s.removeProperty(k);
+  }, [on, x] as const);
+}

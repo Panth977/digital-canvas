@@ -27,6 +27,12 @@
   --ok: #30a46c;
   --radius: 10px;
   --shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 8px 24px rgba(16, 24, 40, .1);
+  /* Installed app with Window Controls Overlay: the free part of the title bar (0 otherwise).
+     Read through these so tests can stand in for the window (lib/titlebar.svelte.ts). */
+  --tb-x: env(titlebar-area-x, 0px);
+  --tb-y: env(titlebar-area-y, 0px);
+  --tb-w: env(titlebar-area-width, 0px);
+  --tb-h: env(titlebar-area-height, 0px);
   color-scheme: light;
   font-family: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
   font-size: 14px;
