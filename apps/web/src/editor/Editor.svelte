@@ -24,6 +24,7 @@
   import MobileEditor from './mobile/MobileEditor.svelte';
   import { mobile } from '../lib/mobile.svelte.ts';
   import { tabs } from '../lib/tabs.svelte.ts';
+  import { videoKey } from '../lib/videokeys.ts';
 
   let { id, store }: { id: string; store: ProjectStore } = $props();
 
@@ -42,6 +43,14 @@
   function adopt(e: EditorState): void {
     tabs.adopt(id, e);
     (window as unknown as { __dc?: EditorState }).__dc = e; // for tests and the console
+    // tests: the MP4 export's picture at t (RGBA, base64), to compare with live playback
+    (window as unknown as { __dcExportFrame?: unknown }).__dcExportFrame = async (t: number, W: number, H: number) => {
+      const { exportFrameAt } = await import('../lib/mp4.ts');
+      const px = await exportFrameAt(e, t, W, H);
+      let s = '';
+      for (let i = 0; i < px.length; i += 0x8000) s += String.fromCharCode(...px.subarray(i, i + 0x8000));
+      return btoa(s);
+    };
     e.viewProbe = probeView;
   }
 
@@ -107,6 +116,7 @@
     const k = e.key.toLowerCase();
     const stop = () => e.preventDefault();
     if (textShortcut(ed, e)) return;
+    if (videoKey(ed, e)) return;
     if (mod && k === 'z') { stop(); e.shiftKey ? ed.redo() : ed.undo(); }
     else if (mod && k === 'y') { stop(); ed.redo(); }
     else if (mod && k === 'd') { stop(); ed.duplicateSelection(); }

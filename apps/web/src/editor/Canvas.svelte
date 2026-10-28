@@ -6,7 +6,7 @@
     aabb, angleTo, center, corners, cropFromBoxes, cropOf, cropPatch, duplicateElements, findElement, hitTest, hitTestAll, imageBox, marqueePick, localToPage, normalizeRect, pageToLocal,
     panImage, resizeBox, resizeFrame, rotatePoint, scaleImage, union, updateElements,
     addGuide, childrenOf, hitTestPath, moveGuide, pathTo, removeGuide, safeMargin, snapMove, snapResize, snapTargets,
-    ANCHORS, boxPoint, contains, coverCrop, isFrame, lineEnds, lineRoute, routePoints, tableCellAt, tableCellRect,
+    ANCHORS, boxPoint, contains, coverCrop, isFrame, isVideo, lineEnds, lineRoute, routePoints, tableCellAt, tableCellRect,
     type Attach, type CropHandle, type Element, type GapHint, type Handle, type ImageElement, type LineElement, type Point, type Rect, type ShapeKind, type SnapGuide, type SnapTargets, type VideoElement,
   } from '@digital-canvas/scene';
   import { fetchPhoto, attribution, type Photo } from '../lib/stock.ts';
@@ -21,6 +21,7 @@
   import { flatten, getSelectionOffsets, needsRebuild, renderRich, setSelectionOffsets } from '../lib/richtext.ts';
   import { mobile } from '../lib/mobile.svelte.ts';
   import { tabs } from '../lib/tabs.svelte.ts';
+  import { drawFrameAt } from '@digital-canvas/render';
 
   let { ed, zoom = $bindable(view.zoom) }: { ed: EditorState; zoom?: number } = $props();
 
@@ -48,9 +49,18 @@
   view.mode = 'fit';
 
   // ---- layout: pages stacked vertically in world space ----
+  /**
+   * Canva's video editor: a video design shows ONE scene on the stage (the
+   * current page, picked on the timeline's filmstrip), no page column.
+   * The other scenes are parked far away, so they are never drawn or hit.
+   */
+  const videoMode = $derived(isVideo(ed.doc));
+  /** The stage shows the moving picture (playing or scrubbing the timeline), not the editable design. */
+  const live = $derived(videoMode && ed.player.live);
+  const FAR = 1e6;
   /** Space between pages: room for the page header (about 56 screen px) at any zoom, like Canva. */
   const gap = $derived(Math.max(ed.doc.height * 0.04, 56 / zoom));
-  const pageTop = (i: number) => i * (ed.doc.height + gap);
+  const pageTop = (i: number) => (videoMode ? (i - ed.pageIndex) * FAR : i * (ed.doc.height + gap));
   const pageIndexOf = (pageId: string) => ed.doc.pages.findIndex((p) => p.id === pageId);
 
   const toScreen = (wx: number, wy: number): Point => ({ x: panX + wx * zoom, y: panY + wy * zoom });
@@ -58,6 +68,7 @@
 
   /** Which page a world point belongs to (nearest by y). */
   function pageAt(w: Point): number {
+    if (videoMode) return ed.pageIndex;
     const i = Math.floor((w.y + gap / 2) / (ed.doc.height + gap));
     return Math.max(0, Math.min(ed.doc.pages.length - 1, i));
   }
@@ -98,9 +109,9 @@
   /** Workspace margin beside the page once it scrolls sideways (screen px). */
   const MARGIN_X = $derived(mobile.on ? 12 : 40);
   /** Above the first page: its header (34 px) and a little air. */
-  const MARGIN_TOP = $derived(mobile.on ? 20 : 56);
+  const MARGIN_TOP = $derived(videoMode ? (mobile.on ? 12 : 24) : mobile.on ? 20 : 56);
   /** Below the last page: the "Add page" button (16 + 40 px) and a little air. */
-  const MARGIN_BOTTOM = $derived(mobile.on ? 72 : 88);
+  const MARGIN_BOTTOM = $derived(videoMode ? (mobile.on ? 12 : 24) : mobile.on ? 72 : 88);
 
   /** Screen insets of the scrollable area (rulers and bleed take room too). */
   function insets(): { l: number; r: number; t: number; b: number } {
@@ -108,7 +119,7 @@
     const b = view.bleed ? ed.doc.bleed * zoom : 0;
     return { l: MARGIN_X + ruler + b, r: MARGIN_X + b, t: MARGIN_TOP + ruler + b, b: MARGIN_BOTTOM + b };
   }
-  const columnHeight = () => pageTop(ed.doc.pages.length - 1) + ed.doc.height;
+  const columnHeight = () => (videoMode ? ed.doc.height : pageTop(ed.doc.pages.length - 1) + ed.doc.height);
 
   /** Allowed panX / panY: [lo, hi]; lo === hi when that axis cannot scroll. */
   function panRange(): { x: { lo: number; hi: number }; y: { lo: number; hi: number } } {
@@ -188,6 +199,15 @@
     void ed.doc.pages.length; void ed.doc.width; void ed.doc.height; void view.rulers; void view.bleed; void ed.doc.bleed;
     untrack(clampPan);
   });
+  // a design turning into a video (or back) switches layout: fit the stage again
+  let wasVideo: boolean | null = null;
+  $effect(() => {
+    const v = videoMode;
+    untrack(() => {
+      if (wasVideo !== null && v !== wasVideo && vw && vh) fit(view.mode ?? 'fit');
+      wasVideo = v;
+    });
+  });
   // a new page size (Resize) re-fits while in Fit / Fill
   let sized = '';
   $effect(() => {
@@ -224,7 +244,7 @@
   let scrolledTo = '';
   /** After the user scrolls or zooms: make the page in the middle of the view current. */
   function syncCurrentPage(): void {
-    if (!vh || drag || ed.selection.length || ed.editingTextId || ed.croppingId) return;
+    if (videoMode || !vh || drag || ed.selection.length || ed.editingTextId || ed.croppingId) return;
     const id = ed.doc.pages[pageAt(toWorld(vw / 2, vh / 2))]?.id;
     if (id && id !== ed.pageId) {
       scrolledTo = id;
@@ -397,6 +417,8 @@
     requestAnimationFrame(draw);
   }
 
+  /** What the last draw showed (tests: live frame vs static design). */
+  let lastDraw: { live: boolean; t: number; pageId: string } | null = null;
   function draw(): void {
     drawQueued = false;
     if (!surface) return;
@@ -422,9 +444,12 @@
       c.save();
       c.translate(s.x, s.y);
       c.scale(zoom, zoom);
-      ed.renderer.drawPage(c, ed.doc, page, { skip, bleed });
+      // playing / scrubbing: the frame at the playhead, drawn exactly like the MP4 export
+      if (live && page.id === ed.pageId) drawFrameAt(ed.renderer, c, ed.doc, ed.player.time, { bleed });
+      else ed.renderer.drawPage(c, ed.doc, page, { skip, bleed });
       c.restore();
     });
+    lastDraw = { live, t: ed.player.time, pageId: ed.pageId };
     shadow.delete();
     if (cropping) {
       // crop mode: everything dimmed, the whole image faded, the frame's part bright on top
@@ -447,14 +472,14 @@
 
   $effect(() => {
     // Redraw whenever anything visible changes.
-    void ed.doc; void ed.editingTextId; void ed.frame; void cropping; void zoom; void panX; void panY; void vw; void vh; void view.bleed;
+    void ed.doc; void ed.editingTextId; void ed.frame; void cropping; void zoom; void panX; void panY; void vw; void vh; void view.bleed; void live; void ed.pageId;
     queueDraw();
   });
 
   onMount(() => {
     readStage();
     // for tests and the console: the viewport (pan = screen position of page 1's top-left corner)
-    (window as unknown as { __dcView?: unknown }).__dcView = { get: () => ({ panX, panY, zoom, vw, vh, range: panRange(), mode: view.mode }) };
+    (window as unknown as { __dcView?: unknown }).__dcView = { get: () => ({ panX, panY, zoom, vw, vh, range: panRange(), mode: view.mode, videoMode, live, lastDraw }) };
     const scheme = matchMedia('(prefers-color-scheme: dark)');
     const onScheme = () => { readStage(); queueDraw(); };
     scheme.addEventListener('change', onScheme);
@@ -786,6 +811,8 @@
 
   function onPointerDown(e: PointerEvent): void {
     menu = null;
+    // a click on the stage while a video plays stops it there (Canva)
+    if (videoMode && ed.player.playing) ed.player.pause();
     if (e.button === 2) return;
     touchUi = e.pointerType === 'touch';
     if (touchUi) {
@@ -1341,7 +1368,7 @@
 
   // ---- keyboard: space to pan ----
   function onKey(e: KeyboardEvent, down: boolean): void {
-    if (e.code !== 'Space') return;
+    if (e.code !== 'Space' || videoMode) return; // a video's Space is play / pause (lib/videokeys.ts)
     const t = e.target as HTMLElement;
     if (t.closest('input, textarea, select, [contenteditable]')) return;
     if (down) e.preventDefault();
@@ -1528,7 +1555,7 @@
   }
 
   // ---- page toolbars ----
-  const pageBars = $derived(
+  const pageBars = $derived(videoMode ? [] :
     ed.doc.pages.map((p, i) => ({ id: p.id, i, pos: toScreen(0, pageTop(i)) })).filter(({ pos }) => pos.y > -40 && pos.y < vh + 10),
   );
   const addPagePos = $derived(toScreen(0, pageTop(ed.doc.pages.length - 1) + ed.doc.height));
@@ -1565,6 +1592,8 @@
 
 <div
   class="stage"
+  class:live
+  class:videomode={videoMode}
   bind:this={host}
   style="cursor:{ed.tool ? 'crosshair' : ed.framePanId ? 'move' : cursor}"
   role="application"
@@ -1723,7 +1752,7 @@
     </div>
   {/if}
 
-  {#if addPagePos.y < vh}
+  {#if !videoMode && addPagePos.y < vh}
     <button class="addpage" data-testid="add-page" style="left:{addPagePos.x}px;top:{addPagePos.y + 16 + bleedPx}px;width:{ed.doc.width * zoom}px" onpointerdown={(e) => e.stopPropagation()} onclick={() => { ed.select([], ed.doc.pages[ed.doc.pages.length - 1]!.id); ed.addPage(); }}>
       <Icon name="plus" size={16} /> Add page
     </button>
@@ -1826,6 +1855,8 @@
   .kbproxy { position: absolute; left: 0; top: 0; width: 1px; height: 1px; opacity: 0; border: 0; padding: 0; resize: none; pointer-events: none; font-size: 16px; }
   canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
   .overlay { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
+  /* playing / scrubbing: the picture only, no selection chrome */
+  .stage.live .overlay, .stage.live .mini { visibility: hidden; }
   .hover { fill: none; stroke: var(--accent); stroke-width: 2; }
   .sel { fill: none; stroke: var(--accent); stroke-width: 2; }
   .sel.locked { stroke: #f59e0b; }

@@ -363,3 +363,49 @@ export function updateAudio(doc: Doc, id: string, patch: Partial<Omit<AudioClip,
 export function removeAudio(doc: Doc, id: string): Doc {
   return touch(doc, { audio: (doc.audio ?? []).filter((a) => a.id !== id) });
 }
+
+const r2 = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * Split a page (a video scene) at `at` seconds into it, like Canva's "Split
+ * page": the first part keeps the page and ends at `at`; the second is a copy
+ * that carries on from there (clips trimmed on, caption windows shifted, no
+ * entrance animations or transition: they already played). Elements whose
+ * timing window lies wholly on one side stay on that side only. Returns the
+ * doc unchanged (and the same id) when `at` is too close to either end.
+ */
+export function splitPage(doc: Doc, pageId: string, at: number, min = 0.1): { doc: Doc; pageId: string } {
+  const i = doc.pages.findIndex((p) => p.id === pageId);
+  if (i < 0) return { doc, pageId };
+  const page = doc.pages[i]!;
+  const d = pageDuration(page);
+  at = r2(at);
+  if (at < min || at > d - min) return { doc, pageId };
+  const first: Page = {
+    ...page,
+    duration: at,
+    elements: page.elements.filter((e) => (e.timing?.start ?? 0) < at),
+  };
+  const rest: Element[] = [];
+  for (const e of page.elements) {
+    const w = e.timing;
+    if (w?.end !== undefined && w.end <= at) continue;
+    let c = cloneElement(e);
+    delete c.animation;
+    if (w) {
+      const start = Math.max(0, (w.start ?? 0) - at), end = w.end === undefined ? undefined : r2(w.end - at);
+      if (start === 0 && end === undefined) delete c.timing;
+      else c = { ...c, timing: { ...(start ? { start: r2(start) } : {}), ...(end !== undefined ? { end } : {}) } };
+    }
+    // a clip carries on where the first part stopped (clip time runs with the page: scene clipTime)
+    if (c.type === 'video' && !c.loop) c = { ...c, trimStart: r2((c.trimStart ?? 0) + at) };
+    rest.push(c);
+  }
+  const second: Page = { ...structuredClone({ ...page, elements: [] }), id: newId('p_'), duration: r2(d - at), elements: rest };
+  delete second.transition;
+  delete second.animation;
+  delete second.name;
+  const pages = [...doc.pages];
+  pages.splice(i, 1, first, second);
+  return { doc: touch(doc, { pages }), pageId: second.id };
+}

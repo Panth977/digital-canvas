@@ -73,3 +73,45 @@ describe('timing, transitions (MCP reels)', async () => {
     expect(parseDoc(JSON.parse(JSON.stringify({ ...d, pages: d.pages.map((p) => ({ ...p, transition: { type: 'bogus' } })) }))).pages[1]!.transition).toBeUndefined();
   });
 });
+
+describe('splitPage', async () => {
+  const { splitPage, text, animateAt } = await import('../src/index.ts');
+  it('splits a scene at a time: durations, clip trims, caption windows, no replayed animation', () => {
+    let d = createDoc({ width: 100, height: 100 });
+    const pid = d.pages[0]!.id;
+    d = updatePage(d, pid, { duration: 6, transition: { type: 'dissolve' }, animation: { type: 'fade' } });
+    const clip = { ...video('a.mp4', { x: 0, y: 0, w: 10, h: 10 }), trimStart: 1 };
+    const early = { ...text('early', { x: 0, y: 0, w: 50, h: 20 }), timing: { start: 0, end: 1.5 } };
+    const across = { ...text('across', { x: 0, y: 0, w: 50, h: 20 }), timing: { start: 1, end: 4 } };
+    const late = { ...text('late', { x: 0, y: 0, w: 50, h: 20 }), timing: { start: 3 } };
+    const title = { ...text('title', { x: 0, y: 0, w: 50, h: 20 }), animation: { type: 'rise' as const } };
+    d = addElements(d, pid, [clip, early, across, late, title]);
+    const r = splitPage(d, pid, 2);
+    expect(r.doc.pages).toHaveLength(2);
+    const [a, b] = r.doc.pages as [any, any];
+    expect(a.id).toBe(pid);
+    expect(b.id).toBe(r.pageId);
+    expect(a.duration).toBe(2);
+    expect(b.duration).toBe(4);
+    expect(a.transition).toEqual({ type: 'dissolve' });
+    expect(b.transition).toBeUndefined();
+    expect(b.animation).toBeUndefined();
+    expect(a.elements.map((e: any) => e.text ?? e.type)).toEqual(['video', 'early', 'across', 'title']);
+    expect(b.elements.map((e: any) => e.text ?? e.type)).toEqual(['video', 'across', 'late', 'title']);
+    expect(b.elements[0].trimStart).toBe(3);
+    expect(b.elements[1].timing).toEqual({ end: 2 });
+    expect(b.elements[2].timing).toEqual({ start: 1 });
+    expect(b.elements[3].animation).toBeUndefined();
+    expect(new Set(b.elements.map((e: any) => e.id)).size).toBe(4);
+    expect(b.elements.some((e: any) => a.elements.some((x: any) => x.id === e.id))).toBe(false);
+    // the second part at 0 looks like the first at 2 for the animated title (already in place)
+    expect(animateAt(r.doc, b, 0).elements.find((e: any) => e.text === 'title').y).toBe(0);
+    expect(totalDuration(r.doc)).toBe(6);
+  });
+  it('refuses to split at the very ends', () => {
+    let d = createDoc({ width: 100, height: 100 });
+    d = updatePage(d, d.pages[0]!.id, { duration: 3 });
+    expect(splitPage(d, d.pages[0]!.id, 0.05).doc).toBe(d);
+    expect(splitPage(d, d.pages[0]!.id, 2.95).doc).toBe(d);
+  });
+});

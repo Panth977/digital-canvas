@@ -38,6 +38,9 @@ class UI {
   pagesStrip = $state(false);
   gridView = $state(false);
   notes = $state(false);
+  /** Video timeline: expanded (filmstrip, sounds) or collapsed to its play bar, and its zoom (1 = whole video fits). */
+  timelineOpen = $state(true);
+  timelineZoom = $state(1);
   /** "Copy style" is armed: the next element selected gets this look. */
   styleClip = $state.raw<{ style: import('./copystyle.ts').CopiedStyle; source: string } | null>(null);
 
