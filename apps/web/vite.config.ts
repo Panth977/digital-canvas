@@ -28,7 +28,8 @@ function serviceWorker(): Plugin {
       };
       walk(outDir);
       // Template thumbnails are fetched on demand (stale-while-revalidate); source maps and the worker itself never.
-      const precache = files.filter((f) => !f.startsWith('templates/') && !f.endsWith('.map') && f !== 'sw.js' && !f.endsWith('OFL.txt')).sort();
+      // The AI device worker (2.5 MB) is fetched only when "Let AI use this device" is on (it needs the network anyway).
+      const precache = files.filter((f) => !f.startsWith('templates/') && !f.endsWith('.map') && f !== 'sw.js' && !f.endsWith('OFL.txt') && !/^assets\/worker-/.test(f)).sort();
       const hash = createHash('sha256');
       for (const f of precache) hash.update(f).update(readFileSync(join(outDir, f)));
       const src = readFileSync(new URL('./src/lib/pwa-sw.js', import.meta.url), 'utf8');
@@ -43,6 +44,8 @@ function serviceWorker(): Plugin {
 export default defineConfig({
   plugins: [svelte(), serviceWorker()],
   optimizeDeps: { include: ['canvaskit-wasm/bin/full/canvaskit.js'] },
+  // The AI device worker (lib/bridge/worker.ts) is a module worker: templates load as separate chunks.
+  worker: { format: 'es' },
   server: { port: Number(process.env.DC_PORT ?? 5181), strictPort: true },
   preview: { port: 5181, strictPort: true },
   build: { target: 'es2022', chunkSizeWarningLimit: 2000 },

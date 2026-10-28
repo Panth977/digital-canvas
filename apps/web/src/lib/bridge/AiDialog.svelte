@@ -126,7 +126,7 @@
                 </li>
               {/each}
             </ul>
-            <p class="muted small">When several devices are online and none is chosen, the AI asks you which one to use.</p>
+            <p class="muted small">{s?.mode === 'cloud' ? 'Devices are used when “Where the AI\'s work runs” is set to your devices. ' : ''}When several devices are online and none is chosen, the AI asks you which one to use.</p>
           {/if}
         </section>
       {/if}

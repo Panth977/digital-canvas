@@ -45,6 +45,7 @@ export interface DeviceAgentOptions {
   onBusy?: (n: number, tool: string | null) => void;
   onError?: (e: Error) => void;
   now?: () => number;
+  /** Heartbeat interval (default HEARTBEAT_MS); 0 = the caller calls heartbeat(). */
   heartbeatMs?: number;
   /** Result size per document (tests use a small one to exercise chunking). */
   partBytes?: number;
@@ -74,7 +75,9 @@ export class DeviceAgent {
     if (!this.stopped) return;
     this.stopped = false;
     await this.link.putDevice(this.row(true));
-    this.beat = setInterval(() => this.heartbeat(), this.o.heartbeatMs ?? HEARTBEAT_MS);
+    const every = this.o.heartbeatMs ?? HEARTBEAT_MS;
+    // 0: the caller drives heartbeat() (the web app ticks from its worker: background tabs throttle page timers)
+    if (every > 0) this.beat = setInterval(() => this.heartbeat(), every);
     this.unsub = this.link.listenJobs(this.o.id, (jobs) => this.onJobs(jobs), (e) => this.o.onError?.(e));
   }
 

@@ -32,6 +32,16 @@
 
         </activity>
 
+        <!-- "Let AI use this device": keeps the app alive in the background while it is on (BridgeKeepAliveService). -->
+        <service
+            android:name=".BridgeKeepAliveService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Runs the user's AI assistant requests (rendering and exporting their designs) on this device while the user has switched it on." />
+        </service>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -46,6 +56,11 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- "Let AI use this device" (foreground service + its notification + CPU awake while on) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Photo picking uses the system Photo Picker (no permission on Android 13+);
          older Android versions read picked photos through storage access. -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />

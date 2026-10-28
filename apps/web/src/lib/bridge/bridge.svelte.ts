@@ -24,7 +24,8 @@ function startWorker(): Worker {
   const w = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module', name: 'digital-canvas-ai' });
   w.onmessage = async (e: MessageEvent) => {
     const m = e.data as { type: string; id?: string; result?: CallToolResult; error?: string; req?: number; force?: boolean };
-    if (m.type === 'token?') {
+    if (m.type === 'tick') agent?.heartbeat();
+    else if (m.type === 'token?') {
       try { w.postMessage({ type: 'token', req: m.req, token: await account.driveToken(m.force) }); }
       catch (err) { w.postMessage({ type: 'token', req: m.req, error: err instanceof Error ? err.message : String(err) }); }
     } else if (m.type === 'result' || m.type === 'failed') {
@@ -76,6 +77,7 @@ export async function startBridge(link?: DeviceLink): Promise<void> {
   agent = new DeviceAgent(link ?? firestoreLink(uid), {
     id: deviceId(), name: deviceName(account.user?.name), platform: devicePlatform(), appVersion: '0.1.0',
     execute: runInWorker,
+    heartbeatMs: 0, // the worker ticks (see worker.ts)
     onBusy: (count, tool) => { bridgeUi.busy = count; if (tool) bridgeUi.tool = tool; if (!count) bridgeUi.tool = null; },
     onError: (e) => { console.warn('[bridge]', e); bridgeUi.error = e.message; },
   });

@@ -10,7 +10,7 @@
  */
 import CanvasKitInit from 'canvaskit-wasm/bin/full/canvaskit.js';
 import wasmUrl from 'canvaskit-wasm/bin/full/canvaskit.wasm?url';
-import { DriveWorkspace, ToolHost, browserPlatform, setPlatform, type TemplateEntry } from '@digital-canvas/mcp/browser';
+import { DEFAULT_EDITOR_URL, DriveWorkspace, HEARTBEAT_MS, ToolHost, browserPlatform, setPlatform, type TemplateEntry } from '@digital-canvas/mcp/browser';
 import INDEX from '../../templates/index.json';
 
 declare const self: DedicatedWorkerGlobalScope;
@@ -42,7 +42,9 @@ function token(force?: boolean): Promise<string> {
 }
 
 let host: ToolHost | null = null;
-const hostFor = () => (host ??= new ToolHost(new DriveWorkspace(token), { editorUrl: self.location.origin }));
+// Links the agent hands out (open_in_editor) point at the hosted app, also from the native shells.
+const editorUrl = import.meta.env.DEV ? self.location.origin : DEFAULT_EDITOR_URL;
+const hostFor = () => (host ??= new ToolHost(new DriveWorkspace(token), { editorUrl }));
 
 self.onmessage = async (e: MessageEvent) => {
   const m = e.data as { type: string; id?: string; tool?: string; args?: Record<string, unknown>; req?: number; token?: string; error?: string };
@@ -62,4 +64,6 @@ self.onmessage = async (e: MessageEvent) => {
   }
 };
 
+// The page's heartbeat clock: worker timers keep running when the browser throttles a background tab's timers.
+setInterval(() => self.postMessage({ type: 'tick' }), HEARTBEAT_MS);
 self.postMessage({ type: 'ready' });

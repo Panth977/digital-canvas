@@ -6,6 +6,7 @@
   import { router } from '../../lib/router.svelte.ts';
   import { ui, RAIL_TABS, type RailTab } from '../../lib/ui.svelte.ts';
   import { mobile } from '../../lib/mobile.svelte.ts';
+  import { bridgeUi } from '../../lib/bridge/bridgeUi.svelte.ts';
   import Canvas from '../Canvas.svelte';
   import Timeline from '../Timeline.svelte';
   import PanelBody from '../PanelBody.svelte';
@@ -122,6 +123,7 @@
             <button onclick={() => (mobile.sheet = 'pages')}><Icon name="pages" size={20} /> Pages</button>
             <button onclick={() => { close(); showVersions = true; }}><Icon name="cloud" size={20} /> Version history</button>
             <button onclick={() => { close(); void ed.save(); }}><Icon name="cloudok" size={20} /> Save now</button>
+            <button data-testid="m-ai-devices" onclick={() => { close(); bridgeUi.open = true; }}><Icon name="ai" size={20} /> AI and devices</button>
           </div>
         {:else}
           <MobileTools {ed} />
