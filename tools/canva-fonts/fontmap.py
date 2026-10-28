@@ -112,7 +112,9 @@ fonts = {}
 for (ref, weight, style), (name, up) in assign.items():
     fam, w, it = parse(name)
     m = fonts.setdefault(ref, {'family': fam, 'faces': []})
-    pass  # ALL CAPS is decided per text box by the importer
+    # the characters Canva's PDF subset of this face holds: lowercase missing there = Canva showed ALL CAPS
+    m.setdefault('subsetChars', '')
+    m['subsetChars'] = ''.join(sorted(set(m['subsetChars']) | {c for v in index.values() if v['name'] == name for c in v['chars']}))
     if not any(f['weight'] == w and f.get('italic', False) == it for f in m['faces']):
         m['faces'].append({'weight': w, **({'italic': True} if it else {}), 'file': merged[name]})
 # fonts in the PDF no text maps to (e.g. Canva's fallback for ₹) become fallbacks

@@ -164,7 +164,7 @@ const ALIGN: Record<string, TextAlign> = { start: 'left', left: 'left', center: 
  */
 interface FontFace { weight: number; italic?: boolean; google?: string; file?: string }
 /** dx/dy (em): where Canva puts this font's text relative to ours (measured by tools/text-offsets.ts). */
-interface MappedFont { family: string; faces: FontFace[]; uppercase?: boolean; dx?: number; dy?: number }
+interface MappedFont { family: string; faces: FontFace[]; uppercase?: boolean; dx?: number; dy?: number; subsetChars?: string }
 const fontMap: Record<string, MappedFont> = fontsFile ? JSON.parse(readFileSync(fontsFile, 'utf8')) : {};
 const fallbacks = (fontMap._fallback as unknown as MappedFont[] | undefined) ?? [];
 delete fontMap._fallback;
@@ -192,7 +192,16 @@ const faceByFamily = new Map<string, import('canvaskit-wasm').Typeface[]>();
 function capsOnly(family: string, text: string): boolean {
   const faces = faceByFamily.get(family);
   const lows = [...new Set(text.replace(/[^a-z]/g, ''))].join('');
-  if (!faces?.length || !lows) return false;
+  if (!lows) return false;
+  // Canva's PDF subset holds exactly the glyphs it drew: lowercase absent there means ALL CAPS
+  // (the face we embed may be the full Google font, which has both cases)
+  const sub = Object.values(fontMap).filter((m) => m.family === family && m.subsetChars).map((m) => m.subsetChars!).join('');
+  if (sub) {
+    const inSub = (c: string) => sub.includes(c);
+    const up = [...lows.toUpperCase()].filter(inSub).length;
+    if (![...lows].some(inSub) && up >= lows.length * 0.8) return true;
+  }
+  if (!faces?.length) return false;
   const has = (str: string) => faces.some((f) => [...f.getGlyphIDs(str)].filter((g) => g !== 0).length >= str.length * 0.8);
   return !has(lows) && has(lows.toUpperCase());
 }
