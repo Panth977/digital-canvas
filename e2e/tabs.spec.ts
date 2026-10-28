@@ -55,7 +55,8 @@ test('tabs: two designs, each keeps its undo history, selection, zoom and side p
   expect(await sel(page)).toEqual(aSel);
   await expect(page.getByTestId('undo')).toBeEnabled();
   await expect(page.getByTestId('tab-text')).toHaveAttribute('aria-pressed', 'true');
-  expect(await page.evaluate(() => (window as any).__dcView.get().zoom)).toBeCloseTo(aZoom, 3);
+  // the view comes back on the canvas's first resize callback, a frame after the tab shows
+  await expect.poll(() => page.evaluate(() => (window as any).__dcView.get().zoom)).toBeCloseTo(aZoom, 3);
   await expect(page.locator('svg.overlay polygon.sel')).toHaveCount(1);
   await page.getByTestId('undo').click();
   expect(await page.evaluate(() => (window as any).__dc.doc.pages[0].elements.length)).toBe(0);
