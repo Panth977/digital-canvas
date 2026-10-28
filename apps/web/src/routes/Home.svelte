@@ -4,6 +4,7 @@
   import Icon from '../lib/Icon.svelte';
   import { library } from '../lib/library.svelte.ts';
   import { account } from '../lib/account.svelte.ts';
+  import { bridgeUi } from '../lib/bridge/bridgeUi.svelte.ts';
   import { router } from '../lib/router.svelte.ts';
   import { tabs } from '../lib/tabs.svelte.ts';
   import { objectUrl, pickFiles, timeAgo } from '../lib/files.ts';
@@ -267,6 +268,7 @@
           {#if account.user.photo}<img src={account.user.photo} alt="" referrerpolicy="no-referrer" />{:else}<span class="init">{account.user.name.slice(0, 1)}</span>{/if}
           <span>{account.user.name}</span>
         </span>
+        <button class="btn ghost" onclick={() => (bridgeUi.open = true)} data-testid="home-ai" title="Connect your AI · AI and devices"><Icon name="ai" size={16} /> AI{bridgeUi.status === 'on' ? ' · on' : ''}</button>
         <button class="btn ghost" onclick={() => account.signOut()} data-testid="sign-out">Sign out</button>
       {:else}
         <span class="label">Saving to</span>

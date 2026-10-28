@@ -14,8 +14,16 @@
   import { stripMode } from './lib/tabmodel.ts';
   import { titlebar } from './lib/titlebar.svelte.ts';
   import { mobile } from './lib/mobile.svelte.ts';
+  import { bridgeUi } from './lib/bridge/bridgeUi.svelte.ts';
+  import BridgeIndicator from './lib/bridge/BridgeIndicator.svelte';
+  import AiDialog from './lib/bridge/AiDialog.svelte';
 
   onMount(() => void library.init());
+
+  // "Let AI use this device" was left on: start taking requests once signed in.
+  $effect(() => {
+    if (account.user && bridgeUi.enabled) untrack(() => void bridgeUi.resume());
+  });
 
   // Drive "Open with" / "New": run once signed in.
   $effect(() => {
@@ -79,6 +87,8 @@
     {/if}
   </div>
 </div>
+<BridgeIndicator />
+{#if bridgeUi.open}<AiDialog onclose={() => (bridgeUi.open = false)} />{/if}
 <Toasts />
 <Tooltips />
 

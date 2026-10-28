@@ -35,7 +35,7 @@ function fit(result: CallToolResult, max: number): CallToolResult {
   const content = [...result.content];
   const order = content.map((c, i) => ({ i, n: c.type === 'image' || c.type === 'audio' ? c.data.length : 0 })).filter((x) => x.n).sort((a, b) => b.n - a.n);
   for (const { i } of order) {
-    content[i] = { type: 'text', text: '(a picture was left out: too large to send back from the device; ask for a smaller one, e.g. render_page with max_side 768)' };
+    content[i] = { type: 'text', text: '(a picture was left out: too large to send back from the device; ask for a smaller one, e.g. render_page with size 768)' };
     json = JSON.stringify({ ...result, content });
     if (utf8Bytes(json) <= max) break;
   }

@@ -182,7 +182,7 @@ describe('relay', () => {
     expect(made.isError).toBe(false);
     expect(designs(dir)).toHaveLength(1);
     expect(designs(r.cloudDir)).toHaveLength(0);
-    const shot = await r.call('render_page', { design_id: made.json.id, max_side: 256 });
+    const shot = await r.call('render_page', { design_id: made.json.id, size: 256 });
     expect(shot.isError).toBe(false);
     expect(shot.images).toHaveLength(1);
     expect(isPng(shot.images[0].data)).toBe(true);
@@ -203,7 +203,7 @@ describe('relay', () => {
     const r = await rig('ada@example.com');
     await r.addDevice('mac', { partBytes: 1500 });
     const made = await r.call('create_design', { preset: 'instagram-post', title: 'Post' });
-    const shot = await r.call('render_page', { design_id: made.json.id, max_side: 512 });
+    const shot = await r.call('render_page', { design_id: made.json.id, size: 512 });
     expect(shot.isError).toBe(false);
     expect(isPng(shot.images[0].data)).toBe(true);
     expect(r.bridge.log.some(([op]) => op === 'parts')).toBe(true);

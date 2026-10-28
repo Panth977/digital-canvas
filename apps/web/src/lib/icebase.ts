@@ -20,3 +20,4 @@ const functions = getFunctions(app);
 
 export const googleSignIn = callable(functions, api.googleSignIn);
 export const driveToken = callable(functions, api.driveToken);
+export const aiSettings = callable(functions, api.aiSettings);

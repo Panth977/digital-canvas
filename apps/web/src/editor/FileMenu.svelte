@@ -8,6 +8,7 @@
   import { IMAGE_TYPES, pickFiles } from '../lib/files.ts';
   import { AUDIO_TYPES, VIDEO_TYPES } from '../lib/media.ts';
   import Icon from '../lib/Icon.svelte';
+  import { bridgeUi } from '../lib/bridge/bridgeUi.svelte.ts';
 
   /**
    * Canva's File menu: the design's name and size, Create new design ▸,
@@ -104,6 +105,8 @@
         <label class:off={!bleed} title={bleed ? '' : 'This design has no print bleed'}><input type="checkbox" checked={view.bleed} disabled={!bleed} onchange={() => view.toggle('bleed')} data-testid="view-bleed" /> Show print bleed</label>
         <label><input type="checkbox" checked={view.snap} onchange={() => view.toggle('snap')} data-testid="view-snap" /> Snap to guides and elements</label>
         <p>Hold ⌘/Ctrl while dragging to place freely; Alt-drag moves a copy. Drag from a ruler to add a guide; drag it off the page to remove it.</p>
+        <hr />
+        <button role="menuitem" data-testid="file-ai-devices" onclick={() => { onclose(); bridgeUi.open = true; }}><Icon name="ai" size={18} /> AI and devices… <kbd>{bridgeUi.status === 'on' ? 'AI can use this device' : ''}</kbd></button>
       </div>
     {/if}
   </div>
@@ -120,7 +123,7 @@
       <div class="menu sub up" role="menu">
         <button role="menuitem" data-testid="file-shortcuts" onclick={() => { onclose(); onshortcuts(); }}>Keyboard shortcuts <kbd>?</kbd></button>
         <a role="menuitem" href="https://github.com/Panth977/digital-canvas#readme" target="_blank" rel="noreferrer">Help centre</a>
-        <a role="menuitem" data-testid="file-connect-ai" href="/connect-ai.html" target="_blank" rel="noreferrer">Connect your AI (Claude, MCP)</a>
+        <button role="menuitem" data-testid="file-connect-ai" onclick={() => { onclose(); bridgeUi.open = true; }}>Connect your AI (Claude, MCP)</button>
         <a role="menuitem" href="https://github.com/Panth977/digital-canvas/issues/new" target="_blank" rel="noreferrer">Report a problem</a>
       </div>
     {/if}
