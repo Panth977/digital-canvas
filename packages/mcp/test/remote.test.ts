@@ -162,7 +162,9 @@ describe('OAuth 2.1 with Google sign-in', () => {
     expect(g.searchParams.get('redirect_uri')).toBe(`${base}/oauth/google/callback`);
     expect(g.searchParams.get('access_type')).toBe('offline');
     expect(g.searchParams.get('prompt')).toBe('select_account');
-    expect(g.searchParams.get('scope')!.split(' ')).toEqual(expect.arrayContaining(['openid', 'email', 'https://www.googleapis.com/auth/drive.file', 'https://www.googleapis.com/auth/drive.readonly']));
+    expect(g.searchParams.get('scope')!.split(' ')).toEqual(expect.arrayContaining(['openid', 'email', 'https://www.googleapis.com/auth/drive.file']));
+    // an old client asking for the whole Drive still gets drive.file only
+    expect(g.searchParams.get('scope')).not.toMatch(/drive\.readonly/);
   });
 
   it('our consent page names the app; it needs this browser\'s cookie; Cancel goes back with access_denied; Google callback needs approval', async () => {

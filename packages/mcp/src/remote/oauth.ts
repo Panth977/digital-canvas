@@ -17,10 +17,9 @@ export const TTL = { code: 60_000, access: 3600_000, refresh: 30 * 86400_000, pe
 export const REFRESH_RETRY_GRACE_MS = 60_000;
 export const PREFIX = { access: 'dca_', refresh: 'dcr_', code: 'dcc_', client: 'dcl_', secret: 'dcs_' } as const;
 
-/** Scopes this server understands. `designs` = everything the tools do; `drive.readonly` also searches the whole Drive. */
-export const SCOPES = ['designs', 'drive.readonly'] as const;
+/** Scopes this server understands. `designs` = everything the tools do (Drive access is drive.file only). */
+export const SCOPES = ['designs'] as const;
 export const GOOGLE_SCOPES = ['openid', 'email', 'profile', 'https://www.googleapis.com/auth/drive.file'];
-export const DRIVE_READONLY = 'https://www.googleapis.com/auth/drive.readonly';
 export const GOOGLE_AUTH = 'https://accounts.google.com/o/oauth2/v2/auth';
 export const GOOGLE_TOKEN = 'https://oauth2.googleapis.com/token';
 
@@ -74,12 +73,9 @@ export function isAllowedRedirectUri(u: string): boolean {
   return /^[a-z][a-z0-9+.-]*:$/.test(url.protocol) && !['javascript:', 'data:', 'file:', 'vbscript:', 'blob:'].includes(url.protocol);
 }
 
-/** Known scopes from a `scope` string; generic OIDC ones and unknown words are ignored. Empty = designs. */
-export function parseScopes(s: string | null | undefined): string[] {
-  const words = (s ?? '').split(/[\s,+]+/).filter(Boolean);
-  const out = new Set<string>(['designs']);
-  for (const w of words) if (w === 'drive.readonly' || w === 'drive:all' || w === DRIVE_READONLY) out.add('drive.readonly');
-  return [...out];
+/** Known scopes from a `scope` string; generic OIDC ones and unknown words (old whole-Drive asks too) are ignored. Always designs. */
+export function parseScopes(_s: string | null | undefined): string[] {
+  return ['designs'];
 }
 
 export async function loadClient(store: OAuthStore, clientId: string | null | undefined): Promise<ClientRow> {

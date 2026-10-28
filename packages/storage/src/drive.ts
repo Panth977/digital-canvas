@@ -16,6 +16,8 @@ const ASSET_PROP = 'dcAsset';
 /** The original file name of an asset, and the "removed from Uploads" flag. */
 const NAME_PROP = 'dcName';
 const HIDDEN_PROP = 'dcHidden';
+/** The Drive file an asset was copied from (Google Picker → "From Google Drive"). */
+const DRIVE_PROP = 'dcDrive';
 
 /** One of your uploads in `Digital Canvas/assets`. */
 export interface LibraryAsset {
@@ -30,6 +32,8 @@ export interface LibraryAsset {
   width?: number;
   height?: number;
   duration?: number;
+  /** The Drive file it was picked from (Uploads → Google Drive). */
+  driveFileId?: string;
 }
 /** On `Digital Canvas/Exports`. */
 const EXPORTS_PROP = 'dcExports';
@@ -167,18 +171,22 @@ export class DriveStore implements ProjectStore {
     return this.assetIds;
   }
 
-  private async uploadAsset(id: string, bytes: Uint8Array, mime: string, label?: string): Promise<void> {
+  private async uploadAsset(id: string, bytes: Uint8Array, mime: string, label?: string, driveFileId?: string): Promise<void> {
     const stored = await this.stored();
     if (stored.has(id)) {
-      // Used again after "Remove from Uploads": show it again.
-      if (this.hidden.has(id)) {
+      // Used again after "Remove from Uploads": show it again. Picked from Drive: remember where from.
+      const patch: Record<string, string | null> = {};
+      if (this.hidden.has(id)) patch[HIDDEN_PROP] = null;
+      if (driveFileId) patch[DRIVE_PROP] = driveFileId;
+      if (Object.keys(patch).length) {
         this.hidden.delete(id);
-        await this.call(`${API}/files/${stored.get(id)}?fields=id`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ appProperties: { [HIDDEN_PROP]: null } }) }).catch(() => {});
+        await this.call(`${API}/files/${stored.get(id)}?fields=id`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ appProperties: patch }) }).catch(() => {});
       }
       return;
     }
     const props: Record<string, string> = { [ASSET_PROP]: id };
     if (label) props[NAME_PROP] = shortLabel(label);
+    if (driveFileId) props[DRIVE_PROP] = driveFileId;
     const meta = { name: id, mimeType: mime, parents: [await this.assetsFolder()], appProperties: props };
     const boundary = `dc${Math.random().toString(36).slice(2)}`;
     const head = `--${boundary}\r\ncontent-type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${boundary}\r\ncontent-type: ${mime}\r\n\r\n`;
@@ -220,6 +228,7 @@ export class DriveStore implements ProjectStore {
           ...(f.createdTime ? { createdTime: f.createdTime } : {}),
           ...(m?.width ? { width: m.width, height: m.height } : {}),
           ...(Number(f.videoMediaMetadata?.durationMillis) ? { duration: Number(f.videoMediaMetadata!.durationMillis) / 1000 } : {}),
+          ...(p[DRIVE_PROP] ? { driveFileId: p[DRIVE_PROP] } : {}),
         });
       }
       pageToken = r.nextPageToken ?? '';
@@ -420,11 +429,14 @@ export class DriveStore implements ProjectStore {
     this.brandFileId = r.id;
   }
 
-  // ---- for agents (the MCP server): add to Uploads, save exports ----
+  // ---- add to Uploads (picked Drive files, the MCP server), save exports ----
 
-  /** Put a file into `Digital Canvas/assets` (stored once under its content-hash id). */
-  async addAsset(id: string, bytes: Uint8Array, mime: string, label?: string): Promise<void> {
-    await this.uploadAsset(id, bytes, mime, label);
+  /**
+   * Put a file into `Digital Canvas/assets` (stored once under its content-hash id).
+   * `driveFileId`: the Drive file it was picked from (listed under "From Google Drive").
+   */
+  async addAsset(id: string, bytes: Uint8Array, mime: string, label?: string, driveFileId?: string): Promise<void> {
+    await this.uploadAsset(id, bytes, mime, label, driveFileId);
     await this.cache?.set(id, bytes).catch(() => {});
   }
 

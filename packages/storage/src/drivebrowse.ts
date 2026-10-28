@@ -2,28 +2,29 @@ import type { TokenSource } from './drive.ts';
 import { DriveError } from './drive.ts';
 
 /**
- * Browsing the user's whole Google Drive (needs the `drive.readonly` scope):
- * My Drive folders, Computers (Drive for desktop backups), Shared with me,
- * Shared drives, Starred, Recent and search. Read-only; nothing here writes.
+ * Listing, searching and downloading Drive files with the app's only scope,
+ * `drive.file`: Drive answers with the files this app may see (the
+ * "Digital Canvas" folder and the files the user picked with Google Picker or
+ * opened with the app). Used by the MCP server's search_drive / import_from_drive
+ * and by the web app to download picked files. Read-only; nothing here writes.
  *
  * The query builder (`listParams`) is pure so it can be tested on its own.
  */
 
-export const DRIVE_READONLY_SCOPE = 'https://www.googleapis.com/auth/drive.readonly';
 export const FOLDER_MIME = 'application/vnd.google-apps.folder';
 const API = 'https://www.googleapis.com/drive/v3';
 
-export type DriveSource = 'my-drive' | 'computers' | 'shared' | 'shared-drives' | 'starred' | 'recent';
+export type DriveSource = 'my-drive' | 'recent';
 export type MediaKind = 'all' | 'image' | 'video' | 'audio';
 
 /** Where the browser is: a source, optionally a folder inside it, or a search. */
 export interface DriveLocation {
   source: DriveSource;
-  /** A folder to list (inside My Drive, a computer, a shared drive, …). */
+  /** A folder to list. */
   folderId?: string;
   /** The shared drive the folder belongs to, if any. */
   driveId?: string;
-  /** Search the whole Drive by name (ignores source and folder). */
+  /** Search by name (ignores source and folder). */
   search?: string;
 }
 
@@ -86,27 +87,11 @@ export function listParams(loc: DriveLocation, kind: MediaKind = 'all', pageToke
       case 'my-drive':
         q = `'root' in parents and ${withFolders} and trashed = false`;
         break;
-      case 'shared':
-        q = `sharedWithMe and ${withFolders} and trashed = false`;
-        break;
-      case 'starred':
-        q = `starred and ${withFolders} and trashed = false`;
-        break;
       case 'recent':
-        // Drive's Recent tab: files (not folders) by their latest activity.
+        // Files (not folders) by their latest activity.
         q = `${media} and trashed = false`;
         orderBy = 'recency desc';
         break;
-      case 'computers':
-        // There is no API for the Computers tab. Each computer is a folder you
-        // own that has no parent, so list your folders and keep the parentless ones.
-        q = `'me' in owners and mimeType = '${FOLDER_MIME}' and trashed = false`;
-        orderBy = 'name_natural';
-        p.set('pageSize', '1000');
-        p.set('fields', 'nextPageToken,files(id,name,mimeType,parents,modifiedTime)');
-        break;
-      case 'shared-drives':
-        throw new Error('shared drives are listed with drives.list');
     }
   }
   p.set('q', q);
@@ -148,22 +133,14 @@ export function toItem(f: RawFile): DriveItem {
   };
 }
 
-/** A Drive folder id from a pasted link (drive.google.com/drive/folders/<id>, ?id=<id>) or a bare id. */
-export function folderIdFromLink(text: string): string | null {
-  const s = text.trim();
-  const m = /\/folders\/([\w-]{10,})/.exec(s) ?? /[?&]id=([\w-]{10,})/.exec(s) ?? /^([\w-]{10,})$/.exec(s);
-  return m?.[1] ?? null;
-}
-
 export type FetchFn = (input: string, init?: RequestInit) => Promise<Response>;
 
 /**
- * Lists and downloads files anywhere in the user's Drive. Listings are cached
- * in memory per query and page, so going back to a folder is instant.
+ * Lists and downloads the Drive files this app can see. Listings are cached
+ * in memory per query and page.
  */
 export class DriveBrowser {
   private pages = new Map<string, Promise<DrivePage>>();
-  private computerList: Promise<DriveItem[]> | null = null;
 
   constructor(private token: TokenSource, private fetchFn: FetchFn = (u, i) => fetch(u, i)) {}
 
@@ -180,8 +157,6 @@ export class DriveBrowser {
 
   /** One page of a location. Cached; `fresh` drops the cache for this location first. */
   list(loc: DriveLocation, kind: MediaKind = 'all', pageToken?: string, fresh = false): Promise<DrivePage> {
-    if (!loc.search && !loc.folderId && loc.source === 'computers') return this.computers(fresh).then((items) => ({ items }));
-    if (!loc.search && !loc.folderId && loc.source === 'shared-drives') return this.sharedDrives(pageToken, fresh);
     const params = listParams(loc, kind, pageToken);
     const key = params.toString();
     if (fresh) for (const k of this.pages.keys()) if (k.startsWith(listParams(loc, kind).toString())) this.pages.delete(k);
@@ -197,48 +172,9 @@ export class DriveBrowser {
     return hit;
   }
 
-  /** The computers backed up with Drive for desktop: folders you own that have no parent. */
-  computers(fresh = false): Promise<DriveItem[]> {
-    if (fresh) this.computerList = null;
-    this.computerList ??= (async () => {
-      const out: DriveItem[] = [];
-      let pageToken: string | undefined;
-      // A Drive with a huge number of folders: stop after 20 000 rather than hang.
-      for (let i = 0; i < 20; i++) {
-        const r = (await (await this.call(`${API}/files?${listParams({ source: 'computers' }, 'all', pageToken)}`)).json()) as { files?: RawFile[]; nextPageToken?: string };
-        for (const f of r.files ?? []) if (!f.parents?.length) out.push(toItem(f));
-        pageToken = r.nextPageToken;
-        if (!pageToken) break;
-      }
-      return out;
-    })();
-    this.computerList.catch(() => (this.computerList = null));
-    return this.computerList;
-  }
-
-  private sharedDrives(pageToken?: string, fresh = false): Promise<DrivePage> {
-    const params = new URLSearchParams({ pageSize: '100', fields: 'nextPageToken,drives(id,name)' });
-    if (pageToken) params.set('pageToken', pageToken);
-    const key = `drives:${params}`;
-    if (fresh) this.pages.delete(key);
-    let hit = this.pages.get(key);
-    if (!hit) {
-      hit = this.call(`${API}/drives?${params}`).then(async (r) => {
-        const body = (await r.json()) as { drives?: { id: string; name: string }[]; nextPageToken?: string };
-        return {
-          items: (body.drives ?? []).map((d) => ({ id: d.id, name: d.name, mimeType: FOLDER_MIME, isFolder: true, driveId: d.id })),
-          ...(body.nextPageToken ? { nextPageToken: body.nextPageToken } : {}),
-        };
-      });
-      hit.catch(() => this.pages.delete(key));
-      this.pages.set(key, hit);
-    }
-    return hit;
-  }
-
-  /** A folder's name and parents (for a pasted link). */
-  async folder(id: string): Promise<DriveItem> {
-    const r = await this.call(`${API}/files/${encodeURIComponent(id)}?${new URLSearchParams({ fields: 'id,name,mimeType,parents,driveId', supportsAllDrives: 'true' })}`);
+  /** One file's name, type and size (404 when the app may not see it). */
+  async file(id: string): Promise<DriveItem> {
+    const r = await this.call(`${API}/files/${encodeURIComponent(id)}?${new URLSearchParams({ fields: 'id,name,mimeType,size,parents,driveId', supportsAllDrives: 'true' })}`);
     return toItem((await r.json()) as RawFile);
   }
 
@@ -267,14 +203,5 @@ export class DriveBrowser {
   /** Forget every cached listing. */
   clear(): void {
     this.pages.clear();
-    this.computerList = null;
   }
-}
-
-/** The scopes an access token carries (Google's tokeninfo endpoint). */
-export async function tokenScopes(accessToken: string, fetchFn: FetchFn = (u, i) => fetch(u, i)): Promise<string[]> {
-  const r = await fetchFn(`https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(accessToken)}`);
-  if (!r.ok) return [];
-  const body = (await r.json()) as { scope?: string };
-  return (body.scope ?? '').split(' ').filter(Boolean);
 }

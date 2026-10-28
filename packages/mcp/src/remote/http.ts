@@ -22,7 +22,7 @@ import { createServer } from '../server.ts';
 import type { JobRunner } from '../jobs.ts';
 import { DriveWorkspace, type Workspace } from '../workspace.ts';
 import {
-  AuthorizePageError, DRIVE_READONLY, GOOGLE_AUTH, GOOGLE_SCOPES, GOOGLE_TOKEN, OAuthError, SCOPES, TTL, approve, authenticateClient, base62,
+  AuthorizePageError, GOOGLE_AUTH, GOOGLE_SCOPES, GOOGLE_TOKEN, OAuthError, SCOPES, TTL, approve, authenticateClient, base62,
   checkAuthorizeRequest, decrypt, encrypt, exchangeCode, idClaims, isAllowedRedirectUri, loadClient, redirectWith, refresh, registerClient, revokeToken, verifyAccess,
 } from './oauth.ts';
 import type { OAuthStore } from './store.ts';
@@ -76,13 +76,13 @@ const page = (title: string, msg: string) => `<!doctype html><meta charset="utf-
 <p style="color:#666;font-size:14px">Digital Canvas · connect your AI</p></body>`;
 
 /** "<app> wants to use Digital Canvas" — shown before Google sign-in. */
-function consentPage(client: string, host: string, wholeDrive: boolean, pending: string, nonce: string): string {
+function consentPage(client: string, host: string, pending: string, nonce: string): string {
   const known = /(^|\.)(claude\.ai|anthropic\.com)$/.test(host) || /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(host);
   return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Connect ${esc(client)} to Digital Canvas</title>
 <body style="font:16px/1.5 system-ui;max-width:520px;margin:10vh auto;padding:0 20px;color:#1f2328">
 <h1 style="font-size:22px">Connect <b>${esc(client)}</b> to Digital Canvas?</h1>
 <p>It will be able to:</p>
-<ul><li>create, edit, export and delete designs in your <b>Digital Canvas</b> folder in Google Drive</li><li>use your uploads and brand kit</li>${wholeDrive ? '<li>find and read photos, videos and audio anywhere in your Google Drive (read-only)</li>' : ''}</ul>
+<ul><li>create, edit, export and delete designs in your <b>Digital Canvas</b> folder in Google Drive</li><li>use your uploads, brand kit and the Drive files you picked in Digital Canvas</li></ul>
 <p style="color:${known ? '#555' : '#b42318'}">It will return to <b>${esc(host)}</b>.${known ? '' : ' Only continue if you started this from that app.'}</p>
 <form method="post" action="/oauth/authorize/decide" style="display:flex;gap:12px;margin-top:24px">
 <input type="hidden" name="pending" value="${esc(pending)}"><input type="hidden" name="nonce" value="${esc(nonce)}">
@@ -146,8 +146,8 @@ export function createRemoteHandler(opts: RemoteOptions): (req: IncomingMessage,
     return (await r.json()) as Record<string, unknown>;
   }
 
-  function googleUrl(base: string, pendingId: string, wholeDrive: boolean, consent: boolean, hint?: string): string {
-    const scopes = [...GOOGLE_SCOPES, ...(wholeDrive ? [DRIVE_READONLY] : [])];
+  function googleUrl(base: string, pendingId: string, consent: boolean, hint?: string): string {
+    const scopes = GOOGLE_SCOPES;
     const q = new URLSearchParams({
       client_id: g.clientId, redirect_uri: `${base}/oauth/google/callback`, response_type: 'code', scope: scopes.join(' '),
       access_type: 'offline', include_granted_scopes: 'true', prompt: consent ? 'consent' : 'select_account', state: pendingId,
@@ -247,13 +247,12 @@ export function createRemoteHandler(opts: RemoteOptions): (req: IncomingMessage,
       }
       const id = base62(32);
       const nonce = base62(32);
-      const wholeDrive = checked.scopes.includes('drive.readonly');
-      await store.putPending({ id, clientId: checked.client.id, redirectUri: checked.redirectUri, codeChallenge: q.code_challenge!, ...(q.state ? { state: q.state } : {}), scopes: checked.scopes, wholeDrive, nonce, expiresAt: now() + TTL.pending });
+      await store.putPending({ id, clientId: checked.client.id, redirectUri: checked.redirectUri, codeChallenge: q.code_challenge!, ...(q.state ? { state: q.state } : {}), scopes: checked.scopes, nonce, expiresAt: now() + TTL.pending });
       // Our own consent step BEFORE Google: anyone can register a client (DCR), so the person must
       // see which app is asking (MCP security best practice for servers with a static upstream client).
       // The form is tied to this browser by a cookie (__session: the only cookie Firebase Hosting forwards).
       const secure = base.startsWith('https:') ? '; Secure' : '';
-      send(res, 200, consentPage(checked.client.name, new URL(checked.redirectUri).host, wholeDrive, id, nonce), {
+      send(res, 200, consentPage(checked.client.name, new URL(checked.redirectUri).host, id, nonce), {
         'set-cookie': `__session=${nonce}; Path=/oauth; HttpOnly; SameSite=Lax; Max-Age=900${secure}`,
         'x-frame-options': 'DENY',
         'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'",
@@ -274,7 +273,7 @@ export function createRemoteHandler(opts: RemoteOptions): (req: IncomingMessage,
         return true;
       }
       await store.putPending({ ...p, approved: true });
-      redirect(res, googleUrl(base, p.id, p.wholeDrive, false));
+      redirect(res, googleUrl(base, p.id, false));
       return true;
     }
 
@@ -297,11 +296,11 @@ export function createRemoteHandler(opts: RemoteOptions): (req: IncomingMessage,
       if (typeof t.refresh_token === 'string') {
         await store.putDrive(uid, { refreshToken: encrypt(t.refresh_token, g.tokenKey), scope });
         driveCache.delete(uid);
-      } else if (!(await store.getDrive(uid)) || (p.wholeDrive && !scope.includes(DRIVE_READONLY))) {
+      } else if (!(await store.getDrive(uid))) {
         // Google returns a refresh token only with fresh consent: ask once more, with consent.
         if (!p.consentTried) {
           await store.putPending({ ...p, consentTried: true });
-          redirect(res, googleUrl(base, p.id, p.wholeDrive, true, claims.email));
+          redirect(res, googleUrl(base, p.id, true, claims.email));
           return true;
         }
         if (!(await store.getDrive(uid))) { await store.deletePending(p.id); back({ error: 'access_denied', error_description: 'Google did not grant offline Drive access' }); return true; }

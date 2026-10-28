@@ -108,11 +108,15 @@ DC_RELEASE_KEY_PASSWORD=…
 
 and a `signingConfigs.release` in `android/app/build.gradle` that reads them, then `./gradlew assembleRelease` (APK) or `./gradlew bundleRelease` (AAB for Play). Play Console needs a one-time 25 USD developer account.
 
+## Google Drive files in the app
+
+Google Picker is not shown inside embedded WebViews, so in the app Uploads → Google Drive offers the system file picker (Files / Photos; Google Drive is a provider there on both iOS and Android). The web build keeps the Picker.
+
 ## Google sign-in in the app
 
 Google blocks OAuth inside embedded WebViews, so the app signs in through the **system browser** (SFSafariViewController on iOS, a Chrome Custom Tab on Android), reusing the **web** OAuth client and the backend unchanged:
 
-1. `account.signIn()` / `connectWholeDrive()` / the Drive re-consent path call `getCode()` (`apps/web/src/lib/google.ts`). On native that is `nativeRequestCode()` (`lib/native/oauth.ts`): it opens
+1. `account.signIn()` / the Drive re-consent path call `getCode()` (`apps/web/src/lib/google.ts`). On native that is `nativeRequestCode()` (`lib/native/oauth.ts`): it opens
    `https://accounts.google.com/o/oauth2/v2/auth?client_id=<web client>&redirect_uri=https://digital-canvas-p977.web.app/auth/callback&response_type=code&access_type=offline&include_granted_scopes=true&prompt=select_account|consent&scope=…&state=dcapp.<uuid>`.
 2. Google redirects the browser to the **hosted** web app's `/auth/callback`. There, `lib/native/bounce.ts` (the first module `main.ts` runs) sees the `dcapp.` state and immediately sends the browser to `com.panth977.digitalcanvas://auth?code=…&state=…`, with a visible **Return to Digital Canvas** button as a fallback. The web app itself does not boot on that page.
 3. The app gets the URL through `@capacitor/app`'s `appUrlOpen` (iOS `CFBundleURLTypes`, Android `VIEW` intent-filter on a `singleTask` activity), checks the state, closes the browser and calls the backend's `googleSignIn({ code, redirectUri: 'https://digital-canvas-p977.web.app/auth/callback' })`, which the backend already accepts. The rest (custom token, Drive token) is the same as on the web.

@@ -6,9 +6,8 @@
 //   connecting Drive again.
 // driveToken: a fresh Drive access token for the signed-in user, with the scopes it carries.
 //
-// Connecting the whole Drive (browse it in Uploads) is incremental consent: the app
-// asks for drive.readonly on top of the granted scopes (include_granted_scopes) with
-// prompt=consent, and googleSignIn stores the new refresh token, which covers both.
+// Drive access is drive.file only: the app sees its own folder plus the files the user
+// picks with Google Picker (Uploads → Google Drive), which uses this same access token.
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { HttpsError, onCall } from '@panth977/icebase-server/functions';
 import { getAdminAuth, getAdminFirestore, initializeAdminApp } from '@panth977/icebase-server/admin';
@@ -123,6 +122,5 @@ export const driveToken = onCall(api.driveToken, { secrets: SECRETS, cors: ORIGI
     throw new HttpsError('failed-precondition', 'drive-not-connected');
   }
   if (!t.access_token) throw new HttpsError('unavailable', t.error_description ?? t.error ?? 'Google token refresh failed');
-  // The scopes this token carries: drive.readonly once the user connected their whole Drive.
   return { accessToken: t.access_token, expiresIn: t.expires_in ?? 3600, scope: t.scope ?? stored.scope ?? '' };
 });

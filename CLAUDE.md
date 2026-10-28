@@ -6,7 +6,7 @@ Open-source Canva alternative. Built on TaskManager ticket **ORCH-27** (ORCH boa
 
 - Renderer: **CanvasKit** (Skia WASM). UI: **Svelte 5** + Vite + TypeScript. Licence: **Apache-2.0**.
 - One **`.dcanvas` file per project** (zip). Projects go in an app folder, so a new project never asks for a path.
-- Drive access: **`drive.file`** at sign-in (app folder + Open with + Picker). **Optional `drive.readonly`** (owner ask, 2026-10-27): Uploads → Google Drive asks for it by incremental consent (`account.connectWholeDrive()`, `prompt=consent` + `include_granted_scopes`); the backend keeps the new refresh token and `googleSignIn`/`driveToken` return the granted `scope`.
+- Drive access: **`drive.file` only** (owner decision 2026-10-28: `drive.readonly` dropped, it caused Google's "unverified app" screens). The app sees its own folder plus files the user picks with **Google Picker** (Uploads → Google Drive) or opens with it. Never request another Drive scope; `apps/web/test/drive-scope.test.ts` greps for it.
 - Backend: **IceBase in firebase mode** on Firebase project `digital-canvas-p977` (created 2026-10-26, Drive + Picker APIs enabled). Backend stores almost nothing: user, login count, Drive refresh token. Designs never touch it.
 - Phase 1 = the page editor (M1–M6 in README). No sharing/invites in phase 1.
 - Canva's AI tools are out of scope; our own AI comes later via the open scene format.
@@ -34,12 +34,12 @@ Open-source Canva alternative. Built on TaskManager ticket **ORCH-27** (ORCH boa
 
 ## Uploads panel notes (2026-10-27)
 
-- `apps/web/src/editor/panels/UploadsPanel.svelte`, state in `lib/drivelib.svelte.ts`. Drive browsing is `DriveBrowser` in `packages/storage/src/drivebrowse.ts` (pure `listParams` query builder; cached pages).
-- Computers (Drive for desktop): there is no API for that tab. A computer is a folder you own with no `parents`; `DriveBrowser.computers()` scans your folders for those. A pasted folder link opens any folder the scan misses.
+- `apps/web/src/editor/panels/UploadsPanel.svelte`, state in `lib/drivelib.svelte.ts`. `DriveBrowser` (`packages/storage/src/drivebrowse.ts`) only lists/downloads what drive.file allows (MCP search_drive, picked-file downloads).
+- Google Drive tab = Google Picker (`lib/picker.ts`; views My Drive, Shared with me, Starred, Recent, Shared drives, Images, Videos, Audio; multi-select). Key `PICKER_API_KEY` + `GOOGLE_APP_ID` (project number) in `backend/google.ts`: API key "Digital Canvas Picker (browser)", Picker API only, referrers web.app/firebaseapp.com/localhost (override with `VITE_PICKER_API_KEY`). Picks are downloaded with progress and stored once in `assets/` with `appProperties.dcDrive=<Drive file id>`; "From Google Drive" = uploads with `driveFileId` (`packages/storage/src/picked.ts`, pure). A single pick is also placed on the page. The Capacitor app shows the system file picker instead (Google no longer renders Picker in embedded WebViews).
 - Uploads = `Digital Canvas/assets` (`DriveStore.listAssets`). Files carry `appProperties.dcName` (original name). "Remove" sets `dcHidden=1` only: designs that use the asset still need the file.
 - Drops from the panel onto the page are caught in the capture phase (`application/x-dc-library`), downloaded, then re-dispatched to the stage as an ordinary `{kind:'asset'}` drop, so Canvas.svelte needs no Drive code.
 - IceBase callables reject unknown output fields: when a function's output gains a field, deploy web before functions.
-- e2e: `e2e/fake-drive.ts` is an in-memory Drive behind `page.route`; `fakeSignIn()` sets `window.__account` (user, token, scopes).
+- e2e: `e2e/fake-drive.ts` is an in-memory Drive behind `page.route`; `fakeSignIn()` sets `window.__account` (user, token). `e2e/fake-picker.ts` installs a fake `google.picker` (addInitScript) with an overlay; `respond(page, docs)` answers it.
 ## Rail modules (r3, 2026-10-27)
 
 - Panels live in `apps/web/src/editor/panels/` (AI, Templates, Brand, Tools, Projects, Apps); shared look in `panels.css` (`dp-` classes).

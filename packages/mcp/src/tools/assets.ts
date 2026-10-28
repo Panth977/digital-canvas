@@ -30,7 +30,7 @@ export function registerAssetTools(server: McpServer, ctx: Context): void {
 
   server.registerTool('search_drive', {
     title: 'Search Google Drive',
-    description: 'Find the user\'s own photos, videos and audio in Google Drive by name, or list a folder. With whole-Drive access (granted in the app: Uploads › Google Drive) this covers all of Drive; otherwise only files this app created or was given. Import a hit with import_from_drive (or pass driveFileId straight to add_elements).',
+    description: 'Find the user\'s photos, videos and audio in Google Drive by name, or list a folder. Digital Canvas only has per-file Drive access (drive.file): it sees its own "Digital Canvas" folder and the files the user picked in the app (Uploads › Google Drive › Choose from Google Drive) or opened with it, NOT the rest of their Drive. If what you need is not found, ask the user to pick those files in the app\'s Uploads › Google Drive, then search again. Import a hit with import_from_drive (or pass driveFileId straight to add_elements).',
     inputSchema: {
       query: z.string().optional().describe('Words in the file name. Empty = recent files.'),
       kind: z.enum(['image', 'video', 'audio', 'all']).optional(),
@@ -42,16 +42,15 @@ export function registerAssetTools(server: McpServer, ctx: Context): void {
     if (!ctx.ws.searchDrive) throw new ToolError('this server works on a local folder, not Google Drive', 'use list_assets, import_from_url or search_stock');
     const r = await ctx.ws.searchDrive({ query, kind: kind ?? 'all', folderId: folder_id, pageToken: page_token });
     return json({
-      wholeDrive: r.wholeDrive,
       items: r.items.slice(0, 60).map((i) => ({ fileId: i.fileId, name: i.name, kind: i.kind, ...(i.width ? { size: [i.width, i.height] } : {}), ...(i.duration ? { duration: round(i.duration) } : {}), ...(i.thumbnailUrl ? { thumb: i.thumbnailUrl } : {}), ...(i.modifiedTime ? { modified: i.modifiedTime.slice(0, 10) } : {}) })),
       ...(r.nextPageToken ? { next_page_token: r.nextPageToken } : {}),
-      ...(!r.wholeDrive ? { note: 'Only files this app can see. For the whole Drive, the user connects it once in the app (Uploads › Google Drive).' } : {}),
+      note: 'Only files Digital Canvas may see: its own folder and files the user picked in the app. Missing something? Ask the user to pick it in Digital Canvas (Uploads › Google Drive › Choose from Google Drive).',
     });
   }));
 
   server.registerTool('import_from_drive', {
     title: 'Import from Drive',
-    description: 'Copy a Google Drive file (photo, video or audio) into the uploads library; returns its asset id, size and duration.',
+    description: 'Copy a Google Drive file (photo, video or audio) into the uploads library; returns its asset id, size and duration. Works for files search_drive returns (files the app created or the user picked in the app); for any other file, ask the user to pick it in the app\'s Uploads › Google Drive first.',
     inputSchema: { file_id: z.string(), name: z.string().optional() },
   }, safe(async ({ file_id, name }) => {
     const a = await ctx.importMedia({ driveFileId: file_id, name });

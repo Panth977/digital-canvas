@@ -1,39 +1,21 @@
-import { DriveBrowser, DriveStore, type DriveItem, type DriveLocation, type DriveSource, type LibraryAsset, type MediaKind } from '@digital-canvas/storage';
+import { DriveBrowser, DriveStore, assetId, fromDrive, notYetImported, type LibraryAsset, type MediaKind, type PickedFile } from '@digital-canvas/storage';
 import { account } from './account.svelte.ts';
 import { library } from './library.svelte.ts';
+import { openPicker } from './picker.ts';
 
-/** A step in the breadcrumbs. */
-export interface Crumb {
-  name: string;
-  loc: DriveLocation;
+/** A picked Drive file on its way into Uploads. */
+export interface Importing extends PickedFile {
+  /** 0..1 */
+  progress: number;
 }
-
-export const SOURCES: { id: DriveSource; label: string }[] = [
-  { id: 'my-drive', label: 'My Drive' },
-  { id: 'computers', label: 'Computers' },
-  { id: 'shared', label: 'Shared with me' },
-  { id: 'shared-drives', label: 'Shared drives' },
-  { id: 'starred', label: 'Starred' },
-  { id: 'recent', label: 'Recent' },
-];
 
 /**
  * State behind the Uploads panel, kept outside the component so switching
- * rail sections doesn't lose the folder you were in or the listings.
+ * rail sections doesn't lose the listings or a running import.
  */
 class DriveLibrary {
   tab = $state<'uploads' | 'drive'>('uploads');
   kind = $state<MediaKind>('all');
-
-  // ---- Google Drive tab ----
-  crumbs = $state<Crumb[]>([{ name: 'My Drive', loc: { source: 'my-drive' } }]);
-  items = $state.raw<DriveItem[]>([]);
-  next = $state<string | undefined>(undefined);
-  loading = $state(false);
-  error = $state('');
-  search = $state('');
-  private browser: { uid: string; b: DriveBrowser } | null = null;
-  private seq = 0;
 
   // ---- Uploads tab ----
   uploads = $state.raw<LibraryAsset[]>([]);
@@ -41,13 +23,11 @@ class DriveLibrary {
   uploadsError = $state('');
   private uploadsFor = '';
 
-  get loc(): DriveLocation {
-    return this.crumbs[this.crumbs.length - 1]!.loc;
-  }
-
-  get source(): DriveSource {
-    return this.crumbs[0]!.loc.source;
-  }
+  // ---- Google Drive tab (Google Picker) ----
+  picking = $state(false);
+  importing = $state<Importing[]>([]);
+  pickError = $state('');
+  private browser: { uid: string; b: DriveBrowser } | null = null;
 
   /** The Drive-backed design store, when signed in. */
   get store(): DriveStore | null {
@@ -55,97 +35,69 @@ class DriveLibrary {
     return s instanceof DriveStore ? s : null;
   }
 
-  get drive(): DriveBrowser | null {
+  /** Downloads picked files (drive.file lets the app read exactly those). */
+  private get drive(): DriveBrowser | null {
     const u = account.user;
     if (!u) return null;
     if (this.browser?.uid !== u.uid) this.browser = { uid: u.uid, b: new DriveBrowser(account.driveToken) };
     return this.browser.b;
   }
 
-  /** Load the first page of the current location (cached). */
-  async load(fresh = false): Promise<void> {
-    const d = this.drive;
-    if (!d) return;
-    const my = ++this.seq;
-    this.loading = true;
-    this.error = '';
-    if (fresh) this.items = [];
-    try {
-      const page = await d.list(this.loc, this.kind, undefined, fresh);
-      if (my !== this.seq) return;
-      this.items = page.items;
-      this.next = page.nextPageToken;
-    } catch (e) {
-      if (my !== this.seq) return;
-      this.items = [];
-      this.next = undefined;
-      this.error = e instanceof Error ? e.message : String(e);
-    } finally {
-      if (my === this.seq) this.loading = false;
-    }
-  }
-
-  /** Infinite scroll: the next page. */
-  async more(): Promise<void> {
-    const d = this.drive;
-    if (!d || !this.next || this.loading) return;
-    const my = this.seq;
-    this.loading = true;
-    try {
-      const page = await d.list(this.loc, this.kind, this.next);
-      if (my !== this.seq) return;
-      const seen = new Set(this.items.map((i) => i.id));
-      this.items = [...this.items, ...page.items.filter((i) => !seen.has(i.id))];
-      this.next = page.nextPageToken;
-    } catch (e) {
-      if (my === this.seq) this.error = e instanceof Error ? e.message : String(e);
-    } finally {
-      if (my === this.seq) this.loading = false;
-    }
-  }
-
-  go(source: DriveSource): void {
-    this.search = '';
-    this.crumbs = [{ name: SOURCES.find((s) => s.id === source)!.label, loc: { source } }];
-    void this.load();
-  }
-
-  open(folder: DriveItem): void {
-    const parent = this.loc;
-    const loc: DriveLocation = { source: parent.source, folderId: folder.id, ...(folder.driveId ?? parent.driveId ? { driveId: folder.driveId ?? parent.driveId } : {}) };
-    this.crumbs = [...this.crumbs.filter((c) => !c.loc.search), { name: folder.name, loc }];
-    void this.load();
-  }
-
-  /** Breadcrumb click. */
-  back(i: number): void {
-    this.crumbs = this.crumbs.slice(0, i + 1);
-    void this.load();
-  }
-
-  find(text: string): void {
-    const q = text.trim();
-    const base = this.crumbs.filter((c) => !c.loc.search);
-    this.crumbs = q ? [...base, { name: `“${q}”`, loc: { source: this.source, search: q } }] : base;
-    void this.load();
+  /** "From Google Drive": files picked before (on any device), newest first. */
+  get picked(): LibraryAsset[] {
+    return fromDrive(this.uploads, this.kind);
   }
 
   setKind(k: MediaKind): void {
     this.kind = k;
-    if (this.tab === 'drive') void this.load();
   }
 
-  /** Open a folder from a pasted Drive link (e.g. a backed-up computer the scan missed). */
-  async openLink(id: string): Promise<void> {
-    const d = this.drive;
-    if (!d) return;
+  /**
+   * Open Google Picker; download each new pick (with progress) into
+   * `Digital Canvas/assets`, once, marked with its Drive file id.
+   * Returns the uploads for everything picked (already imported ones too).
+   */
+  async pick(opts: { phone?: boolean } = {}): Promise<LibraryAsset[]> {
+    const store = this.store;
+    const drive = this.drive;
+    if (!store || !drive || this.picking) return [];
+    this.pickError = '';
+    this.picking = true;
+    let files: PickedFile[] | null;
     try {
-      const f = await d.folder(id);
-      if (!f.isFolder) throw new Error('That link is not a folder.');
-      this.open(f);
+      files = await openPicker(await account.driveToken(), opts);
     } catch (e) {
-      this.error = e instanceof Error ? e.message : String(e);
+      this.pickError = e instanceof Error ? e.message : String(e);
+      return [];
+    } finally {
+      this.picking = false;
     }
+    if (!files?.length) return [];
+    await this.loadUploads();
+    const todo = notYetImported(files, this.uploads);
+    this.importing = [...todo.map((f) => ({ ...f, progress: 0 })), ...this.importing];
+    const failed: string[] = [];
+    await Promise.all(todo.map(async (f) => {
+      try {
+        const bytes = await drive.download(f, (p) => this.setProgress(f.id, p));
+        const id = await assetId(bytes, f.mimeType);
+        await store.addAsset(id, bytes, f.mimeType, f.name, f.id);
+        // Show it at once (bytes are cached locally); the listing below adds Drive's thumbnail.
+        this.uploads = [{ id, fileId: '', mime: f.mimeType, name: f.name, size: bytes.length, createdTime: new Date().toISOString(), driveFileId: f.id }, ...this.uploads];
+      } catch (e) {
+        failed.push(`${f.name}: ${e instanceof Error ? e.message : e}`);
+      } finally {
+        this.importing = this.importing.filter((i) => i.id !== f.id);
+      }
+    }));
+    if (todo.length) await this.loadUploads(true);
+    if (failed.length) this.pickError = `Couldn't copy ${failed.join('; ')}`;
+    const byDrive = new Map(this.uploads.filter((a) => a.driveFileId).map((a) => [a.driveFileId!, a]));
+    return files.map((f) => byDrive.get(f.id)).filter((a): a is LibraryAsset => !!a);
+  }
+
+  private setProgress(id: string, p: number): void {
+    this.importing = this.importing.map((i) => (i.id === id ? { ...i, progress: p } : i));
   }
 
   // ---- Uploads ----

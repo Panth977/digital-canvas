@@ -10,7 +10,7 @@
 import { GOOGLE_CLIENT_ID, GOOGLE_SCOPES } from '@digital-canvas/backend/google';
 import { APP_SCHEME, APP_STATE_PREFIX, HOSTED_CALLBACK } from './platform.ts';
 
-export interface CodeRequest { consent?: boolean; hint?: string; scopes?: string[] }
+export interface CodeRequest { consent?: boolean; hint?: string }
 
 /** Google's authorization URL for the native flow (pure; tested). */
 export function nativeAuthUrl(opts: CodeRequest, state: string): string {
@@ -18,7 +18,7 @@ export function nativeAuthUrl(opts: CodeRequest, state: string): string {
     client_id: GOOGLE_CLIENT_ID,
     redirect_uri: HOSTED_CALLBACK,
     response_type: 'code',
-    scope: [...GOOGLE_SCOPES, ...(opts.scopes ?? [])].join(' '),
+    scope: GOOGLE_SCOPES.join(' '),
     access_type: 'offline',
     include_granted_scopes: 'true',
     prompt: opts.consent ? 'consent' : 'select_account',

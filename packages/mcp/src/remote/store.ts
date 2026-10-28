@@ -25,8 +25,6 @@ export interface PendingRow {
   codeChallenge: string;
   state?: string;
   scopes: string[];
-  /** Asked for drive.readonly too. */
-  wholeDrive: boolean;
   /** Already sent the person back to Google with prompt=consent once. */
   consentTried?: boolean;
   /** Ties the consent form to the browser that saw it (also in the __session cookie). */

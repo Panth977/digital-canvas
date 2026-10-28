@@ -2,8 +2,8 @@ import type { Page, Route } from '@playwright/test';
 
 /**
  * A small in-memory Google Drive v3 behind page.route, enough for the app's
- * design store (app folder, assets folder, multipart uploads) and for browsing
- * (folders, Computers, search, paging, downloads, thumbnails).
+ * design store (app folder, assets folder, multipart uploads) and for picked
+ * files (metadata, downloads, thumbnails).
  */
 export interface FakeFile {
   id: string;
@@ -22,7 +22,6 @@ export interface FakeFile {
 }
 
 export const FOLDER = 'application/vnd.google-apps.folder';
-export const READONLY = 'https://www.googleapis.com/auth/drive.readonly';
 
 export class FakeDrive {
   files = new Map<string, FakeFile>();
@@ -127,13 +126,12 @@ export class FakeDrive {
   }
 }
 
-/** Pretend to be signed in (no Firebase, no Google): a user, a cached access token and the granted scopes. */
-export async function fakeSignIn(page: Page, scopes: string[]): Promise<void> {
+/** Pretend to be signed in (no Firebase, no Google): a user and a cached drive.file access token. */
+export async function fakeSignIn(page: Page): Promise<void> {
   await page.waitForFunction(() => (window as any).__account?.known);
-  await page.evaluate((scopes) => {
+  await page.evaluate(() => {
     const a = (window as any).__account;
     a.token = { value: 'fake-token', expires: Date.now() + 3600_000 };
-    a.scopes = scopes;
     a.user = { uid: 'google:1', email: 'tester@example.com', name: 'Tester' };
-  }, scopes);
+  });
 }
