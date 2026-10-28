@@ -241,3 +241,35 @@ test('no browser zoom: the viewport is locked and the stage takes every gesture'
   expect(meta).toContain('viewport-fit=cover');
   expect(await page.getByTestId('stage').evaluate((el) => getComputedStyle(el).touchAction)).toBe('none');
 });
+
+test('video on a phone: one scene on the stage, compact filmstrip, tap a scene to show it, play', async ({ page }) => {
+  await newDesign(page, 'video-vertical');
+  const ids = await page.evaluate(() => {
+    const ed = (window as any).__dc;
+    ed.updatePage({ duration: 2, background: { type: 'solid', color: '#ff5a5f' } });
+    ed.addPage(); ed.updatePage({ duration: 4, background: { type: 'solid', color: '#2a5bd7' } });
+    ed.addPage(); ed.updatePage({ duration: 2, background: { type: 'solid', color: '#ffe9a8' } });
+    ed.addText('heading'); ed.update({ animation: { type: 'rise' } }); ed.select([]);
+    ed.seal();
+    ed.select([], ed.doc.pages[0].id);
+    return ed.doc.pages.map((p: any) => p.id);
+  });
+  const v = await page.evaluate(() => (window as any).__dcView.get());
+  expect(v.videoMode).toBe(true);
+  await expect(page.getByTestId('timeline')).toBeVisible();
+  const scenes = page.getByTestId('tl-scene');
+  await expect(scenes).toHaveCount(3);
+  const w = await scenes.evaluateAll((els) => els.map((e) => e.getBoundingClientRect().width));
+  expect(w[1]! / w[0]!).toBeCloseTo(2, 0);
+  // the whole timeline fits under the stage, the stage keeps most of the screen
+  const tl = (await page.getByTestId('timeline').boundingBox())!;
+  const stage = (await page.getByTestId('stage').boundingBox())!;
+  expect(tl.height).toBeLessThan(150);
+  expect(stage.height).toBeGreaterThan(tl.height * 2);
+  await scenes.nth(1).tap();
+  await expect.poll(() => page.evaluate(() => (window as any).__dc.pageId)).toBe(ids[1]);
+  await page.screenshot({ path: `/tmp/orch27-rw/r9-video-phone-${test.info().project.name}.png` });
+  await page.getByTestId('play').tap();
+  await expect.poll(() => page.evaluate(() => (window as any).__dc.player.time), { timeout: 5000 }).toBeGreaterThan(2.5);
+  await page.getByTestId('play').tap();
+});

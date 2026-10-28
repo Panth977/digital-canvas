@@ -1,6 +1,6 @@
 <script lang="ts">
   import {
-    isVideo, pageDuration, formatLength,
+    isVideo, pageDuration, formatLength, TRANSITIONS, type TransitionType,
     type Element, type ImageElement, type LineElement, type LineMarker, type LineRoute, type ShapeElement, type Stroke, type TextAlign, type TextElement, type VideoElement,
   } from '@digital-canvas/scene';
   import type { EditorState } from '../lib/editor.svelte.ts';
@@ -223,6 +223,16 @@
           oninput={(e) => { const v = Number((e.currentTarget as HTMLInputElement).value); if (v > 0) ed.updatePage({ duration: Math.min(3600, Math.max(0.1, v)) }, 'page-dur'); }} onchange={end} />
         <em>s</em>
       </label>
+      {#if ed.pageIndex > 0}
+        <label class="dur" title="Transition into this scene">
+          <Icon name="bolt" size={14} />
+          <select value={ed.page.transition?.type ?? ''} aria-label="Transition" data-testid="page-transition"
+            onchange={(e) => { const v = (e.currentTarget as HTMLSelectElement).value as TransitionType | ''; ed.updatePage({ transition: v ? { type: v, ...(TRANSITIONS.find((t) => t.type === v)?.directional ? { direction: ed.page.transition?.direction ?? 'right' } : {}) } : undefined }); end(); }}>
+            <option value="">No transition</option>
+            {#each TRANSITIONS as t (t.type)}<option value={t.type}>{t.label}</option>{/each}
+          </select>
+        </label>
+      {/if}
       {#if ed.doc.audio?.length}
         <button class="tb" class:on={ui.panel === 'audio'} data-testid="sounds-btn" onclick={() => ui.open('audio')}><Icon name="music" size={16} /> Sounds</button>
       {/if}
@@ -549,6 +559,7 @@
   .dur { display: flex; align-items: center; gap: 4px; height: 36px; padding: 0 8px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink-2); }
   .dur input { width: 52px; border: 0; background: none; font-weight: 600; }
   .dur em { font-style: normal; color: var(--muted); }
+  .dur select { border: 0; background: none; color: var(--ink); font-weight: 600; max-width: 150px; }
   .sel { height: 36px; border: 1px solid var(--line); border-radius: 8px; background: var(--field); padding: 0 6px; margin: 0 2px; flex-shrink: 0; }
   .pw { position: relative; flex-shrink: 0; }
   .pop { position: absolute; top: 44px; left: 0; z-index: 40; width: 300px; padding: 14px; display: flex; flex-direction: column; gap: 12px;

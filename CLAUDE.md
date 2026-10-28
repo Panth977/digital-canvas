@@ -62,7 +62,7 @@ Open-source Canva alternative. Built on TaskManager ticket **ORCH-27** (ORCH boa
 ## MCP server (r5-mcp, 2026-10-28)
 
 - `packages/mcp`: tools in `src/tools/*.ts`, all over a `Workspace` (`DriveWorkspace` | `FolderWorkspace`, `src/workspace.ts`); `Context` opens/edits/saves designs (embeds fonts, prunes assets, thumbnails). Element specs → scene via `build.ts` (loose reader + media/icons/QR). Tests: `packages/mcp/test` against a temp folder, `DC_OFFLINE=1`.
-- Scene gained `ElementBase.timing` (captions; `animateAt` hides outside the window), `Page.transition` + `frameAt`/`transitionLayers`, `AudioClip.fadeIn/fadeOut`. The MCP exporter renders all three; the web player/MP4 export render timing but not yet transitions or audio fades.
+- Scene gained `ElementBase.timing` (captions; `animateAt` hides outside the window), `Page.transition` + `frameAt`/`transitionLayers`, `AudioClip.fadeIn/fadeOut`. The MCP exporter, the web MP4 export and the editor's live playback render all three (r9).
 - Gradient `angle` is CSS (90 = left→right, 180 = top→bottom).
 - Remote: `packages/mcp/src/remote` (OAuth 2.1 AS + stateless JSON `/mcp`), deployed by `npm run deploy:mcp` as functions `mcp` + `mcpExport` (codebase `mcp`, `backend/mcp`); hosting rewrites in `backend/icebase.config.ts`.
 ## Phone layout (r5-mobile, 2026-10-28)
@@ -85,3 +85,10 @@ Open-source Canva alternative. Built on TaskManager ticket **ORCH-27** (ORCH boa
 - Web: `lib/bridge/bridgeUi.svelte.ts` (always loaded: toggle in localStorage `dc.bridge.enabled`, device id `dc.bridge.deviceId`, panel state), `bridge.svelte.ts` (lazy: DeviceAgent + worker RPC), `worker.ts` (module worker: browser platform + ToolHost on Drive; Vite `worker.format = 'es'`; not precached by the SW), `link-core.ts` (IceBase Firestore link), `AiDialog.svelte` (File › Settings › AI and devices, Help › Connect your AI, Home › AI), `BridgeIndicator.svelte`.
 - Tests: `packages/mcp/test/bridge.test.ts` (routing, lifecycle, relayed calls), `npm run test:bridge-emu` (Firestore emulator + real rules + the web IceBase link), `e2e/bridge.spec.ts` (MCP client → relay in the test process → the page as device over HTTP (`__bridgeUi.testLink`), render_page PNG, reel MP4 by WebCodecs).
 - Android: `BridgeKeepAlive` plugin + foreground service (specialUse). iOS: only while open.
+## Video editor (r9-video, 2026-10-28)
+
+- A video design (`isVideo`) switches the workspace to Canva's video mode: `Canvas.svelte` `videoMode` shows ONE scene (the current page; other pages are parked `FAR` away in `pageTop`, so draw/hit code is unchanged), no page headers / "Add page"; `Timeline.svelte` is the filmstrip timeline (scenes ∝ durations, playhead scrub, edge = duration, drag = reorder, scene menu, transition dots, element timing bar, sound lane with waveforms, zoom + collapse in `ui.timelineOpen/timelineZoom`). Non-video designs keep the page column.
+- Live = export: while `player.live` (playing or `scrubbing`) the stage draws render `drawFrameAt` (animations, element timing, page transitions) — the same function the web MP4 export (`lib/mp4.ts` `frameSurface`/`ClipFrames`) and the MCP exporters (`drawAt`) use. Paused, the stage shows the editable design. `e2e/video-editor.spec.ts` compares a screenshot of the stage with `window.__dcExportFrame(t, W, H)` (the export path) at several times.
+- The playhead stays inside the current scene (Timeline effect); `player.seek(t)` makes the scene at t current, `player.refresh()` re-fetches clip frames without moving the page. Keys (`lib/videokeys.ts`): Space play/pause, S split (`splitPage` in scene), ←/→ frame step when nothing is selected.
+- Pure maths in `lib/timeline.ts` (tested in `apps/web/test/timeline.test.ts`); page thumbnails are one cache per editor (`ed.thumbs`, `lib/thumbs.svelte.ts`) shared by the Pages strip, grid view and filmstrip; waveforms `lib/waveform.ts`.
+

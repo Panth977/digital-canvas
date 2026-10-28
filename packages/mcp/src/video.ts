@@ -5,16 +5,16 @@
  * the platform's (ffmpeg in Node, WebCodecs in a browser); GIFs use gifenc
  * like the web app.
  */
-import type { Canvas, Paint } from 'canvaskit-wasm';
+import type { Canvas } from 'canvaskit-wasm';
 import * as gifencModule from 'gifenc';
 // gifenc is CommonJS: plain Node ESM sees only a default export, bundlers see named ones
 const gifenc = (typeof (gifencModule as { GIFEncoder?: unknown }).GIFEncoder === 'function' ? gifencModule : (gifencModule as unknown as { default: typeof gifencModule }).default);
 const { GIFEncoder, applyPalette, quantize } = gifenc;
 import {
-  animateAt, animationEnd, clipTime, frameAt, isVideo, pageDuration, transitionLayers, walk,
-  type Doc, type Page, type TransitionLayer,
+  animateAt, animationEnd, clipTime, frameAt, isVideo, pageDuration, walk,
+  type Doc, type Page,
 } from '@digital-canvas/scene';
-import type { Renderer } from '@digital-canvas/render';
+import { drawFrameAt, type Renderer } from '@digital-canvas/render';
 import type { ProjectFile } from '@digital-canvas/storage';
 import { gifFrames, gifPageDuration } from '../../../apps/web/src/lib/giftime.ts';
 import { withRenderer, type Engine } from './engine.ts';
@@ -22,47 +22,9 @@ import { platform, type VideoExportOptions } from './platform.ts';
 
 export const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
 
-/** Draw one page with a transition layer applied. */
-function drawLayer(eng: Engine, r: Renderer, canvas: Canvas, doc: Doc, page: Page, L: TransitionLayer): void {
-  const ck = eng.ck;
-  if (L.alpha <= 0) return;
-  canvas.save();
-  if (L.clip) canvas.clipRect(ck.XYWHRect(L.clip.x, L.clip.y, L.clip.w, L.clip.h), ck.ClipOp.Intersect, true);
-  canvas.translate(L.dx, L.dy);
-  if (L.scale !== 1) {
-    canvas.translate(doc.width / 2, doc.height / 2);
-    canvas.scale(L.scale, L.scale);
-    canvas.translate(-doc.width / 2, -doc.height / 2);
-  }
-  if (L.alpha < 1) {
-    const p = new ck.Paint();
-    p.setAlphaf(L.alpha);
-    canvas.saveLayer(p);
-    p.delete();
-  }
-  r.drawPage(canvas, doc, page);
-  if (L.alpha < 1) canvas.restore();
-  canvas.restore();
-}
-
-/** Draw the timeline at `t` (page, animations, transition) onto a canvas already scaled to page px. */
-export function drawAt(eng: Engine, r: Renderer, canvas: Canvas, doc: Doc, t: number): void {
-  const f = frameAt(doc, t);
-  const now = animateAt(doc, f.page, f.local);
-  if (!f.prev || !f.transition) {
-    r.drawPage(canvas, doc, now);
-    return;
-  }
-  const L = transitionLayers(f.transition, f.progress ?? 1, doc.width, doc.height);
-  if (L.black) canvas.drawRect(eng.ck.XYWHRect(0, 0, doc.width, doc.height), blackPaint(eng));
-  drawLayer(eng, r, canvas, doc, animateAt(doc, f.prev.page, f.prev.local), L.prev);
-  drawLayer(eng, r, canvas, doc, now, L.next);
-}
-
-let black: Paint | null = null;
-function blackPaint(eng: Engine) {
-  if (!black) { black = new eng.ck.Paint(); black.setColor(eng.ck.BLACK); }
-  return black;
+/** Draw the timeline at `t` (page, animations, transition) onto a canvas already scaled to page px (shared with the editor: render `drawFrameAt`). */
+export function drawAt(_eng: Engine, r: Renderer, canvas: Canvas, doc: Doc, t: number): void {
+  drawFrameAt(r, canvas, doc, t);
 }
 
 /** RGBA pixels of a surface (unpremultiplied sRGB). */

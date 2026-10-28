@@ -6,3 +6,4 @@ export { exportPdf, type PdfOptions } from './pdf.ts';
 export * from './look.ts';
 export { exportSvg, textNeedsRaster, type VectorExportOptions } from './svgexport.ts';
 export { exportVectorPdf, type VectorPdfOptions } from './pdfvector.ts';
+export { drawFrameAt } from './frame.ts';

@@ -1,5 +1,5 @@
 import {
-  History, newId, addAudio, addElements, pageDuration, removeAudio, totalDuration, updateAudio, video, addPage, arrange, commonStyle, duplicateElements, duplicatePage, findElement, image, movePage,
+  History, newId, isVideo, splitPage, pageStart, addAudio, addElements, pageDuration, removeAudio, totalDuration, updateAudio, video, addPage, arrange, commonStyle, duplicateElements, duplicatePage, findElement, image, movePage,
   normalizeRuns, pruneAssets, pruneFonts, removeElements, removePage, setAsBackground, setTitle, shape, styleRange, text, updateElements, updatePage, lineEnds, pathElement,
   type Arrange, type ImageLook, type AudioClip, type Doc, type Element, type ElementPatch, type EmbeddedFont, type Page, type ShapeKind, type TextElement, type TextRun, type TextStyle,
   childrenOf, cloneElement, distribute, groupElements, resizeDoc, tidyUp, ungroupElements, walk, type ResizeTarget,
@@ -17,6 +17,7 @@ import { removeBackground, type BackgroundRemover } from './bgremove.ts';
 import { addCssFace, fetchFamily, type CatalogFont, type FontFile } from './fonts.ts';
 import { isAudioFile, isVideoFile, mediaMime, probeAudio, probeVideo } from './media.ts';
 import { Player } from './player.svelte.ts';
+import { Thumbs } from './thumbs.svelte.ts';
 
 export type SaveState = 'saved' | 'saving' | 'unsaved' | 'error';
 
@@ -62,6 +63,8 @@ export class EditorState {
   readonly renderer: Renderer;
   /** Plays the design as a video (pages, clips, sounds). */
   readonly player: Player;
+  /** Page pictures for the Pages strip, grid view and the video timeline. */
+  readonly thumbs: Thumbs;
   readonly assets: Map<string, Uint8Array>;
   private history: History<Doc>;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -71,6 +74,7 @@ export class EditorState {
   constructor(readonly engine: Engine, readonly store: ProjectStore, file: ProjectFile) {
     this.renderer = new Renderer(engine.ck, engine.fonts);
     this.player = new Player(this);
+    this.thumbs = new Thumbs(this);
     this.assets = new Map(file.assets);
     for (const f of file.doc.fonts ?? []) {
       const bytes = this.assets.get(f.asset);
@@ -479,7 +483,7 @@ export class EditorState {
     this.commit(addElements(doc, this.pageId, [el]));
     this.seal();
     this.select([el.id], this.pageId);
-    void this.player.seek(this.player.time);
+    void this.player.refresh();
     return true;
   }
 
@@ -701,13 +705,37 @@ export class EditorState {
     this.seal();
     this.select([], this.doc.pages[Math.max(0, i - 1)]!.id);
     // Canva: "Page deleted · Undo"
-    toast.show(`Page ${i + 1} deleted`, { action: { label: 'Undo', run: () => this.undo() } });
+    toast.show(`${isVideo(this.doc) ? 'Scene' : 'Page'} ${i + 1} deleted`, { action: { label: 'Undo', run: () => this.undo() } });
   }
 
   movePage(pageId: string, delta: number): void {
     const i = this.doc.pages.findIndex((p) => p.id === pageId);
     this.commit(movePage(this.doc, pageId, i + delta));
     this.seal();
+  }
+
+  /** Put a page at `index` (timeline drag). */
+  movePageTo(pageId: string, index: number): void {
+    const i = this.doc.pages.findIndex((p) => p.id === pageId);
+    if (i < 0 || i === index) return;
+    this.commit(movePage(this.doc, pageId, index));
+    this.seal();
+  }
+
+  /**
+   * Canva's "Split page" (S): the scene under the playhead is cut there; the
+   * second part becomes current. False when the playhead is too near an edge.
+   */
+  splitAtPlayhead(): boolean {
+    const t = this.player.time;
+    const page = this.doc.pages.find((p) => !p.hidden && t >= pageStart(this.doc, p.id) && t < pageStart(this.doc, p.id) + pageDuration(p));
+    if (!page) return false;
+    const r = splitPage(this.doc, page.id, t - pageStart(this.doc, page.id));
+    if (r.doc === this.doc) return false;
+    this.commit(r.doc);
+    this.seal();
+    this.select([], r.pageId);
+    return true;
   }
 
   updatePage(patch: Partial<Omit<Page, 'id' | 'elements'>>, key: string | null = null, pageId = this.pageId): void {
@@ -1019,6 +1047,7 @@ export class EditorState {
 
   dispose(): void {
     this.player.dispose();
+    this.thumbs.dispose();
     if (this.saveTimer) clearTimeout(this.saveTimer);
     this.renderer.dispose();
   }

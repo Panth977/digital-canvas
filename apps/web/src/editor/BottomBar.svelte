@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Page } from '@digital-canvas/scene';
+  import { isVideo } from '@digital-canvas/scene';
   import type { EditorState } from '../lib/editor.svelte.ts';
   import Icon from '../lib/Icon.svelte';
   import { ui } from '../lib/ui.svelte.ts';
@@ -47,34 +47,15 @@
     dropAt = null;
   }
 
-  // ---- page thumbnails (strip and grid) ----
-  /** Pages are immutable: an unchanged page keeps its object, so its picture is reused. */
-  const cache = new Map<string, { page: Page; w: number; h: number; url: string }>();
-  let thumbs = $state<Record<string, string>>({});
+  // ---- page thumbnails (strip and grid): the editor's shared cache ----
+  const thumbs = $derived(ed.thumbs.urls);
   const wanted = $derived(ui.pagesStrip || ui.gridView);
   $effect(() => {
     if (!wanted) return;
-    const doc = ed.doc;
+    void ed.doc;
     void ed.frame;
-    let cancelled = false;
-    // throttled: wait for a pause in edits, then render one page per task
-    const t = setTimeout(async () => {
-      const scale = Math.min(1, 360 / Math.max(doc.width, doc.height));
-      for (const p of doc.pages) {
-        if (cancelled) return;
-        const hit = cache.get(p.id);
-        if (hit && hit.page === p && hit.w === doc.width && hit.h === doc.height) continue;
-        const bytes = ed.exportPage(p.id, 'png', scale);
-        const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'image/png' }));
-        if (hit) URL.revokeObjectURL(hit.url);
-        cache.set(p.id, { page: p, w: doc.width, h: doc.height, url });
-        thumbs = { ...thumbs, [p.id]: url };
-        await new Promise((r) => setTimeout(r, 0));
-      }
-    }, 250);
-    return () => { cancelled = true; clearTimeout(t); };
+    ed.thumbs.update();
   });
-  $effect(() => () => { for (const c of cache.values()) URL.revokeObjectURL(c.url); });
 
   const ratio = $derived(ed.doc.width / ed.doc.height);
   function go(id: string): void {
@@ -110,7 +91,7 @@
   </div>
 {/if}
 
-{#if ui.pagesStrip}
+{#if ui.pagesStrip && !isVideo(ed.doc)}
   <div class="strip" data-testid="pages-strip">
     {#each ed.doc.pages as p, i (p.id)}
       <button class="sp" class:on={p.id === ed.pageId} class:hid={p.hidden} class:dragging={dragId === p.id} class:before={dropAt === i && !!dragId} class:after={dropAt === i + 1 && i === ed.doc.pages.length - 1 && !!dragId}
@@ -153,7 +134,7 @@
         </div>
       {/if}
     </div>
-    <button class="bb" class:on={ui.pagesStrip} data-testid="pages-btn" onclick={() => { ui.pagesStrip = !ui.pagesStrip; ui.gridView = false; }}><Icon name="pages" size={20} /> Pages</button>
+    {#if !isVideo(ed.doc)}<button class="bb" class:on={ui.pagesStrip} data-testid="pages-btn" onclick={() => { ui.pagesStrip = !ui.pagesStrip; ui.gridView = false; }}><Icon name="pages" size={20} /> Pages</button>{/if}
     <button class="bb" title="Page {ed.pageIndex + 1} of {ed.doc.pages.length}" data-testid="page-counter" onclick={() => (ui.gridView = !ui.gridView)}>{ed.pageIndex + 1} / {ed.doc.pages.length}</button>
     <button class="bb icon" class:on={ui.gridView} title="Grid view" aria-label="Grid view" data-testid="grid-btn" onclick={() => { ui.gridView = !ui.gridView; ui.pagesStrip = false; }}><Icon name="gridview" size={20} /></button>
     <button class="bb icon" title="Full screen" aria-label="Full screen" onclick={fullscreen}><Icon name="expand" size={20} /></button>

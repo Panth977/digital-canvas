@@ -2,13 +2,15 @@
  * Export a design as an MP4 video in the browser: each frame is drawn by the CanvasKit renderer,
  * video clips are decoded frame-exactly with WebCodecs (via Mediabunny), sounds are mixed with an
  * OfflineAudioContext, and everything is encoded (H.264 + AAC where the browser has them, else
- * VP9 / Opus) into an MP4 file.
+ * VP9 / Opus) into an MP4 file. Frames are render `drawFrameAt` (animations, element
+ * timing, page transitions): the same drawing as the editor's live playback.
  */
 import {
   ALL_FORMATS, AudioBufferSource, BlobSource, BufferTarget, CanvasSource, Input, Mp4OutputFormat, Output, QUALITY_HIGH,
   VideoSampleSink, getFirstEncodableAudioCodec, getFirstEncodableVideoCodec,
 } from 'mediabunny';
-import { animateAt, clipTime, pageDuration, pageStart, totalDuration, walk, type Doc, type VideoElement } from '@digital-canvas/scene';
+import { clipTime, frameAt, pageDuration, pageStart, totalDuration, walk, type Doc, type Page, type VideoElement } from '@digital-canvas/scene';
+import { drawFrameAt } from '@digital-canvas/render';
 import type { EditorState } from './editor.svelte.ts';
 
 export interface Mp4Options {
@@ -23,8 +25,8 @@ const RATE = 48000;
 
 /** Mix every sound of the design (timeline sounds and the clips' own sound) into one buffer. */
 async function mixAudio(doc: Doc, assets: Map<string, Uint8Array>, total: number): Promise<AudioBuffer | null> {
-  type Src = { asset: string; at: number; offset: number; dur: number; volume: number; loop?: boolean };
-  const srcs: Src[] = (doc.audio ?? []).map((a) => ({ asset: a.asset, at: a.start, offset: a.offset, dur: a.duration, volume: a.volume ?? 1 }));
+  type Src = { asset: string; at: number; offset: number; dur: number; volume: number; loop?: boolean; fadeIn?: number; fadeOut?: number };
+  const srcs: Src[] = (doc.audio ?? []).map((a) => ({ asset: a.asset, at: a.start, offset: a.offset, dur: a.duration, volume: a.volume ?? 1, fadeIn: a.fadeIn, fadeOut: a.fadeOut }));
   for (const p of doc.pages) {
     if (p.hidden) continue;
     for (const e of walk(p.elements)) {
@@ -52,6 +54,10 @@ async function mixAudio(doc: Doc, assets: Map<string, Uint8Array>, total: number
     if (s.loop) { node.loop = true; node.loopStart = s.offset; node.loopEnd = s.offset + Math.max(0.01, Math.min(buf.duration - s.offset, s.dur)); }
     const gain = ctx.createGain();
     gain.gain.value = s.volume;
+    // fades (like the MCP exporters and the editor's playback)
+    const len = Math.min(s.dur, total - s.at);
+    if (s.fadeIn && s.fadeIn > 0) { gain.gain.setValueAtTime(0, s.at); gain.gain.linearRampToValueAtTime(s.volume, s.at + Math.min(s.fadeIn, len)); }
+    if (s.fadeOut && s.fadeOut > 0) { const end = s.at + len; gain.gain.setValueAtTime(s.volume, Math.max(s.at, end - s.fadeOut)); gain.gain.linearRampToValueAtTime(0, end); }
     node.connect(gain).connect(ctx.destination);
     node.start(s.at, s.offset, s.loop ? undefined : Math.min(s.dur, total - s.at));
     if (s.loop) node.stop(Math.min(total, s.at + s.dur));
@@ -60,13 +66,129 @@ async function mixAudio(doc: Doc, assets: Map<string, Uint8Array>, total: number
   return any ? ctx.startRendering() : null;
 }
 
+/** A drawing surface for export frames: draws the timeline at a time and reads its pixels. */
+export interface FrameSurface {
+  W: number;
+  H: number;
+  /** RGBA (unpremultiplied sRGB) of the frame at `t` seconds; clip pictures must be set first. */
+  draw(t: number): Uint8Array;
+  dispose(): void;
+}
+
+/** The export's frame drawer: white, scaled to W×H, then render `drawFrameAt` (animations, timing, transitions). */
+export function frameSurface(ed: EditorState, W: number, H: number): FrameSurface {
+  const ck = ed.engine.ck;
+  const surface = ck.MakeSurface(W, H);
+  if (!surface) throw new Error('could not make a drawing surface');
+  const doc = ed.doc;
+  return {
+    W, H,
+    draw(t) {
+      const canvas = surface.getCanvas();
+      canvas.clear(ck.WHITE);
+      canvas.save();
+      canvas.scale(W / doc.width, H / doc.height);
+      drawFrameAt(ed.renderer, canvas, doc, t);
+      canvas.restore();
+      surface.flush();
+      const img = surface.makeImageSnapshot();
+      const px = img.readPixels(0, 0, { width: W, height: H, colorType: ck.ColorType.RGBA_8888, alphaType: ck.AlphaType.Unpremul, colorSpace: ck.ColorSpace.SRGB }) as Uint8Array;
+      img.delete();
+      return px;
+    },
+    dispose: () => surface.delete(),
+  };
+}
+
+/**
+ * Feeds the renderer the clip pictures each frame needs, decoded frame-exactly
+ * (WebCodecs via Mediabunny): the clips of the page showing and, during a
+ * transition, of the page before it. `times` must be visited in order.
+ */
+class ClipFrames {
+  private plans = new Map<string, { el: VideoElement; page: Page; times: number[]; at: Map<number, number>; last: number; it?: AsyncGenerator<unknown>; input?: Input }>();
+  constructor(private ed: EditorState, private times: number[]) {
+    const doc = ed.doc;
+    const need = (page: Page, local: number, i: number) => {
+      for (const el of walk(page.elements)) {
+        if (el.type !== 'video' || el.hidden || !ed.assets.has(el.asset)) continue;
+        const ct = clipTime(el, local, doc.assets[el.asset]?.duration ?? Infinity);
+        const key = `${page.id}/${el.id}`;
+        let p = this.plans.get(key);
+        if (!p) this.plans.set(key, (p = { el, page, times: [], at: new Map(), last: i }));
+        if (ct === null) continue;
+        p.at.set(i, p.times.length);
+        p.times.push(Math.max(0, ct));
+        p.last = i;
+      }
+    };
+    times.forEach((t, i) => {
+      const f = frameAt(doc, t);
+      if (f.prev) need(f.prev.page, f.prev.local, i);
+      need(f.page, f.local, i);
+    });
+  }
+
+  /** Set the clip pictures for frame `i` (index into `times`). */
+  async set(i: number): Promise<void> {
+    const ck = this.ed.engine.ck, r = this.ed.renderer, doc = this.ed.doc;
+    for (const p of this.plans.values()) {
+      const idx = p.at.get(i);
+      if (idx === undefined) {
+        const f = frameAt(doc, this.times[i]!);
+        if (f.page.id === p.page.id || f.prev?.page.id === p.page.id) r.setVideoFrame(p.el.asset, null);
+        continue;
+      }
+      if (!p.it) {
+        p.input = new Input({ source: new BlobSource(new Blob([this.ed.assets.get(p.el.asset)! as BlobPart])), formats: ALL_FORMATS });
+        const track = await p.input.getPrimaryVideoTrack();
+        p.it = track && (await track.canDecode()) ? new VideoSampleSink(track).samplesAtTimestamps(p.times) : (async function* () { for (const _ of p.times) yield null; })();
+      }
+      const next = await p.it.next();
+      const sample = next.done ? null : (next.value as { toVideoFrame(): VideoFrame; close(): void } | null);
+      if (sample) {
+        const vf = sample.toVideoFrame();
+        r.setVideoFrame(p.el.asset, ck.MakeImageFromCanvasImageSource(vf));
+        vf.close();
+        sample.close();
+      } else r.setVideoFrame(p.el.asset, null);
+      if (i === p.last) { await p.it.return?.(undefined); p.input?.dispose?.(); p.input = undefined; }
+    }
+  }
+
+  dispose(): void {
+    for (const p of this.plans.values()) { void p.it?.return?.(undefined); p.input?.dispose?.(); }
+  }
+}
+
+export const exportSize = (doc: Doc, maxSide = 1920) => {
+  const scale = Math.min(1, maxSide / Math.max(doc.width, doc.height));
+  return { W: even(doc.width * scale), H: even(doc.height * scale) };
+};
+
+/**
+ * The export's picture at `t` (what the MP4 holds at that moment), as RGBA.
+ * Tests compare it with the editor's live playback at the same time.
+ */
+export async function exportFrameAt(ed: EditorState, t: number, W: number, H: number): Promise<Uint8Array> {
+  const clips = new ClipFrames(ed, [t]);
+  const fs = frameSurface(ed, W, H);
+  try {
+    await clips.set(0);
+    return fs.draw(t);
+  } finally {
+    clips.dispose();
+    fs.dispose();
+    void ed.player.refresh();
+  }
+}
+
 export async function exportMp4(ed: EditorState, opts: Mp4Options = {}): Promise<Uint8Array> {
   const doc = ed.doc;
   const fps = opts.fps ?? 30;
   const total = totalDuration(doc);
   if (total <= 0) throw new Error('the design has no duration');
-  const scale = Math.min(1, (opts.maxSide ?? 1920) / Math.max(doc.width, doc.height));
-  const W = even(doc.width * scale), H = even(doc.height * scale);
+  const { W, H } = exportSize(doc, opts.maxSide);
 
   const vcodec = await getFirstEncodableVideoCodec(['avc', 'vp9', 'av1', 'vp8'], { width: W, height: H });
   if (!vcodec) throw new Error('this browser cannot encode video (WebCodecs missing)');
@@ -87,69 +209,17 @@ export async function exportMp4(ed: EditorState, opts: Mp4Options = {}): Promise
   }
   await output.start();
 
-  const ck = ed.engine.ck;
-  const surface = ck.MakeSurface(W, H);
-  if (!surface) throw new Error('could not make a drawing surface');
-  const inputs: Input[] = [];
-  const tracks = new Map<string, VideoSampleSink | null>();
-  const sinkFor = async (asset: string) => {
-    if (tracks.has(asset)) return tracks.get(asset)!;
-    const bytes = ed.assets.get(asset);
-    let sink: VideoSampleSink | null = null;
-    if (bytes) {
-      const input = new Input({ source: new BlobSource(new Blob([bytes as BlobPart])), formats: ALL_FORMATS });
-      inputs.push(input);
-      const track = await input.getPrimaryVideoTrack();
-      if (track && (await track.canDecode())) sink = new VideoSampleSink(track);
-    }
-    tracks.set(asset, sink);
-    return sink;
-  };
-
+  const frames = Math.max(1, Math.round(total * fps));
+  const times = Array.from({ length: frames }, (_, i) => i / fps);
+  const clips = new ClipFrames(ed, times);
+  const fs = frameSurface(ed, W, H);
   try {
-    const frames = Math.max(1, Math.round(total * fps));
-    let i = 0;
-    for (const page of doc.pages) {
-      if (page.hidden) continue;
-      const start = pageStart(doc, page.id);
-      const end = start + pageDuration(page);
-      const first = i, last = Math.min(frames, Math.round(end * fps));
-      // one sample iterator per clip on this page, fed the clip times of this page's frames
-      const clips: { el: VideoElement; it: AsyncGenerator<unknown> | null; times: number[] }[] = [];
-      for (const el of walk(page.elements)) {
-        if (el.type !== 'video' || el.hidden) continue;
-        const sink = await sinkFor(el.asset);
-        const fileDur = doc.assets[el.asset]?.duration ?? Infinity;
-        const times: number[] = [];
-        for (let f = first; f < last; f++) times.push(clipTime(el, f / fps - start, fileDur) ?? -1);
-        clips.push({ el, times, it: sink ? sink.samplesAtTimestamps(times.map((t) => Math.max(0, t))) : null });
-      }
-      for (let f = first; f < last; f++, i++) {
-        for (const c of clips) {
-          const t = c.times[f - first]!;
-          const r = c.it ? await c.it.next() : null;
-          const sample = r && !r.done ? (r.value as { toVideoFrame(): VideoFrame; close(): void } | null) : null;
-          if (sample && t >= 0) {
-            const vf = sample.toVideoFrame();
-            ed.renderer.setVideoFrame(c.el.asset, ck.MakeImageFromCanvasImageSource(vf));
-            vf.close();
-          } else ed.renderer.setVideoFrame(c.el.asset, null);
-          sample?.close();
-        }
-        const canvas = surface.getCanvas();
-        canvas.clear(ck.WHITE);
-        canvas.save();
-        canvas.scale(W / doc.width, H / doc.height);
-        ed.renderer.drawPage(canvas, doc, animateAt(doc, page, f / fps - start));
-        canvas.restore();
-        surface.flush();
-        const img = surface.makeImageSnapshot();
-        const px = img.readPixels(0, 0, { width: W, height: H, colorType: ck.ColorType.RGBA_8888, alphaType: ck.AlphaType.Unpremul, colorSpace: ck.ColorSpace.SRGB }) as Uint8Array;
-        img.delete();
-        g.putImageData(new ImageData(new Uint8ClampedArray(px.buffer as ArrayBuffer, px.byteOffset, px.length), W, H), 0, 0);
-        await vsrc.add(i / fps, 1 / fps);
-        opts.onProgress?.(i / frames);
-      }
+    for (let i = 0; i < frames; i++) {
+      await clips.set(i);
+      const px = fs.draw(times[i]!);
+      g.putImageData(new ImageData(new Uint8ClampedArray(px.buffer as ArrayBuffer, px.byteOffset, px.length), W, H), 0, 0);
+      await vsrc.add(times[i]!, 1 / fps);
+      opts.onProgress?.(i / frames);
     }
     vsrc.close();
     if (asrc && mix) {
@@ -163,9 +233,9 @@ export async function exportMp4(ed: EditorState, opts: Mp4Options = {}): Promise
     await output.cancel().catch(() => {});
     throw e;
   } finally {
-    surface.delete();
-    for (const inp of inputs) inp.dispose?.();
+    fs.dispose();
+    clips.dispose();
     // put the preview back
-    void ed.player.seek(ed.player.time);
+    void ed.player.refresh();
   }
 }

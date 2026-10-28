@@ -105,8 +105,8 @@
 
   <main class="m-work">
     <Canvas {ed} bind:zoom />
-    {#if isVideo(ed.doc)}<Timeline {ed} />{/if}
-    <span class="pageno" data-testid="m-page-counter">{ed.pageIndex + 1} / {ed.doc.pages.length}</span>
+    {#if isVideo(ed.doc)}<Timeline {ed} />{:else}
+    <span class="pageno" data-testid="m-page-counter">{ed.pageIndex + 1} / {ed.doc.pages.length}</span>{/if}
     <!-- sheets sit above the toolbar, which stays in reach (Canva mobile) -->
     {#if open}
       <MobileSheet title={title} bind:size onclose={close} testid="m-sheet">
