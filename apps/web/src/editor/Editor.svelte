@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import type { ProjectStore } from '@digital-canvas/storage';
   import { EditorState, LINES } from '../lib/editor.svelte.ts';
   import { textShortcut } from '../lib/shortcuts.ts';
@@ -23,10 +23,13 @@
   import ShortcutsDialog from './ShortcutsDialog.svelte';
   import MobileEditor from './mobile/MobileEditor.svelte';
   import { mobile } from '../lib/mobile.svelte.ts';
+  import { tabs } from '../lib/tabs.svelte.ts';
 
   let { id, store }: { id: string; store: ProjectStore } = $props();
 
-  let ed = $state<EditorState | null>(null);
+  // A design tab keeps its editor in memory while it is in the background (lib/tabs.svelte.ts).
+  const kept = untrack(() => tabs.liveEditor(id, store)); // keyed by id and store in App: they never change
+  let ed = $state<EditorState | null>(kept);
   let error = $state('');
   let zoom = $state(1);
   let canvas = $state<Canvas>();
@@ -36,33 +39,43 @@
   let showVersions = $state(false);
   let showShortcuts = $state(false);
 
+  function adopt(e: EditorState): void {
+    tabs.adopt(id, e);
+    (window as unknown as { __dc?: EditorState }).__dc = e; // for tests and the console
+    e.viewProbe = probeView;
+  }
+
+  // the tab's chrome comes back with it (side panel, …); a fresh tab starts like Canva
+  const snap = untrack(() => tabs.session(id).ui);
+  if (kept && snap) ui.restore(snap);
+  else ui.reset();
+  if (kept) adopt(kept);
+
   onMount(() => {
-    ui.reset();
     let cancelled = false;
-    (async () => {
+    if (!kept) (async () => {
       try {
         const [eng, file] = await Promise.all([engine(), store.open(id)]);
         if (cancelled) return;
         ed = new EditorState(eng, store, file);
-        (window as unknown as { __dc?: EditorState }).__dc = ed; // for tests and the console
-        ed.viewProbe = probeView;
+        adopt(ed);
       } catch (e) {
         error = e instanceof Error ? e.message : String(e);
       }
     })();
-    const beforeUnload = (e: BeforeUnloadEvent) => {
-      if (ed && ed.saveState !== 'saved') {
-        void ed.save();
-        e.preventDefault();
-      }
-    };
-    addEventListener('beforeunload', beforeUnload);
     return () => {
       cancelled = true;
-      removeEventListener('beforeunload', beforeUnload);
       const e = ed;
-      if (e) void e.save().finally(() => e.dispose());
+      if (!e) return;
+      tabs.session(id).ui = ui.snapshot();
+      if (e.editingTextId) e.stopEditing();
+      tabs.release(id, e);
     };
+  });
+
+  // the tab shows the design's title
+  $effect(() => {
+    if (ed) tabs.setTitle(id, ed.doc.title);
   });
 
   /**
@@ -188,7 +201,7 @@
   <div class="center">
     <Icon name="alert" size={28} />
     <p>{error}</p>
-    <button class="btn" onclick={() => router.go({ name: 'home' })}>Back to your designs</button>
+    <button class="btn" onclick={() => { tabs.forget(id); router.go({ name: 'home' }); }}>Back to your designs</button>
   </div>
 {:else if !ed}
   <div class="center"><div class="spinner"></div><p>Loading editor…</p></div>

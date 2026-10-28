@@ -53,6 +53,23 @@ class UI {
     this.styleClip = null;
   }
 
+  /** The chrome a design tab gets back when it is shown again (lib/tabs.svelte.ts). */
+  snapshot(): import('./tabs.svelte.ts').UISnap {
+    return { panel: this.panel, color: this.color, lastRail: this.lastRail, positionTab: this.positionTab, pagesStrip: this.pagesStrip, gridView: this.gridView, notes: this.notes };
+  }
+
+  restore(s: import('./tabs.svelte.ts').UISnap): void {
+    this.reset();
+    // the tab's selection is kept too, so a contextual panel (font, colour…) still applies
+    this.panel = mobile.on ? null : s.panel === 'color' && !s.color ? s.lastRail : s.panel;
+    this.color = s.color;
+    this.lastRail = s.lastRail;
+    this.positionTab = s.positionTab;
+    this.pagesStrip = s.pagesStrip;
+    this.gridView = s.gridView;
+    this.notes = s.notes;
+  }
+
   /** Rail click: open that section, or collapse the panel when it is already open (Canva). */
   rail(t: RailTab): void {
     this.panel = this.panel === t ? null : t;

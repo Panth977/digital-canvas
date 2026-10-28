@@ -87,7 +87,8 @@
   }
 </script>
 
-<div class="m-editor" style="top:{mobile.top}px;height:{mobile.vh}px" data-testid="mobile-editor" class:kb={mobile.keyboard}>
+<!-- --tb-h: an installed desktop app's title bar (Window Controls Overlay) when the window is narrow; 0 elsewhere -->
+<div class="m-editor" style="top:calc({mobile.top}px + var(--tb-h));height:calc({mobile.vh}px - var(--tb-h))" data-testid="mobile-editor" class:kb={mobile.keyboard}>
   <header class="m-top">
     <button class="hb" aria-label="Home" data-testid="home" onclick={() => router.go({ name: 'home' })}><Icon name="left" size={22} /></button>
     <button class="hb" aria-label="Undo" data-testid="undo" disabled={!ed.canUndo} onclick={() => ed.undo()}><Icon name="undo" size={20} /></button>

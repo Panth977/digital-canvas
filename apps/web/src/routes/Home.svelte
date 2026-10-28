@@ -5,6 +5,7 @@
   import { library } from '../lib/library.svelte.ts';
   import { account } from '../lib/account.svelte.ts';
   import { router } from '../lib/router.svelte.ts';
+  import { tabs } from '../lib/tabs.svelte.ts';
   import { objectUrl, pickFiles, timeAgo } from '../lib/files.ts';
   import { toast } from '../lib/toast.svelte.ts';
   import { copyDesign, downloadDesignFile, renameDesign, trashIsUndoable } from '../lib/designs.ts';
@@ -29,6 +30,14 @@
   let busy = $state('');
   let sizesEl = $state<HTMLElement>();
   let customW = $state<HTMLInputElement>();
+
+  // the tab strip's "+" opens "Create a design" (Canva)
+  $effect(() => {
+    if (tabs.createRequested) {
+      tabs.createRequested = false;
+      showCreate = true;
+    }
+  });
 
   const categories = ['All', ...PRESET_CATEGORIES] as const;
   const shown = $derived(searchPresets(query, category));
@@ -128,6 +137,7 @@
       const ok = await toast.ask({ title: `Delete “${p.title}”?`, body: 'It is kept only in this browser or folder, so it will be gone for good.', ok: 'Delete', danger: true });
       if (!ok) return;
     }
+    tabs.forget(p.id); // its tab goes, without saving it back
     await store.remove(p.id);
     projects = projects.filter((x) => x.id !== p.id);
     toast.show(trashIsUndoable(store) ? `“${p.title}” moved to trash` : `“${p.title}” deleted`);
@@ -166,7 +176,11 @@
     if (!keep || !t || t === p.title) return;
     projects = projects.map((x) => (x.id === p.id ? { ...x, title: t } : x));
     try {
-      await renameDesign(library.store, p.id, t);
+      // open in a tab: rename that editor, so its next save keeps the new name
+      const live = tabs.liveEditor(p.id, library.store);
+      if (live) { live.rename(t); await live.save(); }
+      else await renameDesign(library.store, p.id, t);
+      tabs.setTitle(p.id, t);
     } catch (e) {
       toast.show(`Couldn’t rename: ${e instanceof Error ? e.message : e}`);
       await refresh();

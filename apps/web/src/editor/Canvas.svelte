@@ -20,6 +20,7 @@
   import { textShortcut } from '../lib/shortcuts.ts';
   import { flatten, getSelectionOffsets, needsRebuild, renderRich, setSelectionOffsets } from '../lib/richtext.ts';
   import { mobile } from '../lib/mobile.svelte.ts';
+  import { tabs } from '../lib/tabs.svelte.ts';
 
   let { ed, zoom = $bindable(view.zoom) }: { ed: EditorState; zoom?: number } = $props();
 
@@ -469,7 +470,16 @@
       vw = r.width;
       vh = r.height;
       makeSurface();
-      if (!fitted && vw > 0 && vh > 0) {
+      const kept = tabs.session(ed.doc.id).view;
+      if (!fitted && vw > 0 && vh > 0 && kept) {
+        // back to a design tab: its zoom and scroll, the middle of the view kept in the middle
+        fitted = true;
+        zoom = kept.zoom;
+        panX = kept.panX + (vw - kept.vw) / 2;
+        panY = kept.panY + (vh - kept.vh) / 2;
+        view.mode = kept.mode;
+        clampPan();
+      } else if (!fitted && vw > 0 && vh > 0) {
         fitted = true;
         fit('fit');
       } else if (fitted && view.mode && !ed.editingTextId) {
@@ -486,6 +496,7 @@
     });
     ro.observe(host);
     return () => {
+      if (fitted && tabs.isOpen(ed.doc.id)) tabs.session(ed.doc.id).view = { zoom, panX, panY, mode: view.mode, vw, vh };
       scheme.removeEventListener('change', onScheme);
       ro.disconnect();
       view.port = null;

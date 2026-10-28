@@ -9,6 +9,7 @@
     { title: 'Text', keys: [['Bold', '⌘B'], ['Italic', '⌘I'], ['Underline', '⌘U'], ['Add a text box', 'T'], ['Edit selected text', 'Enter']] },
     { title: 'Elements', keys: [['Rectangle', 'R'], ['Circle', 'C'], ['Line', 'L'], ['Group', '⌘G'], ['Ungroup', '⇧⌘G'], ['Forward / to front', '⌘] / ⌥⌘]'], ['Backward / to back', '⌘[ / ⌥⌘['], ['Nudge', 'Arrows (⇧ for 10 px)'], ['Next element', 'Tab']] },
     { title: 'View', keys: [['Zoom in / out', '⌘+ / ⌘−'], ['Fit to screen', '⌘0'], ['Rulers and guides', '⇧R'], ['New page', '⌘Enter'], ['Keyboard shortcuts', '?']] },
+    { title: 'Tabs', keys: [['New design', '⌘T'], ['Close tab', '⌘W'], ['Next / previous tab', '⌃Tab / ⌃⇧Tab'], ['Go to tab 1–8 / last', '⌘1–8 / ⌘9']] },
   ];
 </script>
 

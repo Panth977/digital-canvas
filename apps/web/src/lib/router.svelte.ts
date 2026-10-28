@@ -15,6 +15,7 @@ class Router {
 
   go(to: Route): void {
     location.hash = to.name === 'editor' ? `#/d/${to.id}` : '#/';
+    this.route = parse(location.hash); // now, not at hashchange: quick key presses (Ctrl+Tab Ctrl+Tab) build on it
   }
 }
 
