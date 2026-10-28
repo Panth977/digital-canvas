@@ -137,7 +137,9 @@ export function shownAt(e: Element, t: number): boolean {
   return t >= (w.start ?? 0) && (w.end === undefined || t < w.end);
 }
 
-const timed = (page: Page) => page.elements.some((e) => !!e.timing);
+const anyIn = (els: Element[], f: (e: Element) => boolean): boolean =>
+  els.some((e) => f(e) || (e.type === 'group' && anyIn(e.children, f)));
+const timed = (page: Page) => anyIn(page.elements, (e) => !!e.timing);
 
 /**
  * The page `t` seconds after it starts. Elements with their own animation
@@ -146,19 +148,30 @@ const timed = (page: Page) => page.elements.some((e) => !!e.timing);
  * left out. After every animation ends the input elements come back unchanged (same objects).
  */
 export function animateAt(doc: Doc, page: Page, t: number): Page {
-  if (!hasAnimation(page) && !timed(page)) return page;
+  if (!hasAnimation(page) && !anyIn(page.elements, (e) => !!e.animation) && !timed(page)) return page;
   let changed = false;
-  const elements: Element[] = [];
-  page.elements.forEach((e, i) => {
-    if (!shownAt(e, t)) { changed = true; return; }
-    const a = e.animation ?? page.animation;
-    if (!a) { elements.push(e); return; }
-    const delay = (e.timing?.start ?? 0) + (e.animation ? 0 : i * PAGE_STAGGER);
-    const p = clamp01((t - delay) / animationDuration(a));
-    if (p >= 1) { elements.push(e); return; }
-    changed = true;
-    elements.push(animateElement(doc, e, a, p));
-  });
+  // Elements inside a group keep their own animation and timing (Canva animates them one by one);
+  // a group with its own animation moves as one.
+  const list = (els: Element[], order: (i: number) => number): Element[] => {
+    const out: Element[] = [];
+    els.forEach((e, i) => {
+      if (!shownAt(e, t)) { changed = true; return; }
+      if (e.type === 'group' && !e.animation) {
+        const children = list(e.children, () => order(i));
+        out.push(children === e.children ? e : { ...e, children });
+        return;
+      }
+      const a = e.animation ?? page.animation;
+      if (!a) { out.push(e); return; }
+      const delay = (e.timing?.start ?? 0) + (e.animation ? 0 : order(i) * PAGE_STAGGER);
+      const p = clamp01((t - delay) / animationDuration(a));
+      if (p >= 1) { out.push(e); return; }
+      changed = true;
+      out.push(animateElement(doc, e, a, p));
+    });
+    return out.length === els.length && out.every((e, k) => e === els[k]) ? els : out;
+  };
+  const elements = list(page.elements, (i) => i);
   return changed ? { ...page, elements } : page;
 }
 

@@ -31,6 +31,8 @@ fi
 $PY tools/canva-emoji.py $d/out3.dcanvas > $d/emoji.log 2>&1 || true
 # video clips: where each starts (Canva doesn't report trims)
 $PY tools/canva-videotrim.py $d/out3.dcanvas $d/hi < /dev/null > $d/videotrim.log 2>&1 || true
+# video designs: scene durations and entrance animations from Canva's own MP4 ($d/mp4/canva.mp4)
+[ -f $d/mp4/canva.mp4 ] && $PY tools/canva-timing.py $d/out3.dcanvas $d/hi $d/mp4/canva.mp4 --write < /dev/null > $d/timing.log 2>&1 || true
 npx tsx tools/canva-align.ts $d/out3.dcanvas $d/hi > $d/align3.log 2>&1 || true
 npx tsx tools/canva-align.ts $d/out3.dcanvas $d/hi 0.15 >> $d/align3.log 2>&1 || true
 DIFF_OURS=1 npx tsx tools/diff.ts $d/out3.dcanvas $d/hi $d/diff3 > $d/diff3.log 2>&1
