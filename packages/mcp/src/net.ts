@@ -3,8 +3,14 @@
  * no private network addresses, so `import_from_url` can't be used to reach
  * the cloud metadata server or anything else inside the network.
  */
-import { lookup } from 'node:dns/promises';
-import { isIP } from 'node:net';
+import { platform } from './platform.ts';
+
+/** 4, 6 or 0 (not an IP literal). */
+function isIP(s: string): 4 | 6 | 0 {
+  if (/^(\d{1,3})(\.\d{1,3}){3}$/.test(s) && s.split('.').every((n) => Number(n) <= 255)) return 4;
+  if (s.includes(':') && /^[0-9a-f:.]+$/i.test(s)) return 6;
+  return 0;
+}
 
 export const MAX_DOWNLOAD = 300 * 1024 * 1024;
 
@@ -27,8 +33,10 @@ export async function checkUrl(url: string, allowPrivate: boolean): Promise<URL>
   if (allowPrivate) return u;
   const host = u.hostname.replace(/^\[|\]$/g, '');
   if (host === 'localhost' || host.endsWith('.internal') || host.endsWith('.local')) throw new Error('that host is not reachable from here');
-  const addrs = isIP(host) ? [{ address: host }] : await lookup(host, { all: true }).catch(() => { throw new Error(`cannot resolve ${host}`); });
-  if (addrs.some((a) => privateIp(a.address))) throw new Error('that host is not reachable from here');
+  const lookup = platform().lookup;
+  // Without a DNS API (browsers) only literal addresses are checked: the request then comes from the user's own device anyway.
+  const addrs = isIP(host) ? [host] : lookup ? await lookup(host).catch(() => { throw new Error(`cannot resolve ${host}`); }) : [];
+  if (addrs.some((a) => privateIp(a))) throw new Error('that host is not reachable from here');
   return u;
 }
 

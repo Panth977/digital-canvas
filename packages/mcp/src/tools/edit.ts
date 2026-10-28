@@ -340,7 +340,7 @@ export function registerEditTools(server: McpServer, ctx: Context): void {
   }, safe(async ({ design_id, template_id, mode, page, replace_text }) => {
     const warnings: string[] = [];
     let tpl: Doc;
-    try { tpl = loadTemplate(template_id); } catch { throw new ToolError(`no template "${template_id}"`, 'call list_templates for ids'); }
+    try { tpl = await loadTemplate(template_id); } catch { throw new ToolError(`no template "${template_id}"`, 'call list_templates for ids'); }
     const r = await ctx.edit(design_id, async (file) => {
       const { page: target, index } = pageOf(file.doc, page);
       const how = mode ?? (target.elements.length ? 'add' : 'replace');

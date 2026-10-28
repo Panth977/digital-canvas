@@ -10,7 +10,7 @@ import { embedFonts } from './fonts.ts';
 import { probe, type MediaInfo } from './media.ts';
 import { download } from './net.ts';
 import type { JobRunner } from './jobs.ts';
-import { FolderWorkspace, type AssetInfo, type Workspace } from './workspace.ts';
+import type { AssetInfo, Workspace } from './workspace.ts';
 
 export const DEFAULT_EDITOR_URL = 'https://digital-canvas-p977.web.app';
 
@@ -110,8 +110,7 @@ export class Context {
     const extra = { ...(info.width ? { width: info.width, height: info.height } : {}), ...(info.duration ? { duration: round(info.duration, 2) } : {}) };
     let asset: AssetInfo;
     if (got.id) asset = { id: got.id, mime: info.mime, ...(got.name ? { name: got.name } : {}) };
-    else if (this.ws instanceof FolderWorkspace) asset = await this.ws.putAsset(got.bytes, info.mime, got.name, extra);
-    else asset = await this.ws.putAsset(got.bytes, info.mime, got.name);
+    else asset = await this.ws.putAsset(got.bytes, info.mime, got.name, extra);
     return { ...asset, ...extra, kind: info.kind };
   }
 

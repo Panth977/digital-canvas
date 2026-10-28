@@ -1,16 +1,14 @@
 /**
- * CanvasKit in Node: loaded once per process, with one font library that
- * collects every face a design embeds. Each render gets its own Renderer
- * (decoded images are freed afterwards), so a long-lived server stays small.
+ * CanvasKit (from the platform: Node or browser): loaded once per process, with
+ * one font library that collects every face a design embeds. Each render gets
+ * its own Renderer (decoded images are freed afterwards), so a long-lived
+ * server stays small.
  */
-import { readFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
-import { join } from 'node:path';
 import type { CanvasKit } from 'canvaskit-wasm';
 import { FontLibrary, Renderer } from '@digital-canvas/render';
 import { posterOf, walk, type Doc, type Page } from '@digital-canvas/scene';
 import type { ProjectFile } from '@digital-canvas/storage';
-import { canvasKitWasm, fontsDir } from './paths.ts';
+import { platform } from './platform.ts';
 
 export interface Engine {
   ck: CanvasKit;
@@ -21,16 +19,10 @@ let loading: Promise<Engine> | null = null;
 
 export function engine(): Promise<Engine> {
   loading ??= (async () => {
-    const require = createRequire(import.meta.url);
-    const init = require('canvaskit-wasm/bin/full/canvaskit.js') as (opts?: { locateFile?: (f: string) => string }) => Promise<CanvasKit>;
-    const wasm = canvasKitWasm();
-    const ck = await init(wasm ? { locateFile: () => wasm } : undefined);
+    const p = platform();
+    const ck = await p.canvasKit();
     const fonts = new FontLibrary(ck);
-    const dir = fontsDir();
-    await fonts.loadBundled('bundled:', async (u) => {
-      const b = readFileSync(join(dir, u.slice('bundled:'.length)));
-      return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
-    });
+    await p.loadBundledFonts(fonts);
     return { ck, fonts };
   })();
   loading.catch(() => (loading = null));

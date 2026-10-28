@@ -48,7 +48,7 @@ export function createServer(ws: Workspace, opts: ServerOptions = {}): McpServer
     list: async () => ({ resources: templates().map((t) => ({ uri: `dcanvas://template/${t.id}`, name: t.title, description: `${t.category} · ${t.width}×${t.height}`, mimeType: 'application/json' })) }),
   }), { title: 'Template outline', description: 'A template\'s pages and elements (ids, texts, boxes) — use the ids in apply_template replace_text.', mimeType: 'application/json' },
   async (uri, { id }) => {
-    const doc = loadTemplate(String(id));
+    const doc = await loadTemplate(String(id));
     return { contents: [{ uri: uri.href, mimeType: 'application/json', text: JSON.stringify({ ...designOutline(doc), preview: templateThumb(String(id), ctx.editorUrl) }) }] };
   });
 

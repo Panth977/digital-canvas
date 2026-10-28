@@ -18,6 +18,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import '../node/index.ts';
 import { createServer } from '../server.ts';
 import type { JobRunner } from '../jobs.ts';
 import { DriveWorkspace, type Workspace } from '../workspace.ts';

@@ -51,4 +51,9 @@ export function pageOf(doc: Doc, ref: string | number | undefined): { page: Page
   return hit;
 }
 
-export const b64 = (bytes: Uint8Array) => Buffer.from(bytes).toString('base64');
+/** Base64 of bytes (Node and browsers). */
+export function b64(bytes: Uint8Array): string {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}

@@ -17,7 +17,7 @@ import { createRemoteHandler } from '../src/remote/http.ts';
 import { decrypt, REFRESH_RETRY_GRACE_MS } from '../src/remote/oauth.ts';
 import { MemoryOAuthStore } from '../src/remote/store.ts';
 import { loadLogin, login, saveLogin, serverTokenSource, loginFile } from '../src/remote/client.ts';
-import { FolderWorkspace } from '../src/workspace.ts';
+import { FolderWorkspace } from '../src/node/index.ts';
 
 const CLIENT_ID = 'test-google-client.apps.googleusercontent.com';
 const TOKEN_KEY = randomBytes(32).toString('base64');

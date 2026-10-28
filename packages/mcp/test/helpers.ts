@@ -6,7 +6,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createServer } from '../src/server.ts';
 import { engine } from '../src/engine.ts';
-import { FolderWorkspace } from '../src/workspace.ts';
+import { FolderWorkspace } from '../src/node/index.ts';
 import type { ServerOptions } from '../src/context.ts';
 
 process.env.DC_OFFLINE = '1';

@@ -17,10 +17,10 @@ import { createServer as httpServer } from 'node:http';
 import { resolve } from 'node:path';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { FolderWorkspace, ffmpeg } from './node/index.ts';
 import { createServer, VERSION } from './server.ts';
-import { DriveWorkspace, FolderWorkspace, type Workspace } from './workspace.ts';
+import { DriveWorkspace, type Workspace } from './workspace.ts';
 import { DEFAULT_SERVER, clearLogin, loadLogin, login, loginFile, serverTokenSource } from './remote/client.ts';
-import { ffmpeg } from './media.ts';
 
 const log = (...a: unknown[]) => console.error('[digital-canvas]', ...a);
 

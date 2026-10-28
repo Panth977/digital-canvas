@@ -7,7 +7,7 @@ import type { ProjectFile } from '@digital-canvas/storage';
 import { ToolError, round, type Context } from '../context.ts';
 import { withRenderer } from '../engine.ts';
 import { LocalJobs, waitFor, type JobSpec, type JobStatus } from '../jobs.ts';
-import { ffmpeg } from '../media.ts';
+import { platform } from '../platform.ts';
 import { pageRef } from '../schemas.ts';
 import { exportGif, exportMp4 } from '../video.ts';
 import type { ExportResult, Workspace } from '../workspace.ts';
@@ -95,7 +95,8 @@ export function registerExportTools(server: McpServer, ctx: Context): void {
   }, safe(async ({ design_id, fps, max_side, wait_seconds, name }, extra) => {
     const file: ProjectFile = await ctx.open(design_id);
     const total = totalDuration(file.doc);
-    if (!ctx.remote && !ffmpeg()) throw new ToolError('video export needs ffmpeg on this machine', 'install ffmpeg (macOS: brew install ffmpeg; Debian/Ubuntu: apt install ffmpeg) or run `npm i -g ffmpeg-static`, or set DC_FFMPEG=/path/to/ffmpeg — or export_gif instead');
+    const why = ctx.opts.jobs ? null : platform().videoProblem();
+    if (why) throw new ToolError(why, 'export_gif works everywhere');
     if (total > 600) throw new ToolError(`the video is ${round(total)}s; exports are limited to 10 minutes`);
     const report = progress(extra);
     const spec: JobSpec = { kind: 'video', designId: design_id, ...(fps ? { fps } : {}), ...(max_side ? { maxSide: max_side } : {}), ...(name ? { name } : {}) };

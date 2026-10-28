@@ -2,14 +2,12 @@
  * Built-in content for agents: size presets, the template library, and
  * applying a brand kit to a design.
  */
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import {
   PRESETS, cloneElement, newId, parseDoc, resizeDoc, searchPresets, walk, type Doc, type Element, type Page, type Preset, type TextElement,
 } from '@digital-canvas/scene';
 import { brandColors, type BrandData } from '@digital-canvas/storage';
 import { recolorDoc, colorsOfElement } from '../../../apps/web/src/lib/recolor.ts';
-import { templatesDir } from './paths.ts';
+import { platform, type TemplateEntry } from './platform.ts';
 import { assetId } from '@digital-canvas/storage';
 import type { ProjectFile } from '@digital-canvas/storage';
 
@@ -32,22 +30,10 @@ export const POPULAR_PRESETS = ['instagram-post', 'instagram-portrait', 'instagr
 
 // ---------------------------------------------------------------- templates
 
-export interface TemplateEntry {
-  id: string;
-  title: string;
-  category: string;
-  tags: string;
-  width: number;
-  height: number;
-  pages: number;
-  fonts: string[];
-  video?: boolean;
-}
+export type { TemplateEntry };
 
-let index: TemplateEntry[] | null = null;
 export function templates(): TemplateEntry[] {
-  index ??= JSON.parse(readFileSync(join(templatesDir(), 'index.json'), 'utf8')) as TemplateEntry[];
-  return index;
+  return platform().templateIndex();
 }
 
 export function searchTemplates(query = '', category?: string, size?: { width: number; height: number }): TemplateEntry[] {
@@ -61,9 +47,9 @@ export function searchTemplates(query = '', category?: string, size?: { width: n
   return list;
 }
 
-export function loadTemplate(id: string): Doc {
+export async function loadTemplate(id: string): Promise<Doc> {
   if (!/^[\w-]+$/.test(id) || !templates().some((t) => t.id === id)) throw new Error(`no template "${id}"`);
-  return parseDoc(JSON.parse(readFileSync(join(templatesDir(), `${id}.json`), 'utf8')));
+  return parseDoc(structuredClone(await platform().templateDoc(id)));
 }
 
 export const templateThumb = (id: string, base: string) => `${base}/templates/${id}.png`;

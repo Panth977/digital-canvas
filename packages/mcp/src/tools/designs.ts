@@ -72,7 +72,7 @@ export function registerDesignTools(server: McpServer, ctx: Context): void {
     let size: ReturnType<typeof sizeFrom> | null = null;
     let tpl: Doc | null = null;
     if (a.template) {
-      try { tpl = loadTemplate(a.template); } catch { throw new ToolError(`no template "${a.template}"`, 'call list_templates for ids'); }
+      try { tpl = await loadTemplate(a.template); } catch { throw new ToolError(`no template "${a.template}"`, 'call list_templates for ids'); }
     }
     if (a.preset || (a.width && a.height)) size = sizeFrom(a);
     else if (!tpl) size = sizeFrom(a);

@@ -5,6 +5,7 @@
  */
 import { walk, type Doc, type EmbeddedFont, type Page } from '@digital-canvas/scene';
 import { assetId, type ProjectFile } from '@digital-canvas/storage';
+import { platform } from './platform.ts';
 
 const API = 'https://api.fontsource.org/v1/fonts';
 
@@ -25,7 +26,7 @@ export function catalog(): Promise<CatalogFont[]> {
   if (catalogLoad && Date.now() - catalogAt < 86400e3) return catalogLoad;
   catalogAt = Date.now();
   catalogLoad = (async () => {
-    if (process.env.DC_OFFLINE) throw new Error('offline (DC_OFFLINE)');
+    if (platform().offline) throw new Error('offline (DC_OFFLINE)');
     const r = await fetch(API, { signal: AbortSignal.timeout(15000) });
     if (!r.ok) throw new Error(`font list: HTTP ${r.status}`);
     const raw = (await r.json()) as CatalogFont[];

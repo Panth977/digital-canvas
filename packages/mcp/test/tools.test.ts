@@ -7,7 +7,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { emptyBrand } from '@digital-canvas/storage';
-import { ffmpeg } from '../src/media.ts';
+import { ffmpeg } from '../src/node/index.ts';
 import { chunkTranscript } from '../src/tools/video.ts';
 import { clipWebm, harness, isPng, samplePng, toneMp3, type Harness } from './helpers.ts';
 
