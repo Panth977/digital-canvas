@@ -142,6 +142,44 @@ describe('OAuth 2.1 with Google sign-in', () => {
     await registerClient('loopback', 'http://127.0.0.1:9999/callback');
   });
 
+  it('DCR takes what generic clients send (VS Code, Gemini CLI, ChatGPT, Cursor): extra grants, other auth methods, custom schemes', async () => {
+    const reg = async (body: object) => req('/oauth/register', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const vsc = await reg({ client_name: 'Visual Studio Code', redirect_uris: ['http://127.0.0.1:33418/', 'https://vscode.dev/redirect'], grant_types: ['authorization_code', 'refresh_token', 'urn:ietf:params:oauth:grant-type:device_code'], token_endpoint_auth_method: 'none' });
+    expect(vsc.status).toBe(201);
+    expect(await vsc.json()).toMatchObject({ grant_types: ['authorization_code', 'refresh_token'], token_endpoint_auth_method: 'none' });
+    const jwt = await reg({ client_name: 'Some agent', redirect_uris: ['https://chatgpt.com/connector_platform_oauth_redirect'], token_endpoint_auth_method: 'private_key_jwt' });
+    expect(await jwt.json()).toMatchObject({ token_endpoint_auth_method: 'none' });
+    const secret = await reg({ client_name: 'Confidential', redirect_uris: ['cursor://anysphere.cursor-retrieval/oauth/user-dc/callback'], token_endpoint_auth_method: 'client_secret_basic' });
+    expect(await secret.json()).toMatchObject({ client_secret: expect.stringMatching(/^dcs_/) });
+    const noCode = await reg({ redirect_uris: ['https://x.example/cb'], grant_types: ['client_credentials'] });
+    expect(noCode.status).toBe(400);
+  });
+
+  it('loopback redirect URIs may use another port (RFC 8252); resource must name this server (RFC 8707)', async () => {
+    const cid = await registerClient('Gemini CLI', 'http://localhost:7777/oauth/callback');
+    const { verifier, challenge } = pkce();
+    const ru = 'http://localhost:54321/oauth/callback';
+    const resource = `${base}/mcp`;
+    const wrongPath = await req(`/oauth/authorize?${new URLSearchParams({ client_id: cid, redirect_uri: 'http://localhost:54321/other', response_type: 'code', code_challenge: challenge })}`);
+    expect(wrongPath.status).toBe(400);
+    const wrongRes = await req(`/oauth/authorize?${new URLSearchParams({ client_id: cid, redirect_uri: ru, response_type: 'code', code_challenge: challenge, resource: 'https://other.example/mcp' })}`);
+    expect(wrongRes.status).toBe(302);
+    expect(new URL(wrongRes.headers.get('location')!).searchParams.get('error')).toBe('invalid_target');
+    const a = await consentAt(`/oauth/authorize?${new URLSearchParams({ client_id: cid, redirect_uri: ru, response_type: 'code', code_challenge: challenge, code_challenge_method: 'S256', state: 's', resource })}`);
+    const g = new URL(a.headers.get('location')!);
+    const cb = await req(`/oauth/google/callback?${new URLSearchParams({ code: 'google-code', state: g.searchParams.get('state')! })}`);
+    const back = new URL(cb.headers.get('location')!);
+    expect(back.origin + back.pathname).toBe('http://localhost:54321/oauth/callback');
+    expect(back.searchParams.get('iss')).toBe(base);
+    const code = back.searchParams.get('code')!;
+    const bad = await req('/oauth/token', form({ grant_type: 'authorization_code', code, client_id: cid, redirect_uri: ru, code_verifier: verifier, resource: 'https://other.example/' }));
+    expect(await bad.json()).toMatchObject({ error: 'invalid_target' });
+    // invalid_target is checked before the code is spent
+    const t = await req('/oauth/token', form({ grant_type: 'authorization_code', code, client_id: cid, redirect_uri: ru, code_verifier: verifier, resource: `${resource}/` }));
+    expect(t.status).toBe(200);
+    expect(((await t.json()) as { access_token: string }).access_token).toMatch(/^dca_/);
+  });
+
   it('authorize validates, then sends the browser to Google with the right request', async () => {
     const cid = await registerClient();
     const { challenge } = pkce();

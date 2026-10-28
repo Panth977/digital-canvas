@@ -24,7 +24,7 @@ import type { JobRunner } from '../jobs.ts';
 import { DriveWorkspace, type Workspace } from '../workspace.ts';
 import {
   AuthorizePageError, GOOGLE_AUTH, GOOGLE_SCOPES, GOOGLE_TOKEN, OAuthError, SCOPES, TTL, approve, authenticateClient, base62,
-  checkAuthorizeRequest, decrypt, encrypt, exchangeCode, idClaims, isAllowedRedirectUri, loadClient, redirectWith, refresh, registerClient, revokeToken, verifyAccess,
+  checkAuthorizeRequest, checkResource, decrypt, encrypt, exchangeCode, idClaims, isAllowedRedirectUri, loadClient, redirectMatches, redirectWith, refresh, registerClient, revokeToken, verifyAccess,
 } from './oauth.ts';
 import type { OAuthStore } from './store.ts';
 import { Relay } from '../bridge/relay.ts';
@@ -86,7 +86,7 @@ const page = (title: string, msg: string) => `<!doctype html><meta charset="utf-
 
 /** "<app> wants to use Digital Canvas" — shown before Google sign-in. */
 function consentPage(client: string, host: string, pending: string, nonce: string): string {
-  const known = /(^|\.)(claude\.ai|anthropic\.com)$/.test(host) || /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(host);
+  const known = /(^|\.)(claude\.ai|anthropic\.com|chatgpt\.com|openai\.com|vscode\.dev|cursor\.com|cursor\.sh|github\.com|openrouter\.ai)$/.test(host) || /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(host);
   return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Connect ${esc(client)} to Digital Canvas</title>
 <body style="font:16px/1.5 system-ui;max-width:520px;margin:10vh auto;padding:0 20px;color:#1f2328">
 <h1 style="font-size:22px">Connect <b>${esc(client)}</b> to Digital Canvas?</h1>
@@ -207,6 +207,8 @@ export function createRemoteHandler(opts: RemoteOptions): (req: IncomingMessage,
     response_modes_supported: ['query'],
     grant_types_supported: ['authorization_code', 'refresh_token'],
     code_challenge_methods_supported: ['S256'],
+    authorization_response_iss_parameter_supported: true,
+    service_documentation: 'https://digital-canvas-p977.web.app/connect-ai.html',
     token_endpoint_auth_methods_supported: ['none', 'client_secret_post', 'client_secret_basic'],
     revocation_endpoint_auth_methods_supported: ['none', 'client_secret_post', 'client_secret_basic'],
   });
@@ -224,10 +226,13 @@ export function createRemoteHandler(opts: RemoteOptions): (req: IncomingMessage,
       if (!Array.isArray(uris) || !uris.length || uris.length > 10 || uris.some((u) => typeof u !== 'string' || u.length > 2000)) throw new OAuthError('invalid_client_metadata', 'redirect_uris: 1 to 10 URLs are required');
       const bad = (uris as string[]).filter((u) => !isAllowedRedirectUri(u));
       if (bad.length) throw new OAuthError('invalid_redirect_uri', `Not an allowed redirect URI: ${bad.join(', ')}`);
+      // RFC 7591 §3.2.1: the server may replace metadata it doesn't support. Clients that list
+      // extra grants (client_credentials, device_code…) still get the two we do; it must include
+      // authorization_code. An unsupported auth method (private_key_jwt…) becomes a public client with PKCE.
       const grants = raw.grant_types;
-      if (Array.isArray(grants) && grants.some((x) => !['authorization_code', 'refresh_token'].includes(String(x)))) throw new OAuthError('invalid_client_metadata', 'Only authorization_code and refresh_token grants are supported');
-      const method = typeof raw.token_endpoint_auth_method === 'string' ? raw.token_endpoint_auth_method : 'none';
-      if (!['none', 'client_secret_post', 'client_secret_basic'].includes(method)) throw new OAuthError('invalid_client_metadata', 'Unsupported token_endpoint_auth_method');
+      if (Array.isArray(grants) && grants.length && !grants.map(String).includes('authorization_code')) throw new OAuthError('invalid_client_metadata', 'grant_types must include authorization_code');
+      const asked = typeof raw.token_endpoint_auth_method === 'string' ? raw.token_endpoint_auth_method : 'none';
+      const method = ['none', 'client_secret_post', 'client_secret_basic'].includes(asked) ? asked : 'none';
       const name = (typeof raw.client_name === 'string' && raw.client_name.trim().slice(0, 120)) || new URL(uris[0] as string).host || 'Unnamed app';
       const logo = typeof raw.logo_uri === 'string' && raw.logo_uri.startsWith('https://') ? raw.logo_uri : undefined;
       const { clientId, clientSecret } = await registerClient(store, { name, redirectUris: uris as string[], confidential: method !== 'none', ...(logo ? { logoUri: logo } : {}) }, now());
@@ -242,13 +247,13 @@ export function createRemoteHandler(opts: RemoteOptions): (req: IncomingMessage,
       const q = Object.fromEntries(url.searchParams);
       let checked;
       try {
-        checked = await checkAuthorizeRequest(store, q);
+        checked = await checkAuthorizeRequest(store, q, base);
       } catch (e) {
         if (e instanceof AuthorizePageError) { send(res, 400, page('Cannot connect this app', e.message)); return true; }
         if (e instanceof OAuthError) {
           const client = await store.getClient(q.client_id ?? '');
           const ru = q.redirect_uri ?? (client?.redirectUris.length === 1 ? client.redirectUris[0] : undefined);
-          if (client && ru && client.redirectUris.includes(ru)) { redirect(res, redirectWith(ru, { error: e.error, error_description: e.description, state: q.state, iss: base })); return true; }
+          if (client && ru && redirectMatches(client.redirectUris, ru)) { redirect(res, redirectWith(ru, { error: e.error, error_description: e.description, state: q.state, iss: base })); return true; }
           send(res, 400, page('Cannot connect this app', e.description));
           return true;
         }
@@ -329,6 +334,7 @@ export function createRemoteHandler(opts: RemoteOptions): (req: IncomingMessage,
       const client = await loadClient(store, clientId);
       authenticateClient(client, secret);
       let pair;
+      checkResource(p.resource, base);
       if (p.grant_type === 'authorization_code') {
         if (!p.code) throw new OAuthError('invalid_request', 'code is required');
         pair = await exchangeCode(store, { code: p.code, clientId: client.id, redirectUri: p.redirect_uri ?? null, verifier: p.code_verifier ?? null, now: now() });
