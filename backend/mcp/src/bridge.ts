@@ -94,7 +94,8 @@ export class FirestoreBridgeStore implements BridgeStore {
   async deleteJob(uid: string, id: string): Promise<void> {
     if (!safeId(id)) return;
     const ref = this.jobs(uid).doc(id);
-    const n = this.partsOf.get(`${uid}/${id}`) ?? 0;
+    // known from watching the job; else (rare: nobody watched it) ask the job itself
+    const n = this.partsOf.get(`${uid}/${id}`) ?? Number((await ref.get()).data()?.parts ?? 0);
     this.partsOf.delete(`${uid}/${id}`);
     const batch = this.db.batch();
     for (let i = 0; i < n; i++) batch.delete(ref.collection('parts').doc(String(i)));
