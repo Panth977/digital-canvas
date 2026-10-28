@@ -48,7 +48,8 @@ const getHandler = () => (handler ??= createRemoteHandler({
 }));
 
 export const mcp = onRequest(
-  { region: REGION, memory: '2GiB', cpu: 1, timeoutSeconds: 540, minInstances: 0, maxInstances: 10, concurrency: 4, secrets: SECRETS, invoker: 'public' },
+  // concurrency 16: in device mode a request mostly waits on the user's device (I/O); cloud rendering is allowlisted users only.
+  { region: REGION, memory: '2GiB', cpu: 1, timeoutSeconds: 540, minInstances: 0, maxInstances: 10, concurrency: 16, secrets: SECRETS, invoker: 'public' },
   (req, res) => getHandler()(req, res),
 );
 

@@ -119,9 +119,9 @@ export class DriveWorkspace implements Workspace {
   private browser: DriveBrowser;
   private scopes: Promise<string[]> | null = null;
 
-  /** `scope`: the space-separated scopes the token carries, when known (else asked from Google). */
-  constructor(private token: TokenSource, scope?: string) {
-    this.store = new DriveStore(token, 'Digital Canvas', sharedCache);
+  /** `scope`: the space-separated scopes the token carries, when known (else asked from Google). `cache`: asset bytes kept across calls (default 256 MB, shared). */
+  constructor(private token: TokenSource, scope?: string, cache: AssetCache = sharedCache) {
+    this.store = new DriveStore(token, 'Digital Canvas', cache);
     this.browser = new DriveBrowser(token);
     if (scope) this.scopes = Promise.resolve(scope.split(/\s+/));
   }

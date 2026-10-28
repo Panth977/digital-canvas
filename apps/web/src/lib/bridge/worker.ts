@@ -10,7 +10,7 @@
  */
 import CanvasKitInit from 'canvaskit-wasm/bin/full/canvaskit.js';
 import wasmUrl from 'canvaskit-wasm/bin/full/canvaskit.wasm?url';
-import { DEFAULT_EDITOR_URL, DriveWorkspace, HEARTBEAT_MS, ToolHost, browserPlatform, setPlatform, type TemplateEntry } from '@digital-canvas/mcp/browser';
+import { DEFAULT_EDITOR_URL, DriveWorkspace, HEARTBEAT_MS, MemoryAssetCache, ToolHost, browserPlatform, setPlatform, type TemplateEntry } from '@digital-canvas/mcp/browser';
 import INDEX from '../../templates/index.json';
 
 declare const self: DedicatedWorkerGlobalScope;
@@ -44,7 +44,10 @@ function token(force?: boolean): Promise<string> {
 let host: ToolHost | null = null;
 // Links the agent hands out (open_in_editor) point at the hosted app, also from the native shells.
 const editorUrl = import.meta.env.DEV ? self.location.origin : DEFAULT_EDITOR_URL;
-const hostFor = () => (host ??= new ToolHost(new DriveWorkspace(token), { editorUrl }));
+// 'remote': URL imports may not reach private network addresses (an agent can't make this device poke the LAN).
+// Dev builds allow them (the e2e test serves its media from 127.0.0.1).
+// A smaller asset cache than the server's: this may be a phone.
+const hostFor = () => (host ??= new ToolHost(new DriveWorkspace(token, undefined, new MemoryAssetCache(96 * 1024 * 1024)), { editorUrl, mode: import.meta.env.DEV ? 'local' : 'remote' }));
 
 self.onmessage = async (e: MessageEvent) => {
   const m = e.data as { type: string; id?: string; tool?: string; args?: Record<string, unknown>; req?: number; token?: string; error?: string };

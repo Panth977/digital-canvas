@@ -23,6 +23,8 @@
   // "Let AI use this device" was left on: start taking requests once signed in.
   $effect(() => {
     if (account.user && bridgeUi.enabled) untrack(() => void bridgeUi.resume());
+    // signed out: this device stops taking requests (it was the previous account's)
+    else if (account.known && !account.user && untrack(() => bridgeUi.status !== 'off')) void import('./lib/bridge/bridge.svelte.ts').then((m) => m.stopBridge());
   });
 
   // Drive "Open with" / "New": run once signed in.
