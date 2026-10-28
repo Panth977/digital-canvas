@@ -87,7 +87,12 @@ export class Relay implements ToolRelay {
       const name = device.name;
       if (end === 'pickup') return text(`${name} did not pick up the request. Digital Canvas may be closed there, the device asleep, or the tab in the background (browsers pause background tabs). Ask the user to bring Digital Canvas to the front on ${name} (or choose another device with use_device), then try again.`, true);
       if (end === 'offline') return text(`${name} went offline while it was working on ${tool}. Ask the user to reopen Digital Canvas there (or choose another device with use_device), then try again.`, true);
-      if (end === 'timeout') return text(`${name} took longer than ${Math.round((this.o.callMs ?? CALL_MS) / 1000)} s for ${tool}. It may still finish: check with list_designs / open_design before repeating changes.`, true);
+      if (end === 'timeout') {
+        const secs = Math.round((this.o.callMs ?? CALL_MS) / 1000);
+        // looking tools are safe to repeat; the first run on a device downloads the design's pictures, later runs are quick
+        if (/^(render_|open_design|check_design|list_|search_|get_)/.test(tool)) return text(`${name} is still working on ${tool} after ${secs} s (the first time a design is opened on a device it downloads its pictures). Call ${tool} again in about 30 s with the same arguments; the device keeps what it downloaded.`, true);
+        return text(`${name} is still working on ${tool} after ${secs} s. It will probably finish: wait about 30 s, then check with open_design / render_page before repeating the change.`, true);
+      }
       if (end === 'aborted') return text('Cancelled.', true);
       if (end === 'gone') return text(`The request to ${name} was removed before it finished. Try again.`, true);
       if (end.state === 'failed') return text(`Error: ${end.error ?? 'the device could not run the tool'}`, true);

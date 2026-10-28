@@ -71,8 +71,12 @@ export const ONLINE_MS = 60_000;
 export const HEARTBEAT_MS = 20_000;
 /** A device must take a job within this time (else it is asleep / the tab is frozen). */
 export const PICKUP_MS = 20_000;
-/** Longest a relayed tool call may take (exports return a job id well before this). */
-export const CALL_MS = 240_000;
+/**
+ * Longest the relay waits for a device's answer. MCP clients give up on a request after about a
+ * minute (Claude's connector proxy answers 502 at ~60 s), so answer before that and let the agent
+ * call again; long exports already return a job id.
+ */
+export const CALL_MS = 50_000;
 /** How long job documents live (TTL) if nobody deletes them. */
 export const JOB_TTL_MS = 60 * 60_000;
 /** Result JSON up to this size goes in the job document; larger is split into parts of this size. */
