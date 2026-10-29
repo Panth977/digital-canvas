@@ -98,7 +98,8 @@ test.describe('Share popover', () => {
     expect(add.fileId).toBe(file.id);
     expect(add.body).toEqual({ type: 'user', role: 'commenter', emailAddress: 'bob@example.com' });
     expect(add.query.sendNotificationEmail).toBe('true');
-    expect(add.query.emailMessage).toBe('Have a look at the poster');
+    expect(add.query.emailMessage).toBe(`Open in Digital Canvas: https://digital-canvas-p977.web.app/d/${file.id}\n\nHave a look at the poster`);
+    await expect(page.getByTestId('share-sent')).toContainText('Shared with bob@example.com');
     // shared: the design's picture is now link-readable for Bob's app
     await expect.poll(() => d.isPublic(asset)).toBe(true);
     expect(asset.appProperties?.dcPublic).toBe('1');
