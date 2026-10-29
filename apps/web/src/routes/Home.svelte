@@ -638,7 +638,7 @@
   .danger { color: var(--danger) !important; }
   .empty { padding: 40px; text-align: center; color: var(--muted); background: var(--pop); border: 1px dashed var(--line); border-radius: var(--radius); }
   .muted { color: var(--muted); }
-  .shared { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+  .shared { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 10px; }
   .sh-item { display: flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 12px; padding: 8px 8px 8px 10px; background: var(--pop); }
   .sh-item a { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; color: inherit; text-decoration: none; }
   .sh-item .kebab { opacity: 1; }
