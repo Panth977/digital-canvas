@@ -149,19 +149,19 @@ export class FakeDrive {
     // the API key reads only files shared "anyone with the link"; OAuth only files the app may see (drive.file)
     const key = url.searchParams.get('key');
     if (key) {
-      if (req.method !== 'GET' || !this.isPublic(f)) return json({ error: { message: 'File not found' } }, 404);
+      if (req.method() !== 'GET' || !this.isPublic(f)) return json({ error: { message: 'File not found' } }, 404);
       this.keyReads.push(f.id);
     } else if (f.noAccess) return json({ error: { message: `File not found: ${f.id}.` } }, 404);
     const perm = /\/permissions(?:\/([^/?]+))?$/.exec(url.pathname);
     if (perm) {
       const perms = this.permsOf(f);
       const query = Object.fromEntries(url.searchParams);
-      const body = req.method === 'POST' || req.method === 'PATCH' ? req.postDataJSON() : undefined;
-      if (req.method !== 'GET') this.permCalls.push({ method: req.method, fileId: f.id, query, body });
+      const body = req.method() === 'POST' || req.method() === 'PATCH' ? req.postDataJSON() : undefined;
+      if (req.method() !== 'GET') this.permCalls.push({ method: req.method(), fileId: f.id, query, body });
       const mayShare = f.owned || f.myRole === 'writer';
-      if (req.method === 'GET' && !perm[1]) return json({ permissions: perms });
+      if (req.method() === 'GET' && !perm[1]) return json({ permissions: perms });
       if (!mayShare) return json({ error: { message: 'The user does not have sufficient permissions for this file.' } }, 403);
-      if (req.method === 'POST') {
+      if (req.method() === 'POST') {
         if (body.type === 'user' && !/^[^@\s]+@[^@\s]+\.\w+$/.test(body.emailAddress ?? '')) return json({ error: { message: 'Bad Request. User message: "Invalid email address."' } }, 400);
         const existing = perms.find((p) => (body.type === 'anyone' ? p.type === 'anyone' : p.emailAddress === body.emailAddress));
         if (existing) { existing.role = body.role; return json(existing); }
@@ -173,8 +173,8 @@ export class FakeDrive {
       }
       const p = perms.find((x) => x.id === perm[1]);
       if (!p) return json({ error: { message: 'Permission not found' } }, 404);
-      if (req.method === 'PATCH') { p.role = body.role; return json(p); }
-      if (req.method === 'DELETE') { f.perms = perms.filter((x) => x !== p); return route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*' } }); }
+      if (req.method() === 'PATCH') { p.role = body.role; return json(p); }
+      if (req.method() === 'DELETE') { f.perms = perms.filter((x) => x !== p); return route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*' } }); }
     }
     const rev = /\/revisions(?:\/([^/?]+))?$/.exec(url.pathname);
     if (rev && !rev[1]) return json({ revisions: (f.revisions ?? []).map((r) => ({ id: r.id, modifiedTime: r.modifiedTime, size: String(r.body.length) })) });

@@ -186,8 +186,8 @@
     {:else}
       {#if ownerName}
         <div class="owner" data-testid="share-owner">
-          {#if sharedBy}Shared by <b>{sharedBy.name ?? sharedBy.email}</b>{#if access?.owner && sharedBy !== access.owner && access.owner.name !== sharedBy.name} · owner {access.owner.name}{/if}
-          {:else}Owner: <b>{ownerName}</b>{#if access?.ownedByMe || (owner?.email && owner.email.toLowerCase() === me)} (you){/if}{/if}
+          {#if sharedBy}Shared by <b>{sharedBy.name ?? sharedBy.email}</b>{access?.owner?.name && access.owner.name !== sharedBy.name ? ` · owner ${access.owner.name}` : ''}
+          {:else}Owner: <b>{ownerName}</b>{access?.ownedByMe || (owner?.email && owner.email.toLowerCase() === me) ? ' (you)' : ''}{/if}
         </div>
       {/if}
 
