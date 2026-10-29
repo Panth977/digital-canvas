@@ -288,7 +288,7 @@ test.describe('What the recipient may do', () => {
     // no write of Harshil's was refused, and his app never listed or wrote Panth's assets folder
     expect(d.denied.filter((x) => x.startsWith(RECIPIENT.email) && /(PUT|PATCH|POST)/.test(x))).toEqual([]);
     const ownerFolders = d.ownedBy(OWNER.email).filter((f) => f.mimeType === FOLDER).map((f) => f.id);
-    expect(d.calls.filter((l) => l.startsWith(RECIPIENT.email) && ownerFolders.some((id) => l.includes(id)))).toEqual([]);
+    expect(d.calls.filter((l) => l.startsWith(RECIPIENT.email) && ownerFolders.some((id) => new RegExp(`['/]${id}(['/?\\s]|$)`).test(l)))).toEqual([]);
     const hisAssets = d.ownedBy(RECIPIENT.email).filter((f) => f.appProperties?.dcAsset);
     expect(hisAssets).toHaveLength(1); // only the new picture, in his own assets/
     expect(d.isPublic(hisAssets[0]!)).toBe(true); // readable by Panth's app (design is shared)
