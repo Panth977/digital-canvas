@@ -9,7 +9,7 @@ import {
   chart, coverCrop, erasedBy, followConnectors, frame, FRAMES, freehand, grid, isFrame, line, parseSvg, qrCode, qrUpdate, setLineEnds, table, tableCellText, tableFitRows,
   tableSetCell, type AssetMeta, type Attach, type Brush, type ChartKind, type LineElement, type LineMarker, type LineRoute, type Stroke, type TableElement,
 } from '@digital-canvas/scene';
-import { assetId, type ProjectFile, type ProjectStore } from '@digital-canvas/storage';
+import { assetId, type FileAccess, type ProjectFile, type ProjectStore } from '@digital-canvas/storage';
 import { toast } from './toast.svelte.ts';
 import type { Engine } from './engine.ts';
 import { isImage } from './files.ts';
@@ -57,6 +57,13 @@ export class EditorState {
   /** Background removal running: what it is doing (and how far, 0..1). */
   bgStatus = $state<{ msg: string; fraction?: number } | null>(null);
   bgError = $state('');
+  /**
+   * View only (a design shared with you as "Can view" / "Can comment", or the
+   * public view page): changes are ignored and nothing is saved.
+   */
+  readOnly = $state(false);
+  /** Owner and your role, for designs in Google Drive (Share popover, "Shared by"). */
+  access = $state<FileAccess | null>(null);
   /** The background remover to use (swappable: other models, tests). */
   bgRemover: BackgroundRemover = removeBackground;
 
@@ -109,6 +116,7 @@ export class EditorState {
 
   /** Apply a new doc. Same `key` as the last commit = same undo step (drags, sliders). */
   commit(next: Doc, key: string | null = null): void {
+    if (this.readOnly) return;
     next = followConnectors(next); // connectors keep up with what they are stuck to
     if (next === this.doc) return;
     this.history.push(next, key);
@@ -1014,19 +1022,21 @@ export class EditorState {
   }
 
   private scheduleSave(): void {
+    if (this.readOnly) return;
     this.saveState = 'unsaved';
     if (this.saveTimer) clearTimeout(this.saveTimer);
     this.saveTimer = setTimeout(() => void this.save(), 800);
   }
 
-  /** Save now (waits for a save already running). */
-  async save(): Promise<void> {
+  /** Save now (waits for a save already running). `force`: also when nothing changed (e.g. to write links.json before sharing). */
+  async save(force = false): Promise<void> {
+    if (this.readOnly) return;
     if (this.saveTimer) {
       clearTimeout(this.saveTimer);
       this.saveTimer = null;
     }
     if (this.saving) await this.saving;
-    if (this.saveState === 'saved') return;
+    if (this.saveState === 'saved' && !force) return;
     const doc = this.doc;
     this.saveState = 'saving';
     this.saving = (async () => {

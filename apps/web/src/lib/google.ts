@@ -76,7 +76,9 @@ export const CALLBACK_PATH = '/auth/callback';
 export async function redirectForCode(opts: { consent?: boolean; hint?: string; returnTo?: string } = {}): Promise<never> {
   const oauth2 = await gis();
   const state = crypto.randomUUID();
-  sessionStorage.setItem('dc-oauth', JSON.stringify({ state, returnTo: opts.returnTo ?? location.hash }));
+  // link pages (/view/…, /d/…) come back to their path, the app to its hash
+  const here = location.pathname === '/' || location.pathname === CALLBACK_PATH ? location.hash : location.pathname + location.hash;
+  sessionStorage.setItem('dc-oauth', JSON.stringify({ state, returnTo: opts.returnTo ?? here }));
   oauth2.initCodeClient({
     client_id: GOOGLE_CLIENT_ID,
     scope: GOOGLE_SCOPES.join(' '),
@@ -98,7 +100,9 @@ export function takeRedirectCode(): { code: string; redirectUri: string; returnT
   const q = new URLSearchParams(location.search);
   const saved = JSON.parse(sessionStorage.getItem('dc-oauth') ?? 'null') as { state: string; returnTo: string } | null;
   sessionStorage.removeItem('dc-oauth');
-  history.replaceState(null, '', '/' + (saved?.returnTo ?? ''));
+  const back = saved?.returnTo ?? '';
+  history.replaceState(null, '', back.startsWith('/') ? back : '/' + back);
+  dispatchEvent(new PopStateEvent('popstate')); // the router reads the new address
   if (q.get('error')) return { error: q.get('error') === 'access_denied' ? '' : q.get('error')! };
   const code = q.get('code');
   if (!code || !saved || saved.state !== q.get('state')) return { error: 'Sign-in could not be verified. Please try again.' };

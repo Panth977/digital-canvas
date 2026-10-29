@@ -27,6 +27,7 @@ interface DocsView extends View {
   setStarred(b: boolean): DocsView;
   setEnableDrives(b: boolean): DocsView;
   setMode?(m: string): DocsView;
+  setFileIds?(ids: string): DocsView;
 }
 interface Builder {
   setAppId(id: string): Builder;
@@ -81,6 +82,8 @@ export function loadPicker(): Promise<PickerApi> {
   return loading;
 }
 
+const developerKey = () => (import.meta.env.VITE_PICKER_API_KEY as string | undefined) || PICKER_API_KEY;
+
 const label = <T extends View>(v: T, text: string): T => (v.setLabel?.(text) as T | undefined) ?? v;
 const media = <T extends View>(v: T, mimes = MEDIA_MIMES): T => (v.setMimeTypes?.(mimes) as T | undefined) ?? v;
 
@@ -105,7 +108,7 @@ export async function openPicker(token: string, opts: { phone?: boolean } = {}):
   return new Promise((resolve, reject) => {
     let b = new P.PickerBuilder()
       .setAppId(GOOGLE_APP_ID)
-      .setDeveloperKey((import.meta.env.VITE_PICKER_API_KEY as string | undefined) || PICKER_API_KEY)
+      .setDeveloperKey(developerKey())
       .setOAuthToken(token)
       .setOrigin(location.origin)
       .setTitle('Choose from Google Drive')
@@ -118,6 +121,36 @@ export async function openPicker(token: string, opts: { phone?: boolean } = {}):
       .setCallback((r) => {
         if (r.action === P.Action.PICKED) resolve(pickedFiles(r.docs));
         else if (r.action === P.Action.CANCEL) resolve(null);
+        else if (r.action === P.Action.ERROR) reject(new Error('Google Drive could not open the picker.'));
+        if (r.action !== 'loaded') picker.dispose?.();
+      })
+      .build();
+    picker.setVisible(true);
+  });
+}
+
+/**
+ * "Shared with you: Open": the Picker showing just this one file
+ * (`DocsView.setFileIds`). Picking it grants this app access under drive.file,
+ * so the design can then be opened and, with edit rights, saved back.
+ * Resolves true when the user picked it, false when they closed the Picker.
+ */
+export async function pickSharedFile(token: string, fileId: string): Promise<boolean> {
+  const P = await loadPicker();
+  const view = new P.DocsView(P.ViewId.DOCS);
+  const one = (view.setFileIds?.(fileId) ?? view).setIncludeFolders(false);
+  return new Promise((resolve, reject) => {
+    const picker = new P.PickerBuilder()
+      .setAppId(GOOGLE_APP_ID)
+      .setDeveloperKey(developerKey())
+      .setOAuthToken(token)
+      .setOrigin(location.origin)
+      .setTitle('Open the design shared with you')
+      .enableFeature(P.Feature.SUPPORT_DRIVES)
+      .addView(label(one, 'Shared with you'))
+      .setCallback((r) => {
+        if (r.action === P.Action.PICKED) resolve(!!r.docs?.some((d) => d.id === fileId));
+        else if (r.action === P.Action.CANCEL) resolve(false);
         else if (r.action === P.Action.ERROR) reject(new Error('Google Drive could not open the picker.'));
         if (r.action !== 'loaded') picker.dispose?.();
       })
