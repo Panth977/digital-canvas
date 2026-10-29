@@ -14,7 +14,7 @@ export interface FakePickerState {
   origin?: string;
   size?: [number, number];
   features: string[];
-  views: { id: string; label?: string; parent?: string; ownedByMe?: boolean; starred?: boolean; drives?: boolean; folders?: boolean; mimes?: string }[];
+  views: { id: string; label?: string; fileIds?: string; parent?: string; ownedByMe?: boolean; starred?: boolean; drives?: boolean; folders?: boolean; mimes?: string }[];
   opened: number;
 }
 
@@ -33,6 +33,7 @@ export async function installFakePicker(page: Page): Promise<void> {
       setEnableDrives(b: boolean) { this.v.drives = b; return this; }
       setMimeTypes(m: string) { this.v.mimes = m; return this; }
       setLabel(l: string) { this.v.label = l; return this; }
+      setFileIds(ids: string) { this.v.fileIds = ids; return this; }
     }
     class PickerBuilder {
       constructor() { state.views = []; state.features = []; }

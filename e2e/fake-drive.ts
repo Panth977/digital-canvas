@@ -19,7 +19,21 @@ export interface FakeFile {
   body?: Buffer;
   /** Earlier contents, oldest first (Drive revisions). */
   revisions?: { id: string; modifiedTime: string; body: Buffer }[];
+  /** Sharing (permissions API). Owned files start with the signed-in tester as owner. */
+  perms?: FakePerm[];
+  /** drive.file: the app may not see this file with OAuth yet (shared with you, never opened); the Picker grants it. */
+  noAccess?: boolean;
+  /** Your role on a file shared with you (capabilities). */
+  myRole?: 'writer' | 'commenter' | 'reader';
+  /** Owner of a file shared with you. */
+  ownerName?: string;
+  ownerEmail?: string;
 }
+
+export interface FakePerm { id: string; type: 'user' | 'anyone'; role: string; emailAddress?: string; displayName?: string; allowFileDiscovery?: boolean }
+
+/** The fake signed-in user (fakeSignIn). */
+export const ME = { name: 'Tester', email: 'tester@example.com' };
 
 export const FOLDER = 'application/vnd.google-apps.folder';
 
@@ -27,6 +41,10 @@ export class FakeDrive {
   files = new Map<string, FakeFile>();
   /** Requests seen, "METHOD path?q". */
   log: string[] = [];
+  /** permissions.* calls with their query (sendNotificationEmail, emailMessage) and body. */
+  permCalls: { method: string; fileId: string; query: Record<string, string>; body?: any }[] = [];
+  /** Drive reads made with the API key (`?key=`), by file id. */
+  keyReads: string[] = [];
   private n = 0;
   thumb: Buffer = Buffer.alloc(0);
 
@@ -57,6 +75,28 @@ export class FakeDrive {
   private meta(f: FakeFile) {
     const { body, owned, trashed, ...rest } = f;
     return { ...rest, ...(body ? { size: String(body.length) } : {}) };
+  }
+
+  permsOf(f: FakeFile): FakePerm[] {
+    f.perms ??= f.owned ? [{ id: 'p-owner', type: 'user', role: 'owner', emailAddress: ME.email, displayName: ME.name }] : [{ id: 'p-owner', type: 'user', role: 'owner', emailAddress: f.ownerEmail ?? 'ann@example.com', displayName: f.ownerName ?? 'Ann' }];
+    return f.perms;
+  }
+
+  /** The file has a `type: anyone` permission (readable with the API key). */
+  isPublic(f: FakeFile): boolean {
+    return (f.perms ?? []).some((p) => p.type === 'anyone');
+  }
+
+  private access(f: FakeFile) {
+    const perms = this.permsOf(f);
+    const owner = perms.find((p) => p.role === 'owner')!;
+    const role = f.owned ? 'owner' : f.myRole ?? (this.isPublic(f) ? perms.find((p) => p.type === 'anyone')!.role : 'reader');
+    return {
+      id: f.id, name: f.name, ownedByMe: !!f.owned, shared: perms.some((p) => p.role !== 'owner'),
+      owners: [{ displayName: owner.displayName, emailAddress: owner.emailAddress }],
+      ...(f.owned ? {} : { sharingUser: { displayName: owner.displayName, emailAddress: owner.emailAddress } }),
+      capabilities: { canEdit: role === 'owner' || role === 'writer', canComment: role !== 'reader', canShare: role === 'owner' || role === 'writer', canCopy: true, canDownload: true },
+    };
   }
 
   async install(page: Page): Promise<void> {
@@ -106,6 +146,36 @@ export class FakeDrive {
     }
     const f = id ? this.files.get(id) : undefined;
     if (!f) return json({ error: { message: 'File not found' } }, 404);
+    // the API key reads only files shared "anyone with the link"; OAuth only files the app may see (drive.file)
+    const key = url.searchParams.get('key');
+    if (key) {
+      if (req.method !== 'GET' || !this.isPublic(f)) return json({ error: { message: 'File not found' } }, 404);
+      this.keyReads.push(f.id);
+    } else if (f.noAccess) return json({ error: { message: `File not found: ${f.id}.` } }, 404);
+    const perm = /\/permissions(?:\/([^/?]+))?$/.exec(url.pathname);
+    if (perm) {
+      const perms = this.permsOf(f);
+      const query = Object.fromEntries(url.searchParams);
+      const body = req.method === 'POST' || req.method === 'PATCH' ? req.postDataJSON() : undefined;
+      if (req.method !== 'GET') this.permCalls.push({ method: req.method, fileId: f.id, query, body });
+      const mayShare = f.owned || f.myRole === 'writer';
+      if (req.method === 'GET' && !perm[1]) return json({ permissions: perms });
+      if (!mayShare) return json({ error: { message: 'The user does not have sufficient permissions for this file.' } }, 403);
+      if (req.method === 'POST') {
+        if (body.type === 'user' && !/^[^@\s]+@[^@\s]+\.\w+$/.test(body.emailAddress ?? '')) return json({ error: { message: 'Bad Request. User message: "Invalid email address."' } }, 400);
+        const existing = perms.find((p) => (body.type === 'anyone' ? p.type === 'anyone' : p.emailAddress === body.emailAddress));
+        if (existing) { existing.role = body.role; return json(existing); }
+        const p: FakePerm = body.type === 'anyone'
+          ? { id: 'anyoneWithLink', type: 'anyone', role: body.role, allowFileDiscovery: body.allowFileDiscovery }
+          : { id: `p${++this.n}`, type: 'user', role: body.role, emailAddress: body.emailAddress, displayName: body.emailAddress.split('@')[0] };
+        perms.push(p);
+        return json(p);
+      }
+      const p = perms.find((x) => x.id === perm[1]);
+      if (!p) return json({ error: { message: 'Permission not found' } }, 404);
+      if (req.method === 'PATCH') { p.role = body.role; return json(p); }
+      if (req.method === 'DELETE') { f.perms = perms.filter((x) => x !== p); return route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*' } }); }
+    }
     const rev = /\/revisions(?:\/([^/?]+))?$/.exec(url.pathname);
     if (rev && !rev[1]) return json({ revisions: (f.revisions ?? []).map((r) => ({ id: r.id, modifiedTime: r.modifiedTime, size: String(r.body.length) })) });
     if (rev) {
@@ -122,6 +192,7 @@ export class FakeDrive {
       }
       return json({ id });
     }
+    if ((url.searchParams.get('fields') ?? '').includes('capabilities')) return json(this.access(f));
     return json(this.meta(f));
   }
 }
