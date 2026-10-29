@@ -448,10 +448,10 @@ export class DriveStore implements ProjectStore {
 
   async save(file: ProjectFile): Promise<void> {
     const { doc } = file;
-    const stored = await this.stored();
     // A design shared with you links the owner's asset files: don't copy those into your Drive.
     const remote = this.remote.get(doc.id) ?? {};
     const used = Object.keys(doc.assets).filter(isSharedAssetId);
+    const stored = used.length ? await this.stored() : new Map<string, string>();
     // Assets first, so a saved design never points at something Drive doesn't have.
     const queue = used.filter((a) => file.assets.has(a) && !(remote[a] && !stored.has(a)));
     await Promise.all(Array.from({ length: Math.min(4, queue.length) }, async () => {
@@ -464,7 +464,7 @@ export class DriveStore implements ProjectStore {
     }
     this.usedAssets.set(doc.id, used);
     // shared: new assets get the same "anyone with the link" access before the design points at them
-    if (this.sharedDocs.has(doc.id)) await this.publishAssets(doc.id, used).catch(() => 0);
+    if (this.sharedDocs.has(doc.id) && used.length) await this.publishAssets(doc.id, used).catch(() => 0);
     const fileId = await this.fileIdOf(doc.id);
     const meta: Record<string, unknown> = {
       name: fileName(doc.title),
