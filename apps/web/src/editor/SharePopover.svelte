@@ -247,7 +247,7 @@
           </select>
         {/if}
       </div>
-      <p class="note">{link === 'restricted' ? 'Only people added above can open this design.' : 'Anyone on the internet with the link can open it.'}{#if isShared(people)} Its pictures and clips can be opened by link too.{/if}</p>
+      <p class="note">{link === 'restricted' ? 'Only people added above can open this design.' : 'Anyone on the internet with the link can open it.'}{isShared(people) ? ' Its pictures and clips can be opened by link too.' : ''}</p>
 
       {#if error}<p class="err" data-testid="share-error">{error}</p>{/if}
       {#if busy}<p class="note" data-testid="share-busy">{busy}</p>{/if}
