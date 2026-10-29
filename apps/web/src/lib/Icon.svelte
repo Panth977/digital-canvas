@@ -7,6 +7,7 @@
     undo: 'M9 14L4 9l5-5M4 9h11a5 5 0 010 10h-3',
     redo: 'M15 14l5-5-5-5M20 9H9a5 5 0 000 10h3',
     download: 'M12 3v12m0 0l-5-5m5 5l5-5M4 21h16',
+    share: 'M12 15V3m0 0L7.5 7.5M12 3l4.5 4.5M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7',
     shapes: 'M3 3h8v8H3zM17 3a4 4 0 110 8 4 4 0 010-8zM7 13l4.5 8h-9zM13 13h8v8h-8z',
     text: 'M5 6V4h14v2M12 4v16M9 20h6',
     upload: 'M12 16V4m0 0L7 9m5-5l5 5M4 20h16',

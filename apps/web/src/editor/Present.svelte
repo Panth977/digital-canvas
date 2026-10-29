@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import type { EditorState } from '../lib/editor.svelte.ts';
   import Icon from '../lib/Icon.svelte';
 
@@ -11,7 +11,7 @@
   let { ed, onclose, start = 0 }: { ed: EditorState; onclose: () => void; start?: number } = $props();
 
   let box = $state<HTMLDivElement>();
-  let index = $state(start);
+  let index = $state(untrack(() => start));
   const urls = new Map<string, string>();
   let src = $state('');
   const pages = $derived(ed.doc.pages);
@@ -51,9 +51,9 @@
 
   onMount(() => {
     void box?.requestFullscreen?.().catch(() => { /* not allowed (tests, iframes): the overlay still covers the window */ });
-    const left = () => { if (!document.fullscreenElement && wasFull) onclose(); };
+    // Esc in full screen leaves full screen first (the browser eats that key): close with it
     let wasFull = false;
-    const change = () => { if (document.fullscreenElement) wasFull = true; else left(); };
+    const change = () => { if (document.fullscreenElement) wasFull = true; else if (wasFull) onclose(); };
     document.addEventListener('fullscreenchange', change);
     box?.focus();
     return () => {
