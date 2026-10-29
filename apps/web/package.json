@@ -25,7 +25,7 @@
     "@digital-canvas/scene": "*",
     "@digital-canvas/storage": "*",
     "@mediabunny/mp3-encoder": "^1.63.0",
-    "@panth977/icebase": "npm:@jsr/panth977__icebase@0.5.8",
+    "@panth977/icebase": "npm:@jsr/panth977__icebase@0.6.0",
     "canvaskit-wasm": "^0.42.0",
     "fflate": "^0.8.2",
     "firebase": "^13.1.0",
