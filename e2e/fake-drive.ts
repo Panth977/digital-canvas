@@ -64,6 +64,10 @@ export class FakeDrive {
   thumb: Buffer = Buffer.alloc(0);
   /** token → user (two-user mode). Unknown tokens act as the legacy single tester. */
   users = new Map<string, FakeUser>();
+  /** Like `log`, prefixed with the caller's email ('key' for API-key reads). */
+  calls: string[] = [];
+  /** ms to wait before each file download (progress screenshots). */
+  mediaDelay = 0;
   /** Requests answered 404/403 because the caller had no access, "email METHOD fileId status". */
   denied: string[] = [];
 
@@ -188,6 +192,7 @@ export class FakeDrive {
     /** Two-user mode: who is calling (null = API key / no token). Legacy tokens: the single tester. */
     const caller = user?.email ?? (bearer ? ME.email : null);
     const fresh = user ? { owner: user.email, grants: [user.email] } : {};
+    this.calls.push(`${caller ?? 'key'} ${this.log[this.log.length - 1]}`);
     const id = /\/files\/([^/?]+)/.exec(url.pathname)?.[1];
     if (url.pathname === '/drive/v3/drives') return json({ drives: [] });
     if (url.pathname === '/drive/v3/files' && req.method() === 'GET') {
@@ -257,7 +262,10 @@ export class FakeDrive {
       const r = f.revisions?.find((x) => x.id === rev[1]);
       return r ? route.fulfill({ body: r.body, headers: { 'access-control-allow-origin': '*' } }) : json({ error: { message: 'Revision not found' } }, 404);
     }
-    if (url.searchParams.get('alt') === 'media') return route.fulfill({ body: f.body ?? Buffer.alloc(0), headers: { 'access-control-allow-origin': '*', 'access-control-expose-headers': 'content-length' } });
+    if (url.searchParams.get('alt') === 'media') {
+      if (this.mediaDelay) await new Promise((r) => setTimeout(r, this.mediaDelay));
+      return route.fulfill({ body: f.body ?? Buffer.alloc(0), headers: { 'access-control-allow-origin': '*', 'access-control-expose-headers': 'content-length' } });
+    }
     if (req.method() === 'PATCH') {
       if (f.owner !== undefined && role !== 'owner' && role !== 'writer') { this.denied.push(`${caller} PATCH ${f.id} 403`); return json({ error: { message: 'The user does not have sufficient permissions for this file.' } }, 403); }
       const { appProperties, ...rest } = req.postDataJSON();
