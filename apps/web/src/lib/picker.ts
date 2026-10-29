@@ -158,3 +158,44 @@ export async function pickSharedFile(token: string, fileId: string): Promise<boo
     picker.setVisible(true);
   });
 }
+
+/** What a `.dcanvas` can look like in Drive: ours, or a copy someone uploaded (zip / unknown type). */
+export const DESIGN_MIMES = 'application/vnd.digital-canvas+zip,application/zip,application/x-zip-compressed,application/octet-stream';
+
+export interface PickedDesign { id: string; name: string; mimeType: string }
+
+/**
+ * Pick one design file in Drive. `shared`: Home › "Open a shared design" (Shared
+ * with me first). `import`: "Open a .dcanvas file › From Google Drive" (My Drive
+ * first). Designs only (`DESIGN_MIMES`). Picking grants the file under drive.file.
+ */
+export async function pickDesignFile(token: string, mode: 'shared' | 'import'): Promise<PickedDesign | null> {
+  const P = await loadPicker();
+  const docs = () => media(new P.DocsView(P.ViewId.DOCS), DESIGN_MIMES);
+  const shared = label(docs().setOwnedByMe(false).setIncludeFolders(true).setSelectFolderEnabled(false), 'Shared with me');
+  const mine = label(docs().setParent('root').setIncludeFolders(true).setSelectFolderEnabled(false), 'My Drive');
+  const recent = label(docs(), 'Recent');
+  const views = mode === 'shared' ? [shared, recent, mine] : [mine, shared, recent];
+  return new Promise((resolve, reject) => {
+    let b = new P.PickerBuilder()
+      .setAppId(GOOGLE_APP_ID)
+      .setDeveloperKey(developerKey())
+      .setOAuthToken(token)
+      .setOrigin(location.origin)
+      .setTitle(mode === 'shared' ? 'Open a design shared with you' : 'Open a .dcanvas file from Google Drive')
+      .enableFeature(P.Feature.SUPPORT_DRIVES);
+    if (window.innerWidth < 768) b = b.setSize(window.innerWidth, window.innerHeight);
+    for (const v of views) b = b.addView(v);
+    const picker = b
+      .setCallback((r) => {
+        if (r.action === P.Action.PICKED) {
+          const d = r.docs?.[0];
+          resolve(d?.id ? { id: d.id, name: d.name ?? 'Design', mimeType: d.mimeType ?? '' } : null);
+        } else if (r.action === P.Action.CANCEL) resolve(null);
+        else if (r.action === P.Action.ERROR) reject(new Error('Google Drive could not open the picker.'));
+        if (r.action !== 'loaded') picker.dispose?.();
+      })
+      .build();
+    picker.setVisible(true);
+  });
+}

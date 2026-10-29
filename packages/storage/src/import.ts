@@ -68,8 +68,9 @@ export async function prepareImport(bytes: Uint8Array, opts: ImportOptions): Pro
   await Promise.all(Array.from({ length: Math.min(4, queue.length) }, async () => {
     for (let a = queue.shift(); a; a = queue.shift()) {
       let b = await opts.local?.(a).catch(() => undefined);
-      if (!b && links[a]) {
-        b = await readMedia(links[a], opts.via).catch(() => undefined);
+      const link = links[a];
+      if (!b && link) {
+        b = await readMedia(link, opts.via).catch(() => undefined);
         if (b) fetched++;
       }
       if (b) file.assets.set(a, b);
