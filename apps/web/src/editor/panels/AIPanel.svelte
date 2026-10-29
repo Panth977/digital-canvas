@@ -22,7 +22,8 @@
   let showSettings = $state(false);
   const hasAny = $derived(aiSettings.any);
   type Mode = 'design' | 'write' | 'describe' | 'image' | 'video';
-  let mode = $state<Mode>('design');
+  let mode = $state<Mode>(studio.tab);
+  $effect(() => { studio.tab = mode; });
   const TASK: Record<Mode, Task> = { design: 'design', write: 'writing', describe: 'vision', image: 'image', video: 'video' };
   const using = $derived(aiSettings.describe(TASK[mode]));
   const ready = $derived(!!aiSettings.choice(TASK[mode]));
@@ -181,11 +182,11 @@
 
   {#if hasAny && !showSettings}
     <div class="dp-tabs tabs5" role="tablist" style="margin-top:12px">
-      <button role="tab" class:on={mode === 'design'} onclick={() => (mode = 'design')} data-testid="ai-tab-design">Design for me</button>
-      <button role="tab" class:on={mode === 'write'} onclick={() => (mode = 'write')} data-testid="ai-tab-write">Magic Write</button>
+      <button role="tab" class:on={mode === 'design'} onclick={() => (mode = 'design')} data-testid="ai-tab-design">Design</button>
+      <button role="tab" class:on={mode === 'write'} onclick={() => (mode = 'write')} data-testid="ai-tab-write">Write</button>
       <button role="tab" class:on={mode === 'describe'} onclick={() => (mode = 'describe')} data-testid="ai-tab-describe">Alt text</button>
-      <button role="tab" class:on={mode === 'image'} onclick={() => (mode = 'image')} data-testid="ai-tab-image">Image</button>
-      <button role="tab" class:on={mode === 'video'} onclick={() => (mode = 'video')} data-testid="ai-tab-video">Video</button>
+      <button role="tab" class:on={mode === 'image'} onclick={() => (mode = 'image')} data-testid="ai-tab-image">Image{#if studio.jobs.some((j) => j.kind === 'image' && !j.error)}<span class="dot"></span>{/if}</button>
+      <button role="tab" class:on={mode === 'video'} onclick={() => (mode = 'video')} data-testid="ai-tab-video">Video{#if studio.jobs.some((j) => j.kind === 'video' && !j.error)}<span class="dot"></span>{/if}</button>
     </div>
     {#if !ready}<p class="dp-hint" data-testid="ai-not-ready">None of your providers can do this yet. <button class="dp-link inline" onclick={() => (showSettings = true)}>Add one</button>{mode === 'video' ? ' (OpenAI, Gemini or kie.ai)' : mode === 'image' ? ' (OpenAI, Gemini, OpenRouter or kie.ai)' : ''}.</p>{/if}
     {#if error}<p class="dp-err" data-testid="ai-error">{error}</p>{/if}
@@ -265,9 +266,9 @@
             <option value="1:1">Square 1:1</option><option value="4:5">Portrait 4:5</option><option value="9:16">Story 9:16</option><option value="16:9">Wide 16:9</option>
           </select>
           {#if mode === 'image'}
-            <select class="input" bind:value={count} aria-label="How many" data-testid="ai-image-count">{#each [1, 2, 3, 4] as n}<option value={n}>{n}×</option>{/each}</select>
+            <select class="input small" bind:value={count} aria-label="How many" data-testid="ai-image-count">{#each [1, 2, 3, 4] as n}<option value={n}>{n}×</option>{/each}</select>
           {:else}
-            <select class="input" bind:value={duration} aria-label="Length" data-testid="ai-video-duration">{#each durations as d}<option value={d}>{d} s</option>{/each}</select>
+            <select class="input small" bind:value={duration} aria-label="Length" data-testid="ai-video-duration">{#each durations as d}<option value={d}>{d} s</option>{/each}</select>
           {/if}
         </div>
         <button class="btn primary dp-cta" disabled={!ready || !mediaPrompt.trim()} data-testid="ai-media-generate"><Icon name={mode === 'image' ? 'image' : 'video'} size={16} /> Generate {mode === 'image' ? (count > 1 ? `${count} images` : 'image') : 'video'}</button>
@@ -315,7 +316,9 @@
   .idea .dp-tx { white-space: normal; }
   select.input { height: 34px; }
   .grow { flex: 1; min-width: 0; }
-  .tabs5 button { padding: 10px 7px; }
+  .tabs5 button { padding: 10px 7px; position: relative; white-space: nowrap; }
+  select.small { width: 76px; flex: none; }
+  .dot { position: absolute; top: 7px; right: 1px; width: 6px; height: 6px; border-radius: 3px; background: var(--accent); }
   .inline { padding: 0; color: var(--accent); }
   .check { font-size: 13px; gap: 6px; }
   .job { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }

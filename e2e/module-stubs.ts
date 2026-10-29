@@ -47,12 +47,13 @@ export function claudeReply(text: string) {
   return { id: 'msg_test', type: 'message', role: 'assistant', model: 'claude-sonnet-5-5', content: [{ type: 'text', text }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 10, output_tokens: 10 } };
 }
 
-const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST, OPTIONS' };
+export const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'GET, POST, OPTIONS' };
 
-/** Stub the Messages API: `handle` gets each POST (preflights are answered here). */
+/** Stub the Messages API: `handle` gets each POST (preflights and GET /v1/models are answered here). */
 export async function stubClaude(page: Page, handle: (req: import('@playwright/test').Request, headers: Record<string, string>) => { status?: number; json: unknown }): Promise<void> {
   await page.route('https://api.anthropic.com/**', async (r) => {
     if (r.request().method() === 'OPTIONS') return r.fulfill({ status: 204, headers: CORS });
+    if (r.request().method() === 'GET') return r.fulfill({ json: { data: [{ id: 'claude-sonnet-5-5', display_name: 'Claude Sonnet 5.5' }, { id: 'claude-opus-5-5', display_name: 'Claude Opus 5.5' }] }, headers: CORS });
     const out = handle(r.request(), await r.request().allHeaders());
     return r.fulfill({ status: out.status ?? 200, json: out.json, headers: CORS });
   });

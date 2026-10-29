@@ -58,6 +58,8 @@ const extOf = (mime: string) => ({ 'image/jpeg': 'jpg', 'image/webp': 'webp', 'v
 let seq = 0;
 
 class MediaStudio {
+  /** The AI panel's tab, kept while the panel is closed (jobs run on). */
+  tab = $state<'design' | 'write' | 'describe' | 'image' | 'video'>('design');
   jobs = $state<Job[]>([]);
   results = $state<Result[]>([]);
   private controllers = new Map<string, AbortController>();

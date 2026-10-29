@@ -49,6 +49,8 @@ class AISettings {
   defaults = $state<Partial<Record<Task, Choice>>>({});
   /** Model lists read from the providers (by provider id). */
   models = $state<Record<string, ModelInfo[]>>({});
+  /** Last "Test connection" per provider id. */
+  status = $state<Record<string, { busy: boolean; ok?: boolean; text?: string }>>({});
   /** Bumped when keys change (keys aren't reactive state on purpose). */
   version = $state(0);
 
@@ -62,7 +64,7 @@ class AISettings {
     try {
       const legacy = localStorage.getItem(LEGACY);
       if (legacy && !list.some((p) => p.kind === 'anthropic')) {
-        list = [{ id: 'anthropic', kind: 'anthropic', label: 'Anthropic (Claude)' }, ...list];
+        list = [{ id: 'anthropic', kind: 'anthropic', label: 'Anthropic' }, ...list];
         localStorage.setItem(K('anthropic'), legacy);
         write(P, list);
       }
@@ -99,7 +101,7 @@ class AISettings {
     // one of each hosted kind; compatible endpoints are one per base URL
     const same = this.providers.find((p) => p.kind === kind && (kind !== 'compatible' || p.baseUrl === base));
     const id = same?.id ?? (kind === 'compatible' ? `compatible-${Math.random().toString(36).slice(2, 8)}` : kind);
-    const cfg: ProviderConfig = { id, kind, label: opts.label?.trim() || same?.label || info.label, ...(base ? { baseUrl: base } : {}) };
+    const cfg: ProviderConfig = { id, kind, label: opts.label?.trim() || same?.label || info.short, ...(base ? { baseUrl: base } : {}) };
     this.providers = same ? this.providers.map((p) => (p.id === id ? cfg : p)) : [...this.providers, cfg];
     write(P, this.providers);
     try { key.trim() ? localStorage.setItem(K(id), key.trim()) : localStorage.removeItem(K(id)); } catch { /* private mode */ }
@@ -118,6 +120,8 @@ class AISettings {
     write(D, d);
     const { [id]: _, ...rest } = this.models;
     this.models = rest;
+    const { [id]: __, ...st } = this.status;
+    this.status = st;
     this.version++;
   }
 
@@ -150,6 +154,18 @@ class AISettings {
     if (!kindInfo(cfg.kind).caps.includes(cap)) return false;
     const read = this.models[id];
     return !read || read.some((m) => m.caps.includes(cap)) || cfg.kind === 'compatible';
+  }
+
+  /** Check the key works (and read the model list). */
+  async test(id: string): Promise<void> {
+    this.status = { ...this.status, [id]: { busy: true } };
+    try {
+      const text = await this.provider(id).test();
+      this.status = { ...this.status, [id]: { busy: false, ok: true, text } };
+      await this.refreshModels(id).catch(() => {});
+    } catch (e) {
+      this.status = { ...this.status, [id]: { busy: false, ok: false, text: e instanceof Error ? e.message : String(e) } };
+    }
   }
 
   /** Read the model list from the provider (cached 12 h). */

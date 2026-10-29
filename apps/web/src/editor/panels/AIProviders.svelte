@@ -40,18 +40,7 @@
     void test(id);
   }
 
-  // ---- test connection ----
-  let tests = $state<Record<string, { busy: boolean; ok?: boolean; text?: string }>>({});
-  async function test(id: string): Promise<void> {
-    tests = { ...tests, [id]: { busy: true } };
-    try {
-      const text = await aiSettings.provider(id).test();
-      tests = { ...tests, [id]: { busy: false, ok: true, text } };
-      await aiSettings.refreshModels(id).catch(() => {});
-    } catch (e) {
-      tests = { ...tests, [id]: { busy: false, ok: false, text: e instanceof Error ? e.message : String(e) } };
-    }
-  }
+  const test = (id: string) => aiSettings.test(id);
 
   // ---- default model per task ----
   const providersFor = (t: Task) => aiSettings.providers.filter((p) => aiSettings.canDo(p.id, taskCap(t)));
@@ -72,7 +61,7 @@
   <p class="dp-hint" style="margin:0">Use your own keys with Claude, GPT, Gemini, OpenRouter, kie.ai or any OpenAI-compatible endpoint. You pay the provider for what you use.</p>
 
   {#each aiSettings.providers as p (p.id)}
-    {@const t = tests[p.id]}
+    {@const t = aiSettings.status[p.id]}
     {@const k = kindInfo(p.kind)}
     <div class="dp-box dp-stack prov" data-testid="ai-provider-{p.id}">
       <div class="dp-row">
@@ -145,7 +134,8 @@
 
 <style>
   .kinds { display: flex; flex-direction: column; gap: 4px; }
-  .kind { text-align: left; align-items: center; }
+  .kind { display: flex; width: 100%; gap: 8px; text-align: left; align-items: center; }
+  .kind .grow, .prov .grow { flex: 1; min-width: 0; }
   .kind small { display: block; color: var(--muted); font-size: 12px; font-weight: 400; }
   .kind b { font-weight: 600; font-size: 13px; }
   .prov small { font-size: 12px; word-break: break-all; }

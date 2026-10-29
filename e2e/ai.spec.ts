@@ -6,8 +6,9 @@ const KEY = 'sk-ant-api03-test-key-0123456789';
 
 async function withKey(page: Page): Promise<void> {
   await page.getByTestId('tab-ai').click();
-  await page.getByTestId('ai-key-input').fill(KEY);
-  await page.getByTestId('ai-key-save').click();
+  await page.getByTestId('ai-add-anthropic').click();
+  await page.getByTestId('ai-add-key').fill(KEY);
+  await page.getByTestId('ai-add-save').click();
   await expect(page.getByTestId('ai-tab-design')).toBeVisible();
 }
 
@@ -31,22 +32,37 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-test('AI: without a key it explains how to get one; the key stays in this browser', async ({ page }) => {
+test('AI: without a provider it explains how to add one; the key stays in this browser', async ({ page }) => {
+  await stubClaude(page, () => ({ json: claudeReply('') }));
   await newDesign(page);
   await page.getByTestId('tab-ai').click();
-  await expect(page.getByTestId('ai-key-box')).toContainText('console.anthropic.com');
+  await expect(page.getByTestId('ai-providers-box')).toContainText('Claude, GPT, Gemini, OpenRouter, kie.ai');
   await expect(page.getByTestId('ai-tab-design')).toHaveCount(0);
-  await page.getByTestId('ai-key-input').fill('not-a-key');
-  await expect(page.getByTestId('ai-key-save')).toBeDisabled();
-  await page.getByTestId('ai-key-input').fill(KEY);
-  await page.getByTestId('ai-key-save').click();
-  expect(await page.evaluate(() => localStorage.getItem('dc.anthropicKey'))).toBe(KEY);
+  await page.getByTestId('ai-add-anthropic').click();
+  await expect(page.getByTestId('ai-add-form')).toContainText('console.anthropic.com');
+  await page.getByTestId('ai-add-key').fill('not-a-key');
+  await expect(page.getByTestId('ai-add-save')).toBeDisabled();
+  await page.getByTestId('ai-add-key').fill(KEY);
+  await page.getByTestId('ai-add-save').click();
+  expect(await page.evaluate(() => localStorage.getItem('dc.ai.key.anthropic'))).toBe(KEY);
+  expect(await page.evaluate(() => localStorage.getItem('dc.ai.providers'))).not.toContain(KEY);
+  await expect(page.getByTestId('ai-using')).toContainText('Claude Sonnet 5.5');
   // not in the design file
   expect(JSON.stringify(await doc(page))).not.toContain(KEY);
   await page.getByTestId('ai-settings').click();
-  await page.getByTestId('ai-key-forget').click();
-  expect(await page.evaluate(() => localStorage.getItem('dc.anthropicKey'))).toBeNull();
-  await expect(page.getByTestId('ai-key-input')).toBeVisible();
+  await expect(page.getByTestId('ai-provider-anthropic')).toContainText('api.anthropic.com');
+  await expect(page.getByTestId('ai-provider-anthropic')).not.toContainText(KEY);
+  await page.getByTestId('ai-provider-remove').click();
+  expect(await page.evaluate(() => localStorage.getItem('dc.ai.key.anthropic'))).toBeNull();
+  await expect(page.getByTestId('ai-add-anthropic')).toBeVisible();
+});
+
+test('AI: a key saved by an older version carries over', async ({ page }) => {
+  await page.addInitScript((k) => { if (!localStorage.getItem('dc.ai.providers')) localStorage.setItem('dc.anthropicKey', k); }, KEY);
+  await newDesign(page);
+  await page.getByTestId('tab-ai').click();
+  await expect(page.getByTestId('ai-tab-design')).toBeVisible();
+  expect(await page.evaluate(() => [localStorage.getItem('dc.ai.key.anthropic'), localStorage.getItem('dc.anthropicKey')])).toEqual([KEY, null]);
 });
 
 test('AI: Design for me turns Claude’s JSON into an editable page', async ({ page }) => {
@@ -128,5 +144,5 @@ test('AI: alt text for a page, saved to notes; errors are explained', async ({ p
 
   fail = true;
   await page.getByTestId('ai-describe').click();
-  await expect(page.getByTestId('ai-error')).toContainText('API key was refused');
+  await expect(page.getByTestId('ai-error')).toContainText('refused that API key');
 });

@@ -8,6 +8,8 @@ import type { AdapterOptions, Cap, ModelInfo, Provider, ProviderKind, Task } fro
 export interface KindInfo {
   kind: ProviderKind;
   label: string;
+  /** Name on a configured provider. */
+  short: string;
   blurb: string;
   keyUrl?: string;
   keyHint: string;
@@ -26,22 +28,22 @@ export interface KindInfo {
 
 export const KINDS: KindInfo[] = [
   {
-    kind: 'anthropic', label: 'Anthropic (Claude)', blurb: 'Claude for writing, designs and alt text.', keyUrl: 'https://console.anthropic.com/settings/keys', keyHint: 'sk-ant-…', keyPattern: /^sk-ant-[\w-]{10,}$/,
+    kind: 'anthropic', short: 'Anthropic', label: 'Anthropic (Claude)', blurb: 'Claude for writing, designs and alt text.', keyUrl: 'https://console.anthropic.com/settings/keys', keyHint: 'sk-ant-…', keyPattern: /^sk-ant-[\w-]{10,}$/,
     caps: ['text', 'vision', 'json'], models: ANTHROPIC_MODELS, host: 'api.anthropic.com',
     defaults: { writing: 'claude-sonnet-5-5', design: 'claude-sonnet-5-5', vision: 'claude-sonnet-5-5' },
   },
   {
-    kind: 'openai', label: 'OpenAI (GPT, GPT Image, Sora)', blurb: 'GPT for text and vision, GPT Image for pictures, Sora for video.', keyUrl: 'https://platform.openai.com/api-keys', keyHint: 'sk-…', keyPattern: /^sk-[\w-]{10,}$/,
+    kind: 'openai', short: 'OpenAI', label: 'OpenAI (GPT, GPT Image, Sora)', blurb: 'GPT for text and vision, GPT Image for pictures, Sora for video.', keyUrl: 'https://platform.openai.com/api-keys', keyHint: 'sk-…', keyPattern: /^sk-[\w-]{10,}$/,
     caps: ['text', 'vision', 'json', 'image', 'video'], models: OPENAI_MODELS, host: 'api.openai.com',
     defaults: { writing: 'gpt-6.1-terra', design: 'gpt-6.1-sol', vision: 'gpt-6.1-terra', image: 'gpt-image-2.5-flare', video: 'sora-2' },
   },
   {
-    kind: 'gemini', label: 'Google Gemini', blurb: 'Gemini for text and vision, Nano Banana for pictures, Omni Flash for video.', keyUrl: 'https://aistudio.google.com/apikey', keyHint: 'AIza…', keyPattern: /^[\w-]{30,}$/,
+    kind: 'gemini', short: 'Gemini', label: 'Google Gemini', blurb: 'Gemini for text and vision, Nano Banana for pictures, Omni Flash for video.', keyUrl: 'https://aistudio.google.com/apikey', keyHint: 'AIza…', keyPattern: /^[\w-]{30,}$/,
     caps: ['text', 'vision', 'json', 'image', 'video'], models: GEMINI_MODELS, host: 'generativelanguage.googleapis.com',
     defaults: { writing: 'gemini-3.8-flash', design: 'gemini-3.8-flash', vision: 'gemini-3.8-flash', image: 'gemini-nano-banana-2.1', video: 'gemini-omni-1.1-flash' },
   },
   {
-    kind: 'openrouter', label: 'OpenRouter (any model)', blurb: 'One key for hundreds of models from every lab, including image models.', keyUrl: 'https://openrouter.ai/settings/keys', keyHint: 'sk-or-…', keyPattern: /^sk-or-[\w-]{10,}$/,
+    kind: 'openrouter', short: 'OpenRouter', label: 'OpenRouter (any model)', blurb: 'One key for hundreds of models from every lab, including image models.', keyUrl: 'https://openrouter.ai/settings/keys', keyHint: 'sk-or-…', keyPattern: /^sk-or-[\w-]{10,}$/,
     caps: ['text', 'vision', 'json', 'image'], host: 'openrouter.ai',
     models: [
       { id: 'anthropic/claude-sonnet-5.5', label: 'Claude Sonnet 5.5', caps: ['text', 'vision', 'json'] },
@@ -52,12 +54,12 @@ export const KINDS: KindInfo[] = [
     defaults: { writing: 'google/gemini-3.8-flash', design: 'anthropic/claude-sonnet-5.5', vision: 'google/gemini-3.8-flash', image: 'google/gemini-3.1-flash-image' },
   },
   {
-    kind: 'kie', label: 'kie.ai (image & video models)', blurb: 'Nano Banana, Seedream, GPT Image, Imagen, Grok Imagine and Kling through one key.', keyUrl: 'https://kie.ai/api-key', keyHint: 'your kie.ai API key', keyPattern: /^[\w-]{16,}$/,
+    kind: 'kie', short: 'kie.ai', label: 'kie.ai (image & video models)', blurb: 'Nano Banana, Seedream, GPT Image, Imagen, Grok Imagine and Kling through one key.', keyUrl: 'https://kie.ai/api-key', keyHint: 'your kie.ai API key', keyPattern: /^[\w-]{16,}$/,
     caps: ['image', 'video'], models: KIE_MODELS.map(({ id, label, caps }) => ({ id, ...(label ? { label } : {}), caps })), host: 'api.kie.ai',
     defaults: { image: 'google/nano-banana', video: 'kling-2.6/text-to-video' },
   },
   {
-    kind: 'compatible', label: 'OpenAI-compatible endpoint', blurb: 'Groq, Together, Mistral, DeepSeek, Ollama, LM Studio or any /v1 endpoint.', keyHint: 'API key (blank for local servers)', keyPattern: null, needsBaseUrl: true,
+    kind: 'compatible', short: 'OpenAI-compatible', label: 'OpenAI-compatible endpoint', blurb: 'Groq, Together, Mistral, DeepSeek, Ollama, LM Studio or any /v1 endpoint.', keyHint: 'API key (blank for local servers)', keyPattern: null, needsBaseUrl: true,
     caps: ['text', 'vision', 'json', 'image'], models: [], host: '',
     defaults: {},
   },
