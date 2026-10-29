@@ -10,7 +10,7 @@
 export const MOBILE_QUERY = '(max-width: 767px)';
 
 /** Bottom-sheet contents on the phone that are not side panels: small tool sheets. */
-export type MobileSheet = 'size' | 'spacing' | 'opacity' | 'format' | 'pages' | 'menu' | 'download' | 'resize';
+export type MobileSheet = 'size' | 'spacing' | 'opacity' | 'format' | 'pages' | 'menu' | 'download' | 'resize' | 'share';
 
 class Mobile {
   /** The phone layout is on. */

@@ -2,6 +2,8 @@
   import { onMount, untrack } from 'svelte';
   import Home from './routes/Home.svelte';
   import Editor from './editor/Editor.svelte';
+  import SharedOpen from './routes/SharedOpen.svelte';
+  import PublicView from './routes/PublicView.svelte';
   import { router } from './lib/router.svelte.ts';
   import { library } from './lib/library.svelte.ts';
   import { account } from './lib/account.svelte.ts';
@@ -78,8 +80,12 @@
 <div class="shell">
   {#if mode !== 'none'}<TabStrip {mode} />{/if}
   <div class="main">
-    {#if !library.ready || openWith.busy}
+    {#if router.route.name === 'view'}
+      {#key router.route.fileId}<PublicView fileId={router.route.fileId} />{/key}
+    {:else if !library.ready || openWith.busy}
       <div class="boot">Loading…</div>
+    {:else if router.route.name === 'shared' || router.route.name === 'template'}
+      {#key `${router.route.name}:${router.route.fileId}`}<SharedOpen fileId={router.route.fileId} template={router.route.name === 'template'} />{/key}
     {:else if router.route.name === 'editor'}
       {#key `${router.route.id}:${library.store.kind}:${library.store.label}`}
         <Editor id={router.route.id} store={library.store} />

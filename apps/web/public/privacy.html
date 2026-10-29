@@ -2,7 +2,7 @@
 <title>Digital Canvas · Privacy policy</title>
 <style>body{font:16px/1.6 system-ui,sans-serif;max-width:760px;margin:40px auto;padding:0 20px;color:#1f2328}h1{font-size:28px}h2{font-size:19px;margin-top:28px}a{color:#5b3df5}</style>
 <h1>Privacy policy</h1>
-<p>Digital Canvas is a free, open-source design editor (<a href="https://github.com/Panth977/digital-canvas">source code</a>). Last updated: 28 October 2026.</p>
+<p>Digital Canvas is a free, open-source design editor (<a href="https://github.com/Panth977/digital-canvas">source code</a>). Last updated: 29 October 2026.</p>
 <h2>What we store</h2>
 <p>When you sign in with Google, our small backend stores: your Google account id, email and name, the time and number of your sign-ins, and an encrypted refresh token for Google Drive so the app can reach your designs from any device after you connect once. Nothing else.</p>
 <h2>Your designs</h2>
@@ -13,6 +13,10 @@
   <li><b>In the cloud</b> (available to some accounts only, if they choose it). The assistant's requests are handled by our server function: it reads and writes the designs and assets you ask it to, in your Drive, and renders previews and exports. Design data is only held in memory while a request runs; exports are saved to your Drive. Long video exports keep a short-lived job record.</li>
 </ul>
 <p>In both cases we keep the connector's access tokens (so the assistant stays connected) and your processing choice, nothing else. You can disconnect at any time from your assistant's settings. If you use the local connector (<code>npx @digital-canvas/mcp</code>), everything runs on your own computer.</p>
+<h2>Sharing designs</h2>
+<p>When you use <b>Share</b>, the app changes the sharing settings (Google Drive permissions) of that design's file in your Drive, exactly as you choose: it adds the people you type in with the role you pick (Google emails them, with your message, unless you untick it), changes or removes their access, and turns “Anyone with the link” on or off. You can see and change the same settings in Google Drive. Your email address and name are shown to the people you share with, as Google Drive always does.</p>
+<p>The pictures, videos, sounds and fonts a design uses are separate files in your “Digital Canvas/assets” folder. <b>When you share a design with anyone, each of those asset files becomes readable by anyone who has its link</b> (“Anyone with the link: Viewer”, not searchable), and so does every asset you add to it while it is shared, so the people you share with can see the whole design. Their links are random and only appear inside the designs you shared. Turning sharing off again does not change the asset files back, because other shared designs may use the same files; you can change them in Google Drive (“assets” folder › Share).</p>
+<p>Designs shared with you open from the owner's Drive. The first time, Google's file picker asks you to confirm the file so the app may open it. A design shared “Anyone with the link” can also be viewed at its public <code>/view/…</code> link without signing in; that page reads the design straight from Google Drive and stores nothing about you.</p>
 <h2>Use of Google user data</h2>
 <p>Digital Canvas's use and transfer of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including the Limited Use requirements. We do not sell data, show ads, or use your data for anything except running the editor for you.</p>
 <h2>Cookies and analytics</h2>

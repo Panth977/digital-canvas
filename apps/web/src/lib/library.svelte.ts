@@ -1,5 +1,6 @@
 import { BrowserStore, DriveStore, FolderStore, browserAssetCache, type ProjectStore } from '@digital-canvas/storage';
 import { account } from './account.svelte.ts';
+import { driveApiKey, knownFiles } from './sharing.ts';
 
 /**
  * Which store the app saves to. Signed in: your Google Drive. Signed out:
@@ -19,7 +20,7 @@ class Library {
   get store(): ProjectStore {
     const u = account.user;
     if (u) {
-      if (this.drive?.uid !== u.uid) this.drive = { uid: u.uid, store: new DriveStore(account.driveToken, 'Digital Canvas', browserAssetCache()) };
+      if (this.drive?.uid !== u.uid) this.drive = { uid: u.uid, store: new DriveStore(account.driveToken, 'Digital Canvas', browserAssetCache(), { apiKey: driveApiKey(), known: knownFiles }) };
       return this.drive.store;
     }
     return this.local;

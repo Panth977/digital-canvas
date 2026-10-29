@@ -12,6 +12,8 @@
   import PanelBody from '../PanelBody.svelte';
   import ToolPanels from '../ToolPanels.svelte';
   import DownloadMenu from '../DownloadMenu.svelte';
+  import SharePopover from '../SharePopover.svelte';
+  import Present from '../Present.svelte';
   import ResizeDialog from '../ResizeDialog.svelte';
   import VersionHistory from '../VersionHistory.svelte';
   import MobileSheet from './MobileSheet.svelte';
@@ -28,13 +30,14 @@
 
   let zoom = $state(1);
   let showVersions = $state(false);
+  let presenting = $state(false);
   let size = $state<'auto' | 'half' | 'full'>('half');
 
   const RAIL_TITLES: Record<RailTab, string> = {
     ai: 'AI', templates: 'Design', elements: 'Elements', text: 'Text', brand: 'Brand', uploads: 'Uploads', draw: 'Draw',
     projects: 'Projects', apps: 'Apps', photos: 'Photos', videos: 'Videos', sounds: 'Audio',
   };
-  const SHEET_TITLES = { size: 'Font size', spacing: 'Spacing', opacity: 'Transparency', format: 'Format', pages: 'Pages', menu: '', download: 'Download', resize: 'Resize' } as const;
+  const SHEET_TITLES = { size: 'Font size', spacing: 'Spacing', opacity: 'Transparency', format: 'Format', pages: 'Pages', menu: '', download: 'Download', resize: 'Resize', share: 'Share' } as const;
 
   const isRail = $derived(!!ui.panel && RAIL_TABS.includes(ui.panel as RailTab));
   const open = $derived(!!ui.panel || !!mobile.sheet);
@@ -99,6 +102,7 @@
     <span class="save" data-state={ed.saveState} data-testid="save-state" aria-label={ed.saveState === 'saved' ? `Saved · ${store.label}` : ed.saveState}>
       {#if ed.saveState === 'saving'}<span class="ring"></span>{:else}<Icon name={ed.saveState === 'error' ? 'alert' : ed.saveState === 'saved' ? 'cloudok' : 'cloud'} size={20} />{/if}
     </span>
+    <button class="hb" aria-label="Share" data-testid="share" onclick={() => (mobile.sheet = mobile.sheet === 'share' ? null : 'share', ui.panel = null)}><Icon name="share" size={20} /></button>
     <button class="hb" aria-label="Download or share" data-testid="download" onclick={() => (mobile.sheet = mobile.sheet === 'download' ? null : 'download', ui.panel = null)}><Icon name="download" size={20} /></button>
     <button class="hb" aria-label="More" data-testid="m-menu" onclick={() => (mobile.sheet = mobile.sheet === 'menu' ? null : 'menu', ui.panel = null)}><Icon name="more" size={20} /></button>
   </header>
@@ -114,10 +118,13 @@
           {#if isRail}<PanelBody {ed} />{:else}<div class="tools"><ToolPanels {ed} /></div>{/if}
         {:else if mobile.sheet === 'download'}
           <div class="host"><DownloadMenu {ed} onclose={close} /></div>
+        {:else if mobile.sheet === 'share'}
+          <div class="host"><SharePopover {ed} onclose={close} ondownload={() => (mobile.sheet = 'download')} onpresent={() => (presenting = true)} /></div>
         {:else if mobile.sheet === 'resize'}
           <div class="host"><ResizeDialog {ed} onclose={close} /></div>
         {:else if mobile.sheet === 'menu'}
           <div class="menu" data-testid="m-menu-sheet">
+            <button onclick={() => (mobile.sheet = 'share')}><Icon name="share" size={20} /> Share</button>
             <button onclick={() => (mobile.sheet = 'download')}><Icon name="download" size={20} /> Download / share</button>
             <button onclick={() => (mobile.sheet = 'resize')}><Icon name="resize" size={20} /> Resize</button>
             <button onclick={() => (mobile.sheet = 'pages')}><Icon name="pages" size={20} /> Pages</button>
@@ -135,6 +142,7 @@
   <MobileToolbar {ed} />
 
   {#if showVersions}<VersionHistory {ed} onclose={() => (showVersions = false)} />{/if}
+  {#if presenting}<Present {ed} start={ed.pageIndex} onclose={() => (presenting = false)} />{/if}
 </div>
 
 <style>

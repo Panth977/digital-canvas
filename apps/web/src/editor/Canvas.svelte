@@ -1722,12 +1722,12 @@
       <div class="pagetitle" class:current={bar.id === ed.pageId}>
         <button class="pagename" onclick={() => { ed.select([], bar.id); ed.pageSelected = true; }}>Page {bar.i + 1}</button>
         <span class="dash">-</span>
-        <input class="pagetitle-input" placeholder="Add page title" value={pg.name ?? ''} aria-label="Page {bar.i + 1} title" data-testid="page-title"
+        <input class="pagetitle-input" placeholder={ed.readOnly ? '' : 'Add page title'} readonly={ed.readOnly} value={pg.name ?? ''} aria-label="Page {bar.i + 1} title" data-testid="page-title"
           onfocus={() => ed.select([], bar.id)}
           onchange={(e) => { ed.updatePage({ name: (e.currentTarget as HTMLInputElement).value.trim() || undefined }, null, bar.id); ed.seal(); }}
           onkeydown={(e) => { e.stopPropagation(); if (e.key === 'Enter' || e.key === 'Escape') (e.currentTarget as HTMLInputElement).blur(); }} />
       </div>
-      <div class="pagebtns">
+      {#if !ed.readOnly}<div class="pagebtns">
         <button title="Move up" aria-label="Move page up" disabled={bar.i === 0} onclick={() => ed.movePage(bar.id, -1)}><Icon name="up" size={18} /></button>
         <button title="Move down" aria-label="Move page down" disabled={bar.i === ed.doc.pages.length - 1} onclick={() => ed.movePage(bar.id, 1)}><Icon name="down" size={18} /></button>
         <button title={pg.hidden ? 'Show page' : 'Hide page'} aria-label={pg.hidden ? 'Show page' : 'Hide page'} class:on={pg.hidden} data-testid="page-hide" onclick={() => { ed.updatePage({ hidden: pg.hidden ? undefined : true }, null, bar.id); ed.seal(); }}><Icon name={pg.hidden ? 'eyeoff' : 'eye'} size={18} /></button>
@@ -1735,7 +1735,7 @@
         <button title="Duplicate page" aria-label="Duplicate page" onclick={() => ed.duplicatePage(bar.id)}><Icon name="copy" size={18} /></button>
         <button title="Delete page" aria-label="Delete page" disabled={ed.doc.pages.length === 1} onclick={() => ed.removePage(bar.id)}><Icon name="trash" size={18} /></button>
         <button title="Add page" aria-label="Add page after" onclick={() => { ed.select([], bar.id); ed.addPage(); }}><Icon name="addpage" size={18} /></button>
-      </div>
+      </div>{/if}
     </div>
   {/each}
 
@@ -1743,7 +1743,7 @@
     <div class="tip" data-testid="drag-tip" style="left:{tip.x}px;top:{tip.y}px">{tip.text}</div>
   {/if}
 
-  {#if mini}
+  {#if mini && !ed.readOnly}
     <div class="mini" role="toolbar" aria-label="Quick actions" tabindex="-1" data-testid="mini-toolbar" style="left:{mini.x}px;top:{mini.y}px" onpointerdown={(e) => e.stopPropagation()}>
       <button title={mini.locked ? 'Unlock' : 'Lock'} aria-label={mini.locked ? 'Unlock' : 'Lock'} onclick={() => { ed.update({ locked: !mini!.locked }); ed.seal(); }}><Icon name={mini.locked ? 'lock' : 'unlock'} size={18} /></button>
       <button title="Duplicate (⌘D)" aria-label="Duplicate" onclick={() => ed.duplicateSelection()}><Icon name="copy" size={18} /></button>
@@ -1752,7 +1752,7 @@
     </div>
   {/if}
 
-  {#if !videoMode && addPagePos.y < vh}
+  {#if !videoMode && !ed.readOnly && addPagePos.y < vh}
     <button class="addpage" data-testid="add-page" style="left:{addPagePos.x}px;top:{addPagePos.y + 16 + bleedPx}px;width:{ed.doc.width * zoom}px" onpointerdown={(e) => e.stopPropagation()} onclick={() => { ed.select([], ed.doc.pages[ed.doc.pages.length - 1]!.id); ed.addPage(); }}>
       <Icon name="plus" size={16} /> Add page
     </button>
@@ -1825,7 +1825,7 @@
     </div>
   {/if}
 
-  {#if menu}
+  {#if menu && !ed.readOnly}
     <CanvasMenu {ed} x={menu.x} y={menu.y} kind={menu.kind} pageId={menu.pageId} {vw} {vh} onclose={() => (menu = null)} />
   {/if}
 </div>

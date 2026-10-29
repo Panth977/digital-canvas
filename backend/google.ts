@@ -16,3 +16,12 @@ export const GOOGLE_APP_ID = '753251746130';
  * (key "Digital Canvas Picker (browser)" in the Cloud console).
  */
 export const PICKER_API_KEY = 'AIzaSyB-9H6XW6rs6RAFgaLvHNee8OnCwkhCRgw';
+
+/**
+ * Browser API key for reading designs and assets shared "anyone with the link" (Share, the public
+ * /view page): `files.get?alt=media&key=`. Defaults to the Picker key; that key must also allow the
+ * Google Drive API (Cloud console › Credentials › API restrictions). As of 2026-10-29 it is restricted
+ * to the Picker API only, so Drive answers 403 until "Google Drive API" is added there.
+ * Override with `VITE_DRIVE_API_KEY`.
+ */
+export const DRIVE_API_KEY = PICKER_API_KEY;

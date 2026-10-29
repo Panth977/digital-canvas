@@ -19,6 +19,9 @@
   import { isVideo, type Element } from '@digital-canvas/scene';
   import { copyStyle } from '../lib/copystyle.ts';
   import DownloadMenu from './DownloadMenu.svelte';
+  import SharePopover from './SharePopover.svelte';
+  import Present from './Present.svelte';
+  import { loadAccess, makeOwnCopy } from '../lib/shared.svelte.ts';
   import VersionHistory from './VersionHistory.svelte';
   import ShortcutsDialog from './ShortcutsDialog.svelte';
   import MobileEditor from './mobile/MobileEditor.svelte';
@@ -39,6 +42,8 @@
   let showFile = $state(false);
   let showVersions = $state(false);
   let showShortcuts = $state(false);
+  let showShare = $state(false);
+  let presenting = $state(false);
 
   function adopt(e: EditorState): void {
     tabs.adopt(id, e);
@@ -66,7 +71,10 @@
       try {
         const [eng, file] = await Promise.all([engine(), store.open(id)]);
         if (cancelled) return;
-        ed = new EditorState(eng, store, file);
+        const e = new EditorState(eng, store, file);
+        await loadAccess(e); // view only? owner? (Drive)
+        if (cancelled) return e.dispose();
+        ed = e;
         adopt(ed);
       } catch (e) {
         error = e instanceof Error ? e.message : String(e);
@@ -111,7 +119,8 @@
   }
 
   function onKeydown(e: KeyboardEvent): void {
-    if (!ed || typing(e.target)) return;
+    if (!ed || typing(e.target) || presenting) return;
+    if (ed.readOnly && !viewKey(e)) return;
     const mod = e.metaKey || e.ctrlKey;
     const k = e.key.toLowerCase();
     const stop = () => e.preventDefault();
@@ -172,12 +181,18 @@
     }
   }
 
+  /** Keys that still work in a view-only design: zoom, pages, selection, Esc, copy. */
+  function viewKey(e: KeyboardEvent): boolean {
+    const mod = e.metaKey || e.ctrlKey, k = e.key.toLowerCase();
+    return (mod && ['=', '+', '-', '0', 'c', 'a'].includes(k)) || (mod && /^(Equal|Minus|Digit0|Numpad0|NumpadAdd|NumpadSubtract)$/.test(e.code)) || k === 'pageup' || k === 'pagedown' || k === 'escape' || k === 'tab' || k === '?';
+  }
+
   function onKeyup(e: KeyboardEvent): void {
     if (ed && e.key.startsWith('Arrow')) ed.seal();
   }
 
   async function onPaste(e: ClipboardEvent): Promise<void> {
-    if (!ed || typing(e.target)) return;
+    if (!ed || typing(e.target) || ed.readOnly) return;
     const files = [...(e.clipboardData?.files ?? [])].filter(isImage);
     if (files.length) {
       e.preventDefault();
@@ -205,7 +220,7 @@
   const SAVE_TIP = { saved: 'All changes saved', saving: 'Saving…', unsaved: 'Unsaved changes', error: 'Save failed' } as const;
 </script>
 
-<svelte:window onkeydown={onKeydown} onkeyup={onKeyup} onpaste={onPaste} onclick={() => { showDownload = false; showResize = false; showFile = false; }} />
+<svelte:window onkeydown={onKeydown} onkeyup={onKeyup} onpaste={onPaste} onclick={() => { showDownload = false; showResize = false; showFile = false; showShare = false; }} />
 
 {#if error}
   <div class="center">
@@ -227,6 +242,7 @@
           {#if showFile}<FileMenu {ed} bleed={ed.doc.bleed} onclose={() => (showFile = false)} ondownload={() => { showFile = false; showDownload = true; }}
             onversions={() => (showVersions = true)} onshortcuts={() => (showShortcuts = true)} />{/if}
         </div>
+        {#if !ed.readOnly}
         <div class="dl-wrap">
           <button class="hb" class:open={showResize} aria-haspopup="dialog" aria-expanded={showResize} onclick={(e) => { e.stopPropagation(); showFile = false; showDownload = false; showResize = !showResize; }} data-testid="resize">Resize</button>
           {#if showResize}<ResizeDialog ed={ed} onclose={() => (showResize = false)} />{/if}
@@ -234,27 +250,43 @@
         <span class="sep"></span>
         <button class="hb icon" title="Undo (⌘Z)" aria-label="Undo" disabled={!ed.canUndo} onclick={() => ed!.undo()} data-testid="undo"><Icon name="undo" size={20} /></button>
         <button class="hb icon" title="Redo (⇧⌘Z)" aria-label="Redo" disabled={!ed.canRedo} onclick={() => ed!.redo()} data-testid="redo"><Icon name="redo" size={20} /></button>
+        {/if}
+        {#if ed.readOnly}
+          <span class="badge" data-testid="view-only" title="You can view this design but not change it"><Icon name="eye" size={16} /> View only</span>
+        {:else}
         <span class="save hb icon" class:err={ed.saveState === 'error'} data-state={ed.saveState} title={ed.saveError ? `Save failed: ${ed.saveError}` : SAVE_TIP[ed.saveState]} data-testid="save-state">
           {#if ed.saveState === 'saving'}<span class="ring" aria-hidden="true"></span>{:else}<Icon name={ed.saveState === 'error' ? 'alert' : ed.saveState === 'saved' ? 'cloudok' : 'cloud'} size={22} />{/if}
           <span class="sr-only">{SAVE_TEXT[ed.saveState]} · {store.label}</span>
         </span>
+        {/if}
+        {#if ed.access && !ed.access.ownedByMe}
+          <span class="by" data-testid="shared-by">Shared by {ed.access.sharedBy?.name ?? ed.access.owner?.name ?? ed.access.sharedBy?.email ?? ed.access.owner?.email ?? 'someone'}</span>
+        {/if}
       </div>
       <div class="right">
-        <input class="title" bind:this={titleEl} value={ed.doc.title} aria-label="Design title" data-testid="title" title="Rename" spellcheck="false" maxlength="255"
+        <input class="title" bind:this={titleEl} value={ed.doc.title} aria-label="Design title" data-testid="title" title={ed.readOnly ? ed.doc.title : 'Rename'} readonly={ed.readOnly} spellcheck="false" maxlength="255"
           onfocus={(e) => (e.currentTarget as HTMLInputElement).select()} onblur={commitTitle} onkeydown={titleKey} />
+        {#if ed.readOnly && ed.access?.canCopy !== false}
+          <button class="hb copy" onclick={() => void makeOwnCopy(ed!)} data-testid="make-copy"><Icon name="copy" size={18} /> Make a copy</button>
+        {/if}
         <div class="dl-wrap">
-          <button class="share" class:open={showDownload} aria-haspopup="dialog" aria-expanded={showDownload} onclick={(e) => { e.stopPropagation(); showFile = false; showResize = false; showDownload = !showDownload; }} data-testid="download"><Icon name="download" size={18} /> Download</button>
+          <button class="share" class:open={showShare} aria-haspopup="dialog" aria-expanded={showShare} onclick={(e) => { e.stopPropagation(); showFile = false; showResize = false; showDownload = false; showShare = !showShare; }} data-testid="share"><Icon name="share" size={18} /> Share</button>
+          {#if showShare}<SharePopover {ed} onclose={() => (showShare = false)} ondownload={() => (showDownload = true)} onpresent={() => (presenting = true)} />{/if}
+        </div>
+        <div class="dl-wrap">
+          <button class="share" class:open={showDownload} aria-haspopup="dialog" aria-expanded={showDownload} onclick={(e) => { e.stopPropagation(); showFile = false; showResize = false; showShare = false; showDownload = !showDownload; }} data-testid="download"><Icon name="download" size={18} /> Download</button>
           {#if showDownload}<DownloadMenu {ed} onclose={() => (showDownload = false)} />{/if}
         </div>
       </div>
     </header>
     {#if showVersions}<VersionHistory {ed} onclose={() => (showVersions = false)} />{/if}
     {#if showShortcuts}<ShortcutsDialog onclose={() => (showShortcuts = false)} />{/if}
+    {#if presenting}<Present {ed} start={ed.pageIndex} onclose={() => (presenting = false)} />{/if}
 
     <div class="body">
-      <SidePanel {ed} />
-      <main class="work">
-        <div class="ctxrow"><ContextToolbar {ed} /></div>
+      {#if !ed.readOnly}<SidePanel {ed} />{/if}
+      <main class="work" class:ro={ed.readOnly}>
+        <div class="ctxrow">{#if !ed.readOnly}<ContextToolbar {ed} />{/if}</div>
         <Canvas {ed} bind:zoom bind:this={canvas} />
         {#if isVideo(ed.doc)}<Timeline {ed} />{/if}
         <BottomBar {ed} />
@@ -285,6 +317,10 @@
   .dl-wrap { position: relative; }
   .share { height: 40px; padding: 0 16px; display: inline-flex; align-items: center; gap: 8px; border: 0; border-radius: 12px; background: rgba(255,255,255,.9); color: #0d1216; font-size: 14px; font-weight: 600; margin-left: 8px; }
   .share:hover, .share.open { background: #fff; }
+  .badge { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 999px; background: rgba(0,0,0,.22); font-size: 13px; font-weight: 600; margin-left: 8px; white-space: nowrap; }
+  .by { font-size: 13px; opacity: .9; margin-left: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
+  .copy { background: rgba(255,255,255,.15); }
+  .work.ro { border-top-left-radius: 0; }
   .body { flex: 1; display: flex; min-height: 0; }
   .work { position: relative; flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--stage); border-top-left-radius: 16px; overflow: hidden; }
   .ctxrow { position: relative; z-index: 30; height: 64px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
