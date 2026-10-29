@@ -158,6 +158,7 @@ export class EditorState {
   // ---- selection ----
 
   select(ids: string[], pageId?: string): void {
+    if (this.readOnly) ids = []; // view only: pages can be visited, elements not picked up
     this.selection = ids;
     this.pageSelected = false;
     if (pageId) this.pageId = pageId;
@@ -278,6 +279,7 @@ export class EditorState {
 
   /** Crop mode: drag the image inside its frame, resize the frame or the image. */
   startCrop(id = this.selection[0]): void {
+    if (this.readOnly) return;
     const hit = id ? findElement(this.doc, id) : null;
     if (!hit || (hit.element.type !== 'image' && hit.element.type !== 'video') || hit.element.locked) return;
     this.stopEditing();
@@ -670,6 +672,7 @@ export class EditorState {
   }
 
   startEditing(id: string): void {
+    if (this.readOnly) return;
     const hit = findElement(this.doc, id);
     if (hit?.element.type !== 'text' || hit.element.locked) return;
     this.select([id]);
