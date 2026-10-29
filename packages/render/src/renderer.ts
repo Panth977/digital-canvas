@@ -22,6 +22,8 @@ export interface ExportOptions {
   quality?: number;
   /** Leave the page background out (PNG/WebP only). */
   transparent?: boolean;
+  /** Also render this far (px) outside the page on every side: the print bleed. */
+  bleed?: number;
 }
 
 /**
@@ -659,7 +661,8 @@ export class Renderer {
   exportPage(doc: Doc, page: Page, opts: ExportOptions = {}): Uint8Array {
     const ck = this.ck;
     const scale = opts.scale ?? 1;
-    const w = Math.max(1, Math.round(doc.width * scale)), h = Math.max(1, Math.round(doc.height * scale));
+    const b = Math.max(0, opts.bleed ?? 0);
+    const w = Math.max(1, Math.round((doc.width + 2 * b) * scale)), h = Math.max(1, Math.round((doc.height + 2 * b) * scale));
     const surface = ck.MakeSurface(w, h);
     if (!surface) throw new Error(`could not make a ${w}×${h} surface`);
     try {
@@ -668,7 +671,8 @@ export class Renderer {
       const transparent = opts.transparent && format !== 'jpeg';
       canvas.clear(transparent ? ck.TRANSPARENT : ck.WHITE);
       canvas.scale(scale, scale);
-      this.drawPage(canvas, doc, page, {}, !transparent);
+      if (b) canvas.translate(b, b);
+      this.drawPage(canvas, doc, page, b ? { bleed: b } : {}, !transparent);
       surface.flush();
       const img = surface.makeImageSnapshot();
       const fmt = format === 'jpeg' ? ck.ImageFormat.JPEG : format === 'webp' ? ck.ImageFormat.WEBP : ck.ImageFormat.PNG;
