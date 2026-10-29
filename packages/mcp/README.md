@@ -53,11 +53,31 @@ This keeps designs as `.dcanvas` files in the folder, uploads in `assets/` and e
 
 ### Other agents
 
-Any MCP client works:
+The remote connector is a standard MCP server (Streamable HTTP, stateless JSON) behind a standard OAuth 2.1 authorization server, so every MCP client with remote + OAuth support connects with just the URL `https://digital-canvas-p977.web.app/mcp`:
 
-- **stdio:** `npx @digital-canvas/mcp`
-- **Streamable HTTP on localhost:** `npx @digital-canvas/mcp --http 8787`, then use `http://127.0.0.1:8787/mcp`
-- **Remote:** the URL above. Discovery starts from the `401` and its `WWW-Authenticate: resource_metadata=…` header (RFC 9728 → RFC 8414 → RFC 7591).
+| Client | How |
+| --- | --- |
+| **ChatGPT** (developer mode) | Settings › Apps & Connectors › Advanced › Developer mode on; **Create** a connector with the URL, auth **OAuth** (no client ID: it uses DCR; leave OIDC off). In a chat: + › More › Developer mode › Digital Canvas. |
+| **Gemini CLI** | `gemini mcp add --transport http digital-canvas <url>` or `~/.gemini/settings.json` → `"mcpServers": { "digital-canvas": { "httpUrl": "<url>" } }`, then `/mcp auth digital-canvas`. |
+| **Claude** (claude.ai, Desktop, phone) | Settings › Connectors › Add custom connector (above). |
+| **Claude Code** | `claude mcp add --transport http digital-canvas <url>` |
+| **Cursor** | `~/.cursor/mcp.json` → `"mcpServers": { "digital-canvas": { "url": "<url>" } }`, then **Needs login**. |
+| **VS Code** (Copilot agent mode) | `.vscode/mcp.json` → `"servers": { "digital-canvas": { "type": "http", "url": "<url>" } }` |
+| **Codex CLI** | `codex mcp add digital-canvas --url <url>` then `codex mcp login digital-canvas` |
+| **Windsurf** | `mcp_config.json` → `"digital-canvas": { "serverUrl": "<url>" }` |
+| **stdio-only clients** | `npx @digital-canvas/mcp` (local), or bridge the remote one with `npx mcp-remote <url>` |
+| **OpenRouter / Groq / any model API** | These sell models, not MCP hosting: use any MCP client above (or an MCP SDK in your own agent) with the model from OpenRouter and the tools from this URL. |
+
+Locally: **stdio** `npx @digital-canvas/mcp`, or **Streamable HTTP on localhost** `npx @digital-canvas/mcp --http 8787` → `http://127.0.0.1:8787/mcp`.
+
+**OAuth details for client authors.** Discovery starts from the `401` and its `WWW-Authenticate: Bearer resource_metadata="…/.well-known/oauth-protected-resource/mcp"` header (RFC 9728) → `/.well-known/oauth-authorization-server` (RFC 8414; also served at `/.well-known/openid-configuration` for clients that only look there) → `POST /oauth/register` (RFC 7591) → `/oauth/authorize` (PKCE S256 required) → `/oauth/token`. Specifically:
+
+- **Redirect URIs:** any `https` URL, loopback `http://localhost|127.0.0.1|[::1]` (the port may differ between registration and sign-in, RFC 8252 §7.3, as VS Code and CLIs pick free ports), or a private-use scheme (`cursor://…`, `vscode://…`).
+- **Client auth:** `none` (public client + PKCE), `client_secret_post` or `client_secret_basic`. Other methods asked for at registration (`private_key_jwt`…) are registered as `none`; extra grant types are dropped (the registration reply says what was kept).
+- **`resource` (RFC 8707):** optional; when sent it must be `<base>/mcp` (or `<base>`), else `invalid_target`.
+- **Scopes:** one, `designs`; unknown scope words are ignored. Tokens: access 1 h, refresh 30 d rotated on use.
+- The authorization response carries `iss` (RFC 9207). Every OAuth and MCP endpoint answers CORS for browser-based clients.
+- Not yet: Client ID Metadata Documents (URL client IDs); clients fall back to DCR.
 
 ### Video export and ffmpeg
 
