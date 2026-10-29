@@ -4,12 +4,12 @@ import {
   type Arrange, type ImageLook, type AudioClip, type Doc, type Element, type ElementPatch, type EmbeddedFont, type Page, type ShapeKind, type TextElement, type TextRun, type TextStyle,
   childrenOf, cloneElement, distribute, groupElements, resizeDoc, tidyUp, ungroupElements, walk, type ResizeTarget,
 } from '@digital-canvas/scene';
-import { Renderer, exportSvg, exportVectorPdf } from '@digital-canvas/render';
+import { Renderer, exportPptx, exportSvg, exportVectorPdf, type VectorPdfOptions } from '@digital-canvas/render';
 import {
   chart, coverCrop, erasedBy, followConnectors, frame, FRAMES, freehand, grid, isFrame, line, parseSvg, qrCode, qrUpdate, setLineEnds, table, tableCellText, tableFitRows,
   tableSetCell, type AssetMeta, type Attach, type Brush, type ChartKind, type LineElement, type LineMarker, type LineRoute, type Stroke, type TableElement,
 } from '@digital-canvas/scene';
-import { assetId, type ProjectFile, type ProjectStore } from '@digital-canvas/storage';
+import { assetId, pack, type ProjectFile, type ProjectStore } from '@digital-canvas/storage';
 import { toast } from './toast.svelte.ts';
 import type { Engine } from './engine.ts';
 import { isImage } from './files.ts';
@@ -997,9 +997,19 @@ export class EditorState {
     return exportSvg(this.renderer, this.doc, page, { assets: this.assets });
   }
 
-  /** Pages as a vector PDF. */
-  exportVectorPdf(pageIds: string[]): Promise<Uint8Array> {
-    return exportVectorPdf(this.renderer, this.doc, { assets: this.assets, pages: pageIds });
+  /** Pages as a vector PDF (PDF Print: bleed and crop marks, flatten, colour profile, notes). */
+  exportVectorPdf(pageIds: string[], opts: Omit<VectorPdfOptions, 'assets' | 'pages'> = {}): Promise<Uint8Array> {
+    return exportVectorPdf(this.renderer, this.doc, { ...opts, assets: this.assets, pages: pageIds });
+  }
+
+  /** Pages as a PowerPoint file (editable text where it maps cleanly). */
+  exportPptx(pageIds: string[], notes = true): Uint8Array {
+    return exportPptx(this.renderer, this.doc, { assets: this.assets, pages: pageIds, notes });
+  }
+
+  /** The design as a .dcanvas file (the same bytes a save writes). */
+  exportDcanvas(): Uint8Array {
+    return pack({ doc: pruneAssets(pruneFonts(this.doc)), assets: this.assets, thumbnail: this.thumbnail() });
   }
 
 

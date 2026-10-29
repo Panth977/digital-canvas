@@ -185,7 +185,7 @@ test('Download: Canva file types, pages picker, zip for several pages, JPG quali
   await page.getByTestId('shape-ellipse').click();
   await page.getByTestId('download').click();
   const fmt = page.getByTestId('dl-format');
-  await expect(fmt.locator('option')).toHaveText(['PNG · Suggested', 'JPG', 'PDF Standard', 'PDF Print', 'SVG', 'GIF']);
+  await expect(fmt.locator('option')).toHaveText(['PNG · Suggested', 'JPG', 'PDF Standard', 'PDF Print', 'SVG', 'GIF', 'PPTX', 'Digital Canvas file']);
   await expect(page.getByTestId('dl-hint')).toHaveText('Best for complex images, illustrations');
   await expect(page.getByTestId('dl-pages')).toHaveText(/All pages \(2\)/);
 

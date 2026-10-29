@@ -178,7 +178,7 @@ test('download PDF of all pages', async ({ page }) => {
   await page.getByTestId('add-page').click();
   await page.getByTestId('download').click();
   await page.getByTestId('dl-format').selectOption('pdf');
-  await page.locator('.dl select').nth(1).selectOption('150');
+  await page.getByTestId('dl-flatten').check();
   const dl = page.waitForEvent('download');
   await page.getByTestId('do-download').click();
   const file = await dl;
