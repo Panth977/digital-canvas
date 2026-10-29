@@ -410,6 +410,18 @@ export interface AssetMeta {
   name?: string;
   /** Length of audio and video files, seconds. */
   duration?: number;
+  /** Made by an AI model (AI panel ▸ Generate image / video). */
+  ai?: AssetAI;
+}
+
+/** Where a generated asset came from. */
+export interface AssetAI {
+  /** Provider kind, e.g. `openai`, `gemini`, `kie`. */
+  provider: string;
+  model: string;
+  prompt: string;
+  /** ISO time. */
+  at?: string;
 }
 
 /** A font face shipped inside the file, so the design looks the same anywhere. */

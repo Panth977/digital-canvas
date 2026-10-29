@@ -7,7 +7,7 @@ import {
 import { Renderer, exportSvg, exportVectorPdf } from '@digital-canvas/render';
 import {
   chart, coverCrop, erasedBy, followConnectors, frame, FRAMES, freehand, grid, isFrame, line, parseSvg, qrCode, qrUpdate, setLineEnds, table, tableCellText, tableFitRows,
-  tableSetCell, type Attach, type Brush, type ChartKind, type LineElement, type LineMarker, type LineRoute, type Stroke, type TableElement,
+  tableSetCell, type AssetMeta, type Attach, type Brush, type ChartKind, type LineElement, type LineMarker, type LineRoute, type Stroke, type TableElement,
 } from '@digital-canvas/scene';
 import { assetId, type ProjectFile, type ProjectStore } from '@digital-canvas/storage';
 import { toast } from './toast.svelte.ts';
@@ -432,12 +432,12 @@ export class EditorState {
   }
 
   /** Store an uploaded image in the doc (deduplicated). Returns the asset id. */
-  async addAsset(bytes: Uint8Array, mime: string, name?: string): Promise<string | null> {
+  async addAsset(bytes: Uint8Array, mime: string, name?: string, extra?: Pick<AssetMeta, 'ai'>): Promise<string | null> {
     const id = await assetId(bytes, mime);
     const size = this.renderer.setImage(id, bytes);
     if (!size) return null;
     this.assets.set(id, bytes);
-    if (!this.doc.assets[id]) this.commit({ ...this.doc, assets: { ...this.doc.assets, [id]: { mime, ...size, name } } });
+    if (!this.doc.assets[id]) this.commit({ ...this.doc, assets: { ...this.doc.assets, [id]: { mime, ...size, name, ...extra } } });
     return id;
   }
 
@@ -454,7 +454,7 @@ export class EditorState {
   }
 
   /** Add a video from its bytes (uploads, stock videos). `name` is kept with the asset (file name or credit). */
-  async addVideoBytes(bytes: Uint8Array, mime: string, name: string, at?: { x: number; y: number }): Promise<boolean> {
+  async addVideoBytes(bytes: Uint8Array, mime: string, name: string, at?: { x: number; y: number }, extra?: Pick<AssetMeta, 'ai'>): Promise<boolean> {
     let info;
     try {
       info = await probeVideo(bytes, mime);
@@ -469,7 +469,7 @@ export class EditorState {
       ...this.doc,
       assets: {
         ...this.doc.assets,
-        [id]: { mime, width: info.width, height: info.height, duration: info.duration, name },
+        [id]: { mime, width: info.width, height: info.height, duration: info.duration, name, ...extra },
         [`${id}.poster`]: { mime: 'image/png', width: info.width, height: info.height, name: `${name} (poster)` },
       },
     };

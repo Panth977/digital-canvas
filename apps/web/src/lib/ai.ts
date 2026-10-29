@@ -1,57 +1,20 @@
 /**
- * AI features, bring-your-own-key: the user's Anthropic API key lives only in
- * this browser (localStorage) and is sent only to api.anthropic.com, straight
- * from the browser (the SDK adds `anthropic-dangerous-direct-browser-access`).
+ * AI features (Magic Write, Design for me, alt text) on whichever provider
+ * the user picked for each task (AI panel ▸ AI providers). Bring-your-own-key:
+ * keys stay in this browser and go only to that provider (lib/ai/).
  */
-import Anthropic from '@anthropic-ai/sdk';
 import { designFromReply, newId, parseSvg, type CompleteResult, type Doc, type Page, type PathElement, type PendingIcon } from '@digital-canvas/scene';
+import { aiSettings } from './ai/settings.svelte.ts';
+import { AIError, base64 } from './ai/http.ts';
+import type { ChatPart, Task } from './ai/types.ts';
 
-export const AI_MODEL = 'claude-sonnet-5-5';
-const KEY = 'dc.anthropicKey';
+export { AIError };
 
-export function getKey(): string {
-  try { return localStorage.getItem(KEY) ?? ''; } catch { return ''; }
-}
-export function setKey(k: string): void {
-  try { k ? localStorage.setItem(KEY, k.trim()) : localStorage.removeItem(KEY); } catch { /* private mode */ }
-}
-export const looksLikeKey = (k: string) => /^sk-ant-[\w-]{10,}$/.test(k.trim());
-
-export class AIError extends Error {
-  override name = 'AIError';
-}
-
-type Content = Anthropic.Beta.BetaContentBlockParam[];
-
-/** One request to Claude; returns the text of the reply. */
-export async function ask(opts: { system: string; content: Content | string; maxTokens?: number; effort?: 'low' | 'medium' | 'high' }): Promise<string> {
-  const apiKey = getKey();
-  if (!apiKey) throw new AIError('Add your Anthropic API key first.');
-  const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true, maxRetries: 1 });
-  let res: Anthropic.Beta.BetaMessage;
-  try {
-    res = await client.beta.messages.create({
-      model: AI_MODEL,
-      max_tokens: opts.maxTokens ?? 16000,
-      system: opts.system,
-      messages: [{ role: 'user', content: opts.content }],
-      output_config: { effort: opts.effort ?? 'low' },
-      // a declined request is retried on a fallback model chosen by the API
-      betas: ['server-side-fallback-2026-07-01'],
-      ...({ fallbacks: 'default' } as object),
-    } as Anthropic.Beta.MessageCreateParamsNonStreaming);
-  } catch (e) {
-    if (e instanceof Anthropic.AuthenticationError) throw new AIError('That API key was refused. Check it in AI settings.');
-    if (e instanceof Anthropic.RateLimitError) throw new AIError('Too many requests right now. Try again in a minute.');
-    if (e instanceof Anthropic.APIConnectionError) throw new AIError('Couldn’t reach Anthropic. Check your connection.');
-    if (e instanceof Anthropic.APIError) throw new AIError(`Anthropic said: ${e.message}`);
-    throw e;
-  }
-  if (res.stop_reason === 'refusal') throw new AIError('Claude declined this request. Try wording it differently.');
-  const out = res.content.flatMap((b) => (b.type === 'text' ? [b.text] : [])).join('').trim();
-  if (!out) throw new AIError('Claude sent back an empty reply.');
-  if (res.stop_reason === 'max_tokens') throw new AIError('The reply was cut off. Try a shorter request.');
-  return out;
+/** One chat request on the task's provider + model; returns the reply text. */
+export async function ask(task: Task, opts: { system: string; content: string | ChatPart[]; maxTokens?: number; effort?: 'low' | 'medium' | 'high'; json?: boolean; signal?: AbortSignal }): Promise<string> {
+  const c = aiSettings.choice(task);
+  if (!c) throw new AIError('Add an AI provider first (AI providers).');
+  return aiSettings.provider(c.provider).chat!({ model: c.model, ...opts });
 }
 
 // ---- Magic Write ----
@@ -81,7 +44,7 @@ const INSTRUCTIONS: Record<Exclude<WriteAction, 'translate' | 'custom'>, string>
 /** Rewrite design copy. `text` empty + 'custom' writes new copy from the prompt. */
 export async function magicWrite(text: string, action: WriteAction, extra = ''): Promise<string> {
   const how = action === 'translate' ? `Translate it into ${extra || 'Hindi'}.` : action === 'custom' ? extra : INSTRUCTIONS[action];
-  const reply = await ask({
+  const reply = await ask('writing', {
     system: 'You edit short copy for graphic designs (posters, social posts, slides). Reply with only the new text — no quotes, no preamble, no notes. Keep line breaks where they help the layout.',
     content: text.trim() ? `${how}\n\nText:\n${text}` : `Write copy for a design. ${how}`,
     maxTokens: 2000,
@@ -108,33 +71,37 @@ Rules: keep everything inside the page with comfortable margins; strong hierarch
 }
 
 export async function designForMe(prompt: string, size: { width: number; height: number }, brandHint = ''): Promise<CompleteResult> {
-  const reply = await ask({
-    system: designSystem(size.width, size.height),
-    content: `${prompt.trim()}${brandHint ? `\n\n${brandHint}` : ''}`,
-    effort: 'medium',
-  });
+  const system = designSystem(size.width, size.height);
+  const brief = `${prompt.trim()}${brandHint ? `\n\n${brandHint}` : ''}`;
+  const reply = await ask('design', { system, content: brief, effort: 'medium', json: true });
   try {
     return designFromReply(reply, size);
   } catch (e) {
-    throw new AIError(`Claude’s design couldn’t be read (${e instanceof Error ? e.message : e}). Try again.`);
+    // one more try, telling the model what was wrong (models without structured output slip sometimes)
+    const why = e instanceof Error ? e.message : String(e);
+    const again = await ask('design', {
+      system,
+      content: `${brief}\n\nYour previous answer could not be used: ${why}.\nPrevious answer (start):\n${reply.slice(0, 4000)}\n\nAnswer again with ONE valid JSON object in the format above and nothing else.`,
+      effort: 'medium',
+      json: true,
+    });
+    try {
+      return designFromReply(again, size);
+    } catch (e2) {
+      throw new AIError(`The AI’s design couldn’t be read (${e2 instanceof Error ? e2.message : e2}). Try again or pick another model.`);
+    }
   }
 }
 
 // ---- Describe / alt text ----
 
-function base64(bytes: Uint8Array): string {
-  let s = '';
-  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return btoa(s);
-}
-
 /** Alt text for a page, from a PNG of it plus its words. */
 export async function describePage(png: Uint8Array, page: Page, doc: Doc): Promise<string> {
   const words = page.elements.flatMap((e) => (e.type === 'text' ? [e.text] : [])).join(' | ').slice(0, 2000);
-  return ask({
+  return ask('vision', {
     system: 'You write alt text for graphic designs. One or two plain sentences (under 60 words) that say what the design is, its main message and its look. No preamble.',
     content: [
-      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: base64(png) } },
+      { type: 'image', mime: 'image/png', data: base64(png) },
       { type: 'text', text: `Design "${doc.title}", ${Math.round(doc.width)}×${Math.round(doc.height)} px. Words on it: ${words || '(none)'}` },
     ],
     maxTokens: 1000,

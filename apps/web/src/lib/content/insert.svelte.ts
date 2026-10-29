@@ -144,6 +144,11 @@ export async function handlePanelDrop(ed: EditorState, data: string, at: { x: nu
     if (l) ed.addLine(l, at);
     return true;
   }
+  if (d.kind === 'ai' && d.id) {
+    // a generated image / video tile from the AI panel
+    const { studio } = await import('../ai/media.svelte.ts');
+    return studio.insert(ed, d.id, at);
+  }
   if (d.kind === 'frame' && d.id) {
     ed.addFrame(d.id, at);
     return true;
