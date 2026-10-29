@@ -1,11 +1,10 @@
 import { EXTENSION, MIME, fileName, pack, unpack, type ProjectFile } from './file.ts';
 import { brandJson, parseBrand, type BrandData } from './brand.ts';
 import { byRecent, type ProjectMeta, type ProjectStore, type Version } from './store.ts';
+import { API, DriveError, driveCall, readMedia, type TokenSource } from './driveapi.ts';
+import { DriveSharing, readAccess, type FileAccess } from './share.ts';
 
-/** Returns a valid Drive access token (the caller caches and refreshes). */
-export type TokenSource = (forceRefresh?: boolean) => Promise<string>;
-
-const API = 'https://www.googleapis.com/drive/v3';
+export { DriveError, type TokenSource };
 const UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
 const ROOT_PROP = 'digitalCanvasRoot';
@@ -20,6 +19,8 @@ const HIDDEN_PROP = 'dcHidden';
 const DRIVE_PROP = 'dcDrive';
 /** `<provider>/<model>` of an AI-generated asset (Drive appProperties are short: 124 bytes key+value). */
 const AI_PROP = 'dcAi';
+/** On an asset file made "anyone with the link: reader" because a design using it is shared. */
+const PUBLIC_PROP = 'dcPublic';
 
 /** One of your uploads in `Digital Canvas/assets`. */
 export interface LibraryAsset {
@@ -59,11 +60,16 @@ interface DriveFile {
   appProperties?: Record<string, string>;
 }
 
-export class DriveError extends Error {
-  override name = 'DriveError';
-  constructor(message: string, readonly status: number) {
-    super(message);
-  }
+/** Remembers the Drive file of designs outside your folder (shared with you), so they reopen after a reload. */
+export interface KnownFiles {
+  get(docId: string): string | undefined;
+  set(docId: string, fileId: string): void;
+}
+
+export interface DriveStoreOptions {
+  /** Browser API key: reads designs and assets shared "anyone with the link" that OAuth can't see. */
+  apiKey?: string;
+  known?: KnownFiles;
 }
 
 /** Drive limits an app property's key + value to 124 bytes. */
@@ -101,18 +107,23 @@ export class DriveStore implements ProjectStore {
   private assetIds: Promise<Map<string, string>> | null = null; // asset id → Drive file id
   private hidden = new Set<string>(); // assets removed from Uploads
   private binned = new Map<string, string>(); // doc id → Drive file id, after remove()
+  private published = new Set<string>(); // asset ids whose file is "anyone with the link: reader"
+  /** Linked assets of designs that live elsewhere: doc id → (asset id → Drive file id), from links.json. */
+  private remote = new Map<string, Record<string, string>>();
+  /** Doc ids whose last open/save wrote a links.json. */
+  private linked = new Set<string>();
+  /** Owner / role of opened designs. */
+  private accessOf = new Map<string, FileAccess>();
+  /** Designs shared with anyone besides the owner: their new assets are published on save. */
+  private sharedDocs = new Set<string>();
+  readonly sharing: DriveSharing;
 
-  constructor(private token: TokenSource, private folderName = 'Digital Canvas', private cache?: AssetCache) {}
+  constructor(private token: TokenSource, private folderName = 'Digital Canvas', private cache?: AssetCache, private opts: DriveStoreOptions = {}) {
+    this.sharing = new DriveSharing(token);
+  }
 
-  private async call(url: string, init: RequestInit = {}, retry = true): Promise<Response> {
-    const res = await fetch(url, { ...init, headers: { ...init.headers, Authorization: `Bearer ${await this.token(!retry)}` } });
-    if (res.status === 401 && retry) return this.call(url, init, false);
-    if (!res.ok) {
-      let msg = `${res.status}`;
-      try { msg = ((await res.json()) as { error?: { message?: string } }).error?.message ?? msg; } catch { /* not JSON */ }
-      throw new DriveError(`Google Drive: ${msg}`, res.status);
-    }
-    return res;
+  private call(url: string, init: RequestInit = {}): Promise<Response> {
+    return driveCall(this.token, url, init);
   }
 
   private async json<T>(url: string, init?: RequestInit): Promise<T> {
@@ -164,6 +175,7 @@ export class DriveStore implements ProjectStore {
           if (!a) continue;
           map.set(a, f.id);
           if (f.appProperties?.[HIDDEN_PROP]) this.hidden.add(a);
+          if (f.appProperties?.[PUBLIC_PROP]) this.published.add(a);
         }
         pageToken = r.nextPageToken ?? '';
       } while (pageToken);
@@ -219,6 +231,7 @@ export class DriveStore implements ProjectStore {
         const id = p[ASSET_PROP];
         if (!id) continue;
         map.set(id, f.id);
+        if (p[PUBLIC_PROP]) this.published.add(id);
         if (p[HIDDEN_PROP]) { this.hidden.add(id); continue; }
         const m = f.imageMediaMetadata ?? f.videoMediaMetadata;
         out.push({
@@ -256,12 +269,21 @@ export class DriveStore implements ProjectStore {
     this.hidden.add(id);
   }
 
-  private async downloadAsset(id: string): Promise<Uint8Array | undefined> {
+  /**
+   * An asset's bytes: the local cache, then your own `assets/` folder, then the
+   * file a shared design links to (`links`), read with OAuth first and the API
+   * key second (the owner made it "anyone with the link" when sharing).
+   */
+  private async downloadAsset(id: string, links?: Record<string, string>): Promise<Uint8Array | undefined> {
     const hit = await this.cache?.get(id).catch(() => undefined);
     if (hit) return hit;
-    const fileId = (await this.stored()).get(id);
+    const own = (await this.stored()).get(id);
+    const fileId = own ?? links?.[id];
     if (!fileId) return undefined;
-    const bytes = new Uint8Array(await (await this.call(`${API}/files/${fileId}?alt=media`)).arrayBuffer());
+    const bytes = own
+      ? new Uint8Array(await (await this.call(`${API}/files/${fileId}?alt=media`)).arrayBuffer())
+      : await readMedia(fileId, { token: this.token, apiKey: this.opts.apiKey }).catch(() => undefined);
+    if (!bytes) return undefined;
     await this.cache?.set(id, bytes).catch(() => {});
     return bytes;
   }
@@ -296,6 +318,11 @@ export class DriveStore implements ProjectStore {
 
   private async fileIdOf(docId: string): Promise<string | undefined> {
     if (this.ids.has(docId)) return this.ids.get(docId);
+    const known = this.opts.known?.get(docId);
+    if (known) {
+      this.ids.set(docId, known);
+      return known;
+    }
     const parent = await this.folder();
     const q = `'${parent}' in parents and trashed=false and appProperties has { key='${DOC_PROP}' and value='${docId.replace(/'/g, '')}' }`;
     const r = await this.json<{ files: DriveFile[] }>(`${API}/files?${new URLSearchParams({ q, fields: 'files(id)', spaces: 'drive' })}`);
@@ -312,11 +339,79 @@ export class DriveStore implements ProjectStore {
 
   /** Open by Drive file id (e.g. "Open with" from Drive). */
   async openFile(fileId: string): Promise<ProjectFile> {
-    const res = await this.call(`${API}/files/${fileId}?alt=media`);
-    const file = unpack(new Uint8Array(await res.arrayBuffer()));
-    this.ids.set(file.doc.id, fileId);
+    // a design shared "anyone with the link" opens even before the Picker granted it (API key)
+    const [bytes, access] = await Promise.all([
+      readMedia(fileId, { token: this.token, apiKey: this.opts.apiKey }),
+      readAccess(fileId, { token: this.token, apiKey: this.opts.apiKey }).catch(() => undefined),
+    ]);
+    const file = unpack(bytes);
+    const docId = file.doc.id;
+    this.ids.set(docId, fileId);
+    if (access) {
+      this.accessOf.set(docId, access);
+      if (access.shared) this.sharedDocs.add(docId);
+    }
+    if (!access?.ownedByMe) this.opts.known?.set(docId, fileId);
+    if (file.links) {
+      this.remote.set(docId, file.links);
+      this.linked.add(docId);
+    }
     return this.withAssets(file);
   }
+
+  /** Owner, sharer and your role for a design (cached from open; null when Drive won't say). */
+  async access(docId: string, fresh = false): Promise<FileAccess | null> {
+    if (!fresh && this.accessOf.has(docId)) return this.accessOf.get(docId)!;
+    const fileId = await this.fileIdOf(docId);
+    if (!fileId) return null;
+    const a = await this.sharing.access(fileId).catch(() => null);
+    if (a) {
+      this.accessOf.set(docId, a);
+      if (a.shared) this.sharedDocs.add(docId);
+    }
+    return a;
+  }
+
+  /** The design is now shared (or not): while it is, each save publishes its new assets. */
+  setShared(docId: string, shared: boolean): void {
+    if (shared) this.sharedDocs.add(docId);
+    else this.sharedDocs.delete(docId);
+    const a = this.accessOf.get(docId);
+    if (a) this.accessOf.set(docId, { ...a, shared });
+  }
+
+  isShared(docId: string): boolean {
+    return this.sharedDocs.has(docId);
+  }
+
+  /** The design's saved file has a links.json (older saves don't: save again before sharing). */
+  hasLinks(docId: string): boolean {
+    return this.linked.has(docId);
+  }
+
+  /**
+   * Make every asset of the design that lives in your `assets/` folder
+   * "anyone with the link: reader" (and mark it, so it is done once).
+   * Returns how many files changed.
+   */
+  async publishAssets(docId: string, assetIds?: string[]): Promise<number> {
+    const stored = await this.stored();
+    const ids = (assetIds ?? this.usedAssets.get(docId) ?? []).filter((a) => stored.has(a) && !this.published.has(a));
+    if (!ids.length) return 0;
+    const done = new Set(await this.sharing.publish(ids.map((a) => stored.get(a)!)));
+    let n = 0;
+    for (const a of ids) {
+      const fileId = stored.get(a)!;
+      if (!done.has(fileId)) continue;
+      this.published.add(a);
+      n++;
+      await this.call(`${API}/files/${fileId}?fields=id`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ appProperties: { [PUBLIC_PROP]: '1' } }) }).catch(() => {});
+    }
+    return n;
+  }
+
+  /** Linked asset ids of each design (last open or save). */
+  private usedAssets = new Map<string, string[]>();
 
   /** Drive keeps earlier saves of a file as revisions (about 30 days or 100 of them). */
   async versions(id: string): Promise<Version[]> {
@@ -339,10 +434,11 @@ export class DriveStore implements ProjectStore {
   private async withAssets(file: ProjectFile): Promise<ProjectFile> {
     // Linked assets: fetch what the file doesn't carry (a few at a time).
     const missing = Object.keys(file.doc.assets).filter((a) => !file.assets.has(a) && isSharedAssetId(a));
+    this.usedAssets.set(file.doc.id, Object.keys(file.doc.assets).filter(isSharedAssetId));
     const queue = [...missing];
     await Promise.all(Array.from({ length: Math.min(6, queue.length) }, async () => {
       for (let a = queue.shift(); a; a = queue.shift()) {
-        const bytes = await this.downloadAsset(a);
+        const bytes = await this.downloadAsset(a, file.links);
         if (bytes) file.assets.set(a, bytes);
       }
     }));
@@ -352,11 +448,23 @@ export class DriveStore implements ProjectStore {
 
   async save(file: ProjectFile): Promise<void> {
     const { doc } = file;
+    const stored = await this.stored();
+    // A design shared with you links the owner's asset files: don't copy those into your Drive.
+    const remote = this.remote.get(doc.id) ?? {};
+    const used = Object.keys(doc.assets).filter(isSharedAssetId);
     // Assets first, so a saved design never points at something Drive doesn't have.
-    const queue = Object.keys(doc.assets).filter((a) => file.assets.has(a) && isSharedAssetId(a));
+    const queue = used.filter((a) => file.assets.has(a) && !(remote[a] && !stored.has(a)));
     await Promise.all(Array.from({ length: Math.min(4, queue.length) }, async () => {
       for (let a = queue.shift(); a; a = queue.shift()) await this.uploadAsset(a, file.assets.get(a)!, doc.assets[a]!.mime, doc.assets[a]!.name, undefined, doc.assets[a]!.ai);
     }));
+    const links: Record<string, string> = {};
+    for (const a of used) {
+      const f = stored.get(a) ?? remote[a];
+      if (f) links[a] = f;
+    }
+    this.usedAssets.set(doc.id, used);
+    // shared: new assets get the same "anyone with the link" access before the design points at them
+    if (this.sharedDocs.has(doc.id)) await this.publishAssets(doc.id, used).catch(() => 0);
     const fileId = await this.fileIdOf(doc.id);
     const meta: Record<string, unknown> = {
       name: fileName(doc.title),
@@ -369,10 +477,12 @@ export class DriveStore implements ProjectStore {
     const head = `--${boundary}\r\ncontent-type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${boundary}\r\ncontent-type: ${MIME}\r\n\r\n`;
     // Assets with other ids (e.g. from old imports) stay inside the file.
     const inside = new Map([...file.assets].filter(([a]) => !isSharedAssetId(a)));
-    const body = new Blob([head, pack({ doc, assets: inside, thumbnail: file.thumbnail }) as BlobPart, `\r\n--${boundary}--`]);
+    const body = new Blob([head, pack({ doc, assets: inside, thumbnail: file.thumbnail, links }) as BlobPart, `\r\n--${boundary}--`]);
     const url = fileId ? `${UPLOAD}/files/${fileId}?uploadType=multipart&fields=id` : `${UPLOAD}/files?uploadType=multipart&fields=id`;
     const r = await this.json<{ id: string }>(url, { method: fileId ? 'PATCH' : 'POST', headers: { 'content-type': `multipart/related; boundary=${boundary}` }, body });
     this.ids.set(doc.id, r.id);
+    if (Object.keys(remote).length) this.remote.set(doc.id, { ...remote, ...links });
+    this.linked.add(doc.id);
   }
 
   /** Moves the file to Drive's bin (recoverable for 30 days). */
