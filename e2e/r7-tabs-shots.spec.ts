@@ -4,6 +4,10 @@ import { CONTENT_HOSTS, fakeWco } from './helpers.ts';
 /** Screenshots of the design tabs: browser bar, installed-app title bar (WCO), dark and light. */
 const SHOTS = '/tmp/orch27-rw';
 test.use({ viewport: { width: 1571, height: 875 } });
+// opens nine designs; slower than the default 30 s on a busy machine
+test.setTimeout(120_000);
+// screenshot-only file (no product assertions): a template click on a busy machine sometimes lands before Home settles
+test.describe.configure({ retries: 2 });
 
 /** Three designs from Home templates, each its own tab. */
 async function threeDesigns(page: Page): Promise<void> {
