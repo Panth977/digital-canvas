@@ -18,6 +18,8 @@ const NAME_PROP = 'dcName';
 const HIDDEN_PROP = 'dcHidden';
 /** The Drive file an asset was copied from (Google Picker → "From Google Drive"). */
 const DRIVE_PROP = 'dcDrive';
+/** `<provider>/<model>` of an AI-generated asset (Drive appProperties are short: 124 bytes key+value). */
+const AI_PROP = 'dcAi';
 
 /** One of your uploads in `Digital Canvas/assets`. */
 export interface LibraryAsset {
@@ -171,7 +173,7 @@ export class DriveStore implements ProjectStore {
     return this.assetIds;
   }
 
-  private async uploadAsset(id: string, bytes: Uint8Array, mime: string, label?: string, driveFileId?: string): Promise<void> {
+  private async uploadAsset(id: string, bytes: Uint8Array, mime: string, label?: string, driveFileId?: string, ai?: { provider: string; model: string }): Promise<void> {
     const stored = await this.stored();
     if (stored.has(id)) {
       // Used again after "Remove from Uploads": show it again. Picked from Drive: remember where from.
@@ -187,6 +189,7 @@ export class DriveStore implements ProjectStore {
     const props: Record<string, string> = { [ASSET_PROP]: id };
     if (label) props[NAME_PROP] = shortLabel(label);
     if (driveFileId) props[DRIVE_PROP] = driveFileId;
+    if (ai) props[AI_PROP] = `${ai.provider}/${ai.model}`.slice(0, 110);
     const meta = { name: id, mimeType: mime, parents: [await this.assetsFolder()], appProperties: props };
     const boundary = `dc${Math.random().toString(36).slice(2)}`;
     const head = `--${boundary}\r\ncontent-type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${boundary}\r\ncontent-type: ${mime}\r\n\r\n`;
@@ -352,7 +355,7 @@ export class DriveStore implements ProjectStore {
     // Assets first, so a saved design never points at something Drive doesn't have.
     const queue = Object.keys(doc.assets).filter((a) => file.assets.has(a) && isSharedAssetId(a));
     await Promise.all(Array.from({ length: Math.min(4, queue.length) }, async () => {
-      for (let a = queue.shift(); a; a = queue.shift()) await this.uploadAsset(a, file.assets.get(a)!, doc.assets[a]!.mime, doc.assets[a]!.name);
+      for (let a = queue.shift(); a; a = queue.shift()) await this.uploadAsset(a, file.assets.get(a)!, doc.assets[a]!.mime, doc.assets[a]!.name, undefined, doc.assets[a]!.ai);
     }));
     const fileId = await this.fileIdOf(doc.id);
     const meta: Record<string, unknown> = {
@@ -435,8 +438,8 @@ export class DriveStore implements ProjectStore {
    * Put a file into `Digital Canvas/assets` (stored once under its content-hash id).
    * `driveFileId`: the Drive file it was picked from (listed under "From Google Drive").
    */
-  async addAsset(id: string, bytes: Uint8Array, mime: string, label?: string, driveFileId?: string): Promise<void> {
-    await this.uploadAsset(id, bytes, mime, label, driveFileId);
+  async addAsset(id: string, bytes: Uint8Array, mime: string, label?: string, driveFileId?: string, ai?: { provider: string; model: string }): Promise<void> {
+    await this.uploadAsset(id, bytes, mime, label, driveFileId, ai);
     await this.cache?.set(id, bytes).catch(() => {});
   }
 

@@ -8,29 +8,25 @@
   import { place } from '../../lib/tools.ts';
   import { text as textEl } from '@digital-canvas/scene';
   import { insertDesign, pageIsEmpty, type InsertMode } from '../../lib/templates.ts';
-  import { AI_MODEL, WRITE_ACTIONS, describePage, designForMe, getKey, looksLikeKey, magicWrite, resolveIcons, setKey, type WriteAction } from '../../lib/ai.ts';
+  import { WRITE_ACTIONS, describePage, designForMe, magicWrite, resolveIcons, type WriteAction } from '../../lib/ai.ts';
+  import { aiSettings } from '../../lib/ai/settings.svelte.ts';
+  import { STYLES, studio } from '../../lib/ai/media.svelte.ts';
+  import { kieDurations } from '../../lib/ai/kie.ts';
+  import { SORA_SECONDS } from '../../lib/ai/openai.ts';
+  import type { Task } from '../../lib/ai/types.ts';
   import InsertDialog from './InsertDialog.svelte';
+  import AIProviders from './AIProviders.svelte';
 
   let { ed }: { ed: EditorState } = $props();
 
-  let key = $state(getKey());
-  let keyDraft = $state('');
   let showSettings = $state(false);
-  const hasKey = $derived(!!key);
-  function saveKey(): void {
-    setKey(keyDraft);
-    key = getKey();
-    keyDraft = '';
-    showSettings = false;
-  }
-  function forgetKey(): void {
-    setKey('');
-    key = '';
-  }
-  const masked = $derived(key ? `${key.slice(0, 10)}…${key.slice(-4)}` : '');
-
-  type Mode = 'design' | 'write' | 'describe';
-  let mode = $state<Mode>('design');
+  const hasAny = $derived(aiSettings.any);
+  type Mode = 'design' | 'write' | 'describe' | 'image' | 'video';
+  let mode = $state<Mode>(studio.tab);
+  $effect(() => { studio.tab = mode; });
+  const TASK: Record<Mode, Task> = { design: 'design', write: 'writing', describe: 'vision', image: 'image', video: 'video' };
+  const using = $derived(aiSettings.describe(TASK[mode]));
+  const ready = $derived(!!aiSettings.choice(TASK[mode]));
   let busy = $state(false);
   let error = $state('');
 
@@ -125,46 +121,72 @@
     ed.updatePage({ notes });
     ed.seal();
   }
+
+  // ---- generate image / video ----
+  type Aspect = 'page' | '1:1' | '4:5' | '9:16' | '16:9';
+  let mediaPrompt = $state('');
+  let style = $state('');
+  let aspectSel = $state<Aspect>('page');
+  let count = $state(1);
+  let duration = $state(5);
+  let fromImage = $state(true);
+  const aspect = $derived(aspectSel === 'page' ? { w: ed.doc.width, h: ed.doc.height } : (([w, h]) => ({ w, h }))(aspectSel.split(':').map(Number) as [number, number]));
+  const selImage = $derived(ed.selected.find((e) => e.type === 'image') as { asset: string } | undefined);
+  const videoChoice = $derived(aiSettings.choice('video'));
+  const durations = $derived.by(() => {
+    const c = videoChoice;
+    const kind = c ? aiSettings.get(c.provider)?.kind : undefined;
+    if (kind === 'openai') return SORA_SECONDS;
+    if (kind === 'kie') return kieDurations(c!.model) ?? [5, 10];
+    return [4, 6, 8, 10];
+  });
+  $effect(() => { if (!durations.includes(duration)) duration = durations[0]!; });
+  const ratioLabel = $derived.by(() => {
+    const r = ed.doc.width / ed.doc.height;
+    return Math.abs(r - 1) < 0.05 ? 'square' : r > 1 ? 'landscape' : 'portrait';
+  });
+  const jobs = $derived(studio.jobs.filter((j) => j.kind === mode));
+  const results = $derived(studio.results.filter((r) => r.kind === mode));
+  async function makeImages(): Promise<void> {
+    if (!mediaPrompt.trim()) return;
+    error = '';
+    studio.generateImages({ prompt: mediaPrompt, style, aspect, count }).catch((e) => (error = e instanceof Error ? e.message : String(e)));
+  }
+  async function makeVideo(): Promise<void> {
+    if (!mediaPrompt.trim()) return;
+    error = '';
+    const img = fromImage && selImage ? { bytes: ed.assets.get(selImage.asset), mime: ed.doc.assets[selImage.asset]?.mime ?? 'image/png' } : null;
+    studio.generateVideo({ prompt: mediaPrompt, aspect, duration, ...(img?.bytes ? { image: { bytes: img.bytes, mime: img.mime } } : {}) }).catch((e) => (error = e instanceof Error ? e.message : String(e)));
+  }
+  function dragResult(e: DragEvent, id: string): void {
+    e.dataTransfer?.setData('application/x-digital-canvas', JSON.stringify({ kind: 'ai', id }));
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copy';
+  }
 </script>
 
 <div class="dp" data-testid="ai-panel">
   <div class="hero">
     <span class="logo"><Icon name="ai" size={22} /></span>
-    <div>
+    <div class="grow">
       <b>AI</b>
-      <small>{hasKey ? `Claude (${AI_MODEL}) · your key` : 'Bring your own Anthropic key'}</small>
+      <small data-testid="ai-using">{hasAny ? (using || 'No provider for this yet') + ' · your key' : 'Bring your own key: Claude, GPT, Gemini, OpenRouter, kie.ai…'}</small>
     </div>
-    {#if hasKey}<button class="dp-link" style="margin-left:auto" onclick={() => (showSettings = !showSettings)} data-testid="ai-settings"><Icon name="key" size={16} /></button>{/if}
+    {#if hasAny}<button class="dp-link" title="AI providers" aria-label="AI providers" onclick={() => (showSettings = !showSettings)} data-testid="ai-settings"><Icon name="key" size={16} /></button>{/if}
   </div>
 
-  {#if !hasKey || showSettings}
-    <div class="dp-box dp-stack" data-testid="ai-key-box">
-      {#if hasKey}
-        <div class="dp-row"><span class="grow">Key in use: <code>{masked}</code></span><button class="btn danger" onclick={forgetKey} data-testid="ai-key-forget">Remove</button></div>
-      {:else}
-        <b>Use Claude in your designs</b>
-        <p class="dp-hint" style="margin:0">Magic Write, Design for me and alt text run on Anthropic’s Claude with <i>your own</i> API key. You pay Anthropic for what you use (usually well under ₹1 a request).</p>
-        <ol class="steps">
-          <li>Open <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer">console.anthropic.com → API keys</a> and sign in.</li>
-          <li>Add a little credit under Billing.</li>
-          <li>Create a key and paste it here.</li>
-        </ol>
-      {/if}
-      <form class="dp-stack" onsubmit={(e) => { e.preventDefault(); if (looksLikeKey(keyDraft)) saveKey(); }}>
-        <input class="input" type="password" autocomplete="off" placeholder="sk-ant-…" bind:value={keyDraft} data-testid="ai-key-input" aria-label="Anthropic API key" />
-        {#if keyDraft && !looksLikeKey(keyDraft)}<p class="dp-err" style="margin:0">That doesn’t look like an Anthropic key (it starts with sk-ant-).</p>{/if}
-        <button class="btn primary" disabled={!looksLikeKey(keyDraft)} data-testid="ai-key-save">{hasKey ? 'Replace key' : 'Save key'}</button>
-      </form>
-      <p class="dp-hint" style="margin:0"><Icon name="lock" size={12} /> The key stays in this browser only (local storage). It is sent to api.anthropic.com and nowhere else — not to our servers, not into your designs.</p>
-    </div>
+  {#if !hasAny || showSettings}
+    <AIProviders ondone={() => (showSettings = false)} />
   {/if}
 
-  {#if hasKey}
-    <div class="dp-tabs" role="tablist" style="margin-top:12px">
-      <button role="tab" class:on={mode === 'design'} onclick={() => (mode = 'design')} data-testid="ai-tab-design">Design for me</button>
-      <button role="tab" class:on={mode === 'write'} onclick={() => (mode = 'write')} data-testid="ai-tab-write">Magic Write</button>
+  {#if hasAny && !showSettings}
+    <div class="dp-tabs tabs5" role="tablist" style="margin-top:12px">
+      <button role="tab" class:on={mode === 'design'} onclick={() => (mode = 'design')} data-testid="ai-tab-design">Design</button>
+      <button role="tab" class:on={mode === 'write'} onclick={() => (mode = 'write')} data-testid="ai-tab-write">Write</button>
       <button role="tab" class:on={mode === 'describe'} onclick={() => (mode = 'describe')} data-testid="ai-tab-describe">Alt text</button>
+      <button role="tab" class:on={mode === 'image'} onclick={() => (mode = 'image')} data-testid="ai-tab-image">Image{#if studio.jobs.some((j) => j.kind === 'image' && !j.error)}<span class="dot"></span>{/if}</button>
+      <button role="tab" class:on={mode === 'video'} onclick={() => (mode = 'video')} data-testid="ai-tab-video">Video{#if studio.jobs.some((j) => j.kind === 'video' && !j.error)}<span class="dot"></span>{/if}</button>
     </div>
+    {#if !ready}<p class="dp-hint" data-testid="ai-not-ready">None of your providers can do this yet. <button class="dp-link inline" onclick={() => (showSettings = true)}>Add one</button>{mode === 'video' ? ' (OpenAI, Gemini or kie.ai)' : mode === 'image' ? ' (OpenAI, Gemini, OpenRouter or kie.ai)' : ''}.</p>{/if}
     {#if error}<p class="dp-err" data-testid="ai-error">{error}</p>{/if}
 
     {#if mode === 'design'}
@@ -212,8 +234,8 @@
           </div>
         </div>
       {/if}
-    {:else}
-      <p class="dp-hint" style="margin-top:0">Claude looks at page {ed.pageIndex + 1} and writes alt text for it, for screen readers and social posts.</p>
+    {:else if mode === 'describe'}
+      <p class="dp-hint" style="margin-top:0">The AI looks at page {ed.pageIndex + 1} and writes alt text for it, for screen readers and social posts.</p>
       <button class="btn primary dp-cta" style="margin-top:10px" disabled={busy} onclick={describe} data-testid="ai-describe">
         {#if busy}<span class="dp-spin"></span> Looking…{:else}<Icon name="eye" size={16} /> Describe this page{/if}
       </button>
@@ -224,6 +246,52 @@
             <button class="btn grow" onclick={async () => { await navigator.clipboard?.writeText(alt).catch(() => {}); copied = true; setTimeout(() => (copied = false), 1500); }}>{copied ? 'Copied' : 'Copy'}</button>
             <button class="btn grow" onclick={saveToNotes} data-testid="ai-alt-notes">Save to page notes</button>
           </div>
+        </div>
+      {/if}
+    {:else}
+      <form class="dp-stack" onsubmit={(e) => { e.preventDefault(); void (mode === 'image' ? makeImages() : makeVideo()); }}>
+        <textarea class="dp-textarea" placeholder={mode === 'image' ? 'Describe the picture you want…' : selImage && fromImage ? 'How should the selected picture move?' : 'Describe the video clip you want…'} bind:value={mediaPrompt} data-testid="ai-media-prompt"></textarea>
+        {#if mode === 'image'}
+          <div class="dp-chips" role="radiogroup" aria-label="Style">
+            {#each STYLES as st (st.id)}<button type="button" class="dp-chip" class:on={style === st.id} onclick={() => (style = st.id)} data-testid="ai-style-{st.id || 'none'}">{st.label}</button>{/each}
+          </div>
+        {:else if selImage}
+          <label class="dp-row check"><input type="checkbox" bind:checked={fromImage} data-testid="ai-video-from-image" /> Start from the selected picture</label>
+        {/if}
+        <div class="dp-row">
+          <select class="input grow" bind:value={aspectSel} aria-label="Shape" data-testid="ai-media-aspect">
+            <option value="page">Page shape ({ratioLabel})</option>
+            <option value="1:1">Square 1:1</option><option value="4:5">Portrait 4:5</option><option value="9:16">Story 9:16</option><option value="16:9">Wide 16:9</option>
+          </select>
+          {#if mode === 'image'}
+            <select class="input small" bind:value={count} aria-label="How many" data-testid="ai-image-count">{#each [1, 2, 3, 4] as n}<option value={n}>{n}×</option>{/each}</select>
+          {:else}
+            <select class="input small" bind:value={duration} aria-label="Length" data-testid="ai-video-duration">{#each durations as d}<option value={d}>{d} s</option>{/each}</select>
+          {/if}
+        </div>
+        <button class="btn primary dp-cta" disabled={!ready || !mediaPrompt.trim()} data-testid="ai-media-generate"><Icon name={mode === 'image' ? 'image' : 'video'} size={16} /> Generate {mode === 'image' ? (count > 1 ? `${count} images` : 'image') : 'video'}</button>
+      </form>
+      <p class="dp-hint">{mode === 'video' ? 'Videos take a few minutes. Keep editing: it carries on and lands here.' : 'Click a result to add it, or drag it onto the page.'} Results are saved to your Uploads.</p>
+      {#each jobs as j (j.id)}
+        <div class="dp-box job" data-testid="ai-job">
+          <div class="dp-row"><span class="grow tx">{j.prompt}</span><button class="dp-link" onclick={() => (j.error ? studio.cancel(j.id) : studio.cancel(j.id))} aria-label={j.error ? 'Dismiss' : 'Cancel'}><Icon name="close" size={14} /></button></div>
+          {#if j.error}<p class="dp-err" style="margin:0" data-testid="ai-job-error">{j.error}</p>
+          {:else}
+            <div class="bar" class:indet={j.progress.fraction === null}><i style:width={j.progress.fraction === null ? '35%' : `${Math.round(j.progress.fraction * 100)}%`}></i></div>
+            <small class="dp-hint">{j.progress.message} · {j.label}</small>
+          {/if}
+        </div>
+      {/each}
+      {#if results.length}
+        <div class="dp-grid two" style="margin-top:10px">
+          {#each results as r (r.id)}
+            <div class="tile">
+              <button class="tile-btn" draggable="true" ondragstart={(e) => dragResult(e, r.id)} onclick={() => studio.insert(ed, r.id)} title={r.ai.prompt} data-testid="ai-result">
+                {#if r.kind === 'image'}<img src={r.url} alt={r.ai.prompt} />{:else}<video src={r.url} muted loop playsinline onmouseenter={(e) => (e.currentTarget as HTMLVideoElement).play()} onmouseleave={(e) => (e.currentTarget as HTMLVideoElement).pause()}></video>{/if}
+              </button>
+              <button class="x" aria-label="Remove from this list" onclick={() => studio.dismiss(r.id)}><Icon name="close" size={12} /></button>
+            </div>
+          {/each}
         </div>
       {/if}
     {/if}
@@ -239,13 +307,27 @@
   .hero .logo { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; color: #fff; background: conic-gradient(from 200deg, #00c4cc, #7d2ae8, #ff66c4, #00c4cc); flex-shrink: 0; }
   .hero b { display: block; font-size: 17px; }
   .hero small { color: var(--muted); font-size: 12px; }
-  .steps { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.6; color: var(--ink-2); }
-  .steps a { color: var(--accent); }
-  code { font-size: 12px; background: var(--chip); padding: 1px 4px; border-radius: 4px; }
   .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
   .quote { border-left: 3px solid var(--accent); padding: 6px 10px; background: var(--chip); border-radius: 0 8px 8px 0; font-size: 13px; line-height: 1.45; white-space: pre-wrap; }
   .out { white-space: pre-wrap; font-size: 14px; line-height: 1.5; }
   .idea { font-size: 13px; color: var(--ink-2); }
   .idea .dp-tx { white-space: normal; }
   select.input { height: 34px; }
+  .grow { flex: 1; min-width: 0; }
+  .tabs5 button { padding: 10px 7px; position: relative; white-space: nowrap; }
+  select.small { width: 76px; flex: none; }
+  .dot { position: absolute; top: 7px; right: 1px; width: 6px; height: 6px; border-radius: 3px; background: var(--accent); }
+  .inline { padding: 0; color: var(--accent); }
+  .check { font-size: 13px; gap: 6px; }
+  .job { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+  .job .tx { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bar { height: 6px; border-radius: 3px; background: var(--chip); overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; transition: width .3s; }
+  .bar.indet i { animation: indet 1.4s ease-in-out infinite; }
+  @keyframes indet { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }
+  .tile { position: relative; }
+  .tile-btn { display: block; width: 100%; padding: 0; border: 0; border-radius: 8px; overflow: hidden; background: var(--chip); aspect-ratio: 1; cursor: grab; }
+  .tile-btn img, .tile-btn video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .tile .x { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border-radius: 11px; border: 0; background: rgba(0,0,0,.55); color: #fff; display: none; place-items: center; padding: 0; }
+  .tile:hover .x { display: grid; }
 </style>

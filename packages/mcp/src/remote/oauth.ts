@@ -63,14 +63,45 @@ export function decrypt(blob: string, tokenKey: string): string {
 
 // ---- requests ----
 
+const LOOPBACK = ['localhost', '127.0.0.1', '[::1]'];
+
 /** https, loopback http (native apps), or a private-use scheme. */
 export function isAllowedRedirectUri(u: string): boolean {
   let url: URL;
   try { url = new URL(u); } catch { return false; }
   if (url.hash) return false;
   if (url.protocol === 'https:') return true;
-  if (url.protocol === 'http:') return ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+  if (url.protocol === 'http:') return LOOPBACK.includes(url.hostname);
   return /^[a-z][a-z0-9+.-]*:$/.test(url.protocol) && !['javascript:', 'data:', 'file:', 'vbscript:', 'blob:'].includes(url.protocol);
+}
+
+/**
+ * Is `uri` one of the client's registered redirect URIs? Exact match, except
+ * loopback http URIs, where the port may differ (RFC 8252 §7.3: native apps
+ * such as VS Code, Gemini CLI and Cursor pick a free port at sign-in time).
+ */
+export function redirectMatches(registered: readonly string[], uri: string): boolean {
+  if (registered.includes(uri)) return true;
+  let u: URL;
+  try { u = new URL(uri); } catch { return false; }
+  if (u.protocol !== 'http:' || !LOOPBACK.includes(u.hostname)) return false;
+  return registered.some((r) => {
+    try {
+      const x = new URL(r);
+      return x.protocol === 'http:' && x.hostname === u.hostname && x.pathname === u.pathname && x.search === u.search;
+    } catch { return false; }
+  });
+}
+
+/**
+ * RFC 8707 `resource`: when a client names the resource it wants a token for,
+ * it must be this server (`<base>/mcp`, or `<base>` itself). Absent = fine.
+ */
+export function checkResource(resource: string | null | undefined, base: string): void {
+  if (!resource) return;
+  const norm = (s: string) => s.replace(/\/+$/, '');
+  const r = norm(resource);
+  if (r !== norm(base) && r !== `${norm(base)}/mcp`) throw new OAuthError('invalid_target', `Unknown resource: ${resource} (use ${norm(base)}/mcp)`);
 }
 
 /** Known scopes from a `scope` string; generic OIDC ones and unknown words (old whole-Drive asks too) are ignored. Always designs. */
@@ -103,12 +134,13 @@ export async function registerClient(store: OAuthStore, input: { name: string; r
 /** Thrown for a bad client or redirect: shown as an error page, never redirected (no open redirector). */
 export class AuthorizePageError extends Error {}
 
-export async function checkAuthorizeRequest(store: OAuthStore, p: Record<string, string | undefined>): Promise<{ client: ClientRow; redirectUri: string; scopes: string[] }> {
+export async function checkAuthorizeRequest(store: OAuthStore, p: Record<string, string | undefined>, base?: string): Promise<{ client: ClientRow; redirectUri: string; scopes: string[] }> {
   const client = await store.getClient(p.client_id ?? '');
   if (!client) throw new AuthorizePageError('Unknown client_id: the app must register first.');
   const redirectUri = p.redirect_uri ?? (client.redirectUris.length === 1 ? client.redirectUris[0]! : '');
-  if (!client.redirectUris.includes(redirectUri)) throw new AuthorizePageError('redirect_uri is not registered for this client.');
+  if (!redirectMatches(client.redirectUris, redirectUri)) throw new AuthorizePageError('redirect_uri is not registered for this client.');
   if (p.response_type !== undefined && p.response_type !== 'code') throw new OAuthError('unsupported_response_type', 'Only response_type=code is supported');
+  if (base) checkResource(p.resource, base);
   if (!p.code_challenge || (p.code_challenge_method ?? 'S256') !== 'S256' || !/^[A-Za-z0-9_-]{43}$/.test(p.code_challenge)) throw new OAuthError('invalid_request', 'PKCE with code_challenge_method=S256 is required');
   return { client, redirectUri, scopes: parseScopes(p.scope) };
 }

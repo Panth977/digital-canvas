@@ -45,7 +45,7 @@ Open-source Canva alternative. Built on TaskManager ticket **ORCH-27** (ORCH boa
 - Panels live in `apps/web/src/editor/panels/` (AI, Templates, Brand, Tools, Projects, Apps); shared look in `panels.css` (`dp-` classes).
 - Templates: author in `tools/templates/library.ts` (loose docs, see `packages/scene/src/loose.ts`), then `npx tsx tools/templates/build.ts [id…]` writes `apps/web/src/templates/*.json` + `index.json` and `apps/web/public/templates/*.png`. Icons are baked in from Iconify (Fluent Emoji flat, Phosphor, MDI). `packages/render/test/templates.test.ts` checks every template.
 - Brand Kit: `packages/storage/src/brand.ts`; every store implements `loadBrand/saveBrand` (Drive: `Digital Canvas/brand.json` with `appProperties.dcBrand=1`, logos in `assets/`).
-- AI is bring-your-own-key: key in `localStorage['dc.anthropicKey']`, sent only to api.anthropic.com via `@anthropic-ai/sdk` (`dangerouslyAllowBrowser`), model `claude-sonnet-5-5`. "Design for me" asks for a loose doc and validates it with `designFromReply` → `parseDoc`.
+- AI is bring-your-own-key on any provider (r10, below). "Design for me" asks for a loose doc and validates it with `designFromReply` → `parseDoc` (one retry with the error).
 - Eraser brush: `addStroke` with brush `eraser` removes drawings (`erasedBy`, scene/erase.ts) instead of drawing.
 ## Content panels (r3-content, 2026-10-27)
 
@@ -92,3 +92,9 @@ Open-source Canva alternative. Built on TaskManager ticket **ORCH-27** (ORCH boa
 - The playhead stays inside the current scene (Timeline effect); `player.seek(t)` makes the scene at t current, `player.refresh()` re-fetches clip frames without moving the page. Keys (`lib/videokeys.ts`): Space play/pause, S split (`splitPage` in scene), ←/→ frame step when nothing is selected.
 - Pure maths in `lib/timeline.ts` (tested in `apps/web/test/timeline.test.ts`); page thumbnails are one cache per editor (`ed.thumbs`, `lib/thumbs.svelte.ts`) shared by the Pages strip, grid view and filmstrip; waveforms `lib/waveform.ts`.
 
+## AI providers (r10-ai, 2026-10-29)
+
+- `apps/web/src/lib/ai/`: `types.ts` (Provider: chat / images / video / listModels / test), adapters `anthropic.ts`, `openai.ts` (Responses API, gpt-image, Sora jobs), `gemini.ts` (Interactions API `/v1beta/interactions` for text, images and Omni video; never send `Api-Revision`, it fails CORS preflight; Veo 3.1 preview was shut down 2026-10-22), `compat.ts` (OpenAI-compatible + OpenRouter), `kie.ts` (Market createTask/recordInfo jobs, base64 upload for image-to-video; errors are HTTP 200 + `code`), `registry.ts` (kinds, curated models, default model per task), `settings.svelte.ts` (localStorage `dc.ai.providers`, `dc.ai.key.<id>`, `dc.ai.defaults`, `dc.ai.models.<id>`; migrates `dc.anthropicKey`), `media.svelte.ts` (generate image/video jobs that outlive the panel; results → Uploads + `AssetMeta.ai`).
+- `lib/ai.ts` = the features (Magic Write, Design for me, alt text) over `ask(task, …)`. A key goes only to its provider's host (unit tests `apps/web/test/ai-providers.test.ts` assert it; e2e `ai.spec.ts`, `ai-providers.spec.ts` watch every request).
+- All provider APIs pass CORS from the browser (checked 2026-10-28: Anthropic with the direct-browser header, OpenAI, Gemini, OpenRouter, kie.ai + its file hosts, Groq, Together, Mistral, DeepSeek). Local Ollama/LM Studio need their CORS setting.
+- MCP OAuth for non-Claude clients: loopback redirect URIs match on any port, RFC 8707 `resource` checked, lenient DCR (packages/mcp/src/remote/oauth.ts). Per-client steps: packages/mcp/README.md, apps/web/public/connect-ai.html.

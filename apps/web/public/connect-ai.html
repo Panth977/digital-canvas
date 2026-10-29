@@ -2,7 +2,7 @@
 <title>Digital Canvas · Connect your AI</title>
 <style>body{font:16px/1.6 system-ui,sans-serif;max-width:760px;margin:40px auto;padding:0 20px;color:#1f2328}h1{font-size:28px}h2{font-size:19px;margin-top:28px}a{color:#5b3df5}pre,code{font:13px/1.5 ui-monospace,Menlo,monospace;background:#f4f4f6;border-radius:6px}pre{padding:12px 14px;overflow:auto}code{padding:1px 5px}pre code{padding:0;background:none}ol li{margin:4px 0}</style>
 <h1>Connect your AI</h1>
-<p>Let Claude (or any AI agent that speaks the <a href="https://modelcontextprotocol.io">Model Context Protocol</a>) make posters, social posts, thumbnails and video reels in Digital Canvas from your own photos and clips. It works on your designs in your Google Drive, looks at what it made, checks it (contrast, overflowing text, safe zones) and exports PNG, PDF, GIF or MP4 to <b>Digital Canvas/Exports</b>. You can open every design here to finish it by hand.</p>
+<p>Let Claude, ChatGPT, Gemini, Cursor, VS Code Copilot or any AI agent that speaks the <a href="https://modelcontextprotocol.io">Model Context Protocol</a>) make posters, social posts, thumbnails and video reels in Digital Canvas from your own photos and clips. It works on your designs in your Google Drive, looks at what it made, checks it (contrast, overflowing text, safe zones) and exports PNG, PDF, GIF or MP4 to <b>Digital Canvas/Exports</b>. You can open every design here to finish it by hand.</p>
 
 <h2>Claude on the web, desktop or phone</h2>
 <ol>
@@ -11,6 +11,53 @@
   <li>Click <b>Connect</b> and sign in with the same Google account you use here.</li>
 </ol>
 <p>Then ask, for example: <i>“Make an Instagram post for our Friday night market using the photos in my ‘Market 2026’ Drive folder.”</i></p>
+
+<p>Every app below uses the same address, <code>https://digital-canvas-p977.web.app/mcp</code>, and the same sign-in: the app registers itself, opens a Digital Canvas page that asks you to confirm, then Google sign-in. Nobody pastes a key. The AI gets access only to your Digital Canvas folder (see <a href="#see">What it can see</a>).</p>
+
+<h2>ChatGPT</h2>
+<ol>
+  <li>In ChatGPT open <b>Settings › Apps &amp; Connectors › Advanced settings</b> and turn on <b>Developer mode</b> (Plus, Pro, Business, Enterprise and Edu; names of the menus change now and then).</li>
+  <li>Back in <b>Apps &amp; Connectors</b>, choose <b>Create</b> (or <b>Add custom connector</b>).</li>
+  <li>Name: <code>Digital Canvas</code> · MCP server URL: <code>https://digital-canvas-p977.web.app/mcp</code> · Authentication: <b>OAuth</b> (leave the client ID empty and any OIDC option off; ChatGPT registers itself).</li>
+  <li>Tick <b>I trust this application</b>, click <b>Create</b>, then confirm on our page and sign in with Google.</li>
+  <li>In a chat, open <b>+ › More › Developer mode</b> and switch Digital Canvas on.</li>
+</ol>
+
+<h2>Gemini CLI</h2>
+<pre><code>gemini mcp add --transport http digital-canvas https://digital-canvas-p977.web.app/mcp</code></pre>
+<p>or add it to <code>~/.gemini/settings.json</code>:</p>
+<pre><code>{
+  "mcpServers": {
+    "digital-canvas": { "httpUrl": "https://digital-canvas-p977.web.app/mcp" }
+  }
+}</code></pre>
+<p>Start <code>gemini</code> and run <code>/mcp auth digital-canvas</code>: a browser opens for sign-in (the CLI listens on a local port; any port works).</p>
+
+<h2>Cursor</h2>
+<p><b>Settings › MCP › Add new MCP server</b>, or in <code>~/.cursor/mcp.json</code>:</p>
+<pre><code>{
+  "mcpServers": {
+    "digital-canvas": { "url": "https://digital-canvas-p977.web.app/mcp" }
+  }
+}</code></pre>
+<p>Cursor shows <b>Needs login</b>: click it to sign in.</p>
+
+<h2>VS Code (GitHub Copilot agent mode)</h2>
+<p>Command palette › <b>MCP: Add Server… › HTTP</b>, or <code>.vscode/mcp.json</code>:</p>
+<pre><code>{
+  "servers": {
+    "digital-canvas": { "type": "http", "url": "https://digital-canvas-p977.web.app/mcp" }
+  }
+}</code></pre>
+<p>VS Code asks to sign in the first time a Digital Canvas tool is used.</p>
+
+<h2>Codex CLI, Windsurf and others</h2>
+<pre><code>codex mcp add digital-canvas --url https://digital-canvas-p977.web.app/mcp
+codex mcp login digital-canvas</code></pre>
+<p>Windsurf: <code>"digital-canvas": { "serverUrl": "https://digital-canvas-p977.web.app/mcp" }</code> in <code>mcp_config.json</code>. Any client that supports remote MCP over Streamable HTTP with OAuth works the same way. A client that only runs local (stdio) servers can use the local server below, or bridge with <code>npx mcp-remote https://digital-canvas-p977.web.app/mcp</code>.</p>
+
+<h2>Agents on OpenRouter (or any model API)</h2>
+<p>OpenRouter, Groq, Together and similar services sell model access; they don't run MCP servers for you. Use an agent or chat app that is an MCP client (any of the above, or your own code with an MCP SDK) and point it at OpenRouter for the model and at <code>https://digital-canvas-p977.web.app/mcp</code> for the tools. For scripts with no browser, run the local server (<code>npx @digital-canvas/mcp</code>; it signs in once in your browser).</p>
 
 <h2>Let AI use your device</h2>
 <p>With the connector above, the work (opening your designs, rendering previews, exporting PNG, PDF and MP4) happens <b>on one of your own devices</b>, not on our servers. Our server only passes the AI's requests to your device and the answers back.</p>
@@ -41,7 +88,11 @@
 }</code></pre>
 <p>The local server always runs on your computer, so it needs no device switch. Work on a folder on your computer instead of Google Drive: <code>"args": ["-y", "@digital-canvas/mcp", "--store", "folder", "/path/to/Designs"]</code>. Video export on your computer needs <a href="https://ffmpeg.org/download.html">ffmpeg</a>.</p>
 
-<h2>What it can see</h2>
+<h2>AI inside the editor (your own keys)</h2>
+<p>The other direction: the editor's <b>AI</b> panel (Design for me, Magic Write, alt text, Generate image, Generate video) runs on the model you choose. Open <b>AI › AI providers</b> (the key button) and add a key for <b>Anthropic (Claude)</b>, <b>OpenAI</b> (GPT, GPT Image, Sora), <b>Google Gemini</b> (Gemini, Nano Banana, Omni Flash video), <b>OpenRouter</b> (hundreds of models), <b>kie.ai</b> (Nano Banana, Seedream, GPT Image, Imagen, Grok Imagine, Kling) or any <b>OpenAI-compatible endpoint</b> (Groq, Together, Mistral, DeepSeek, Ollama or LM Studio on your computer). Then pick a default model for writing, designs, vision, images and video.</p>
+<p>Keys are kept in this browser only and each is sent only to its own provider. Generated pictures and clips go into your Uploads with the model and prompt that made them.</p>
+
+<h2 id="see">What it can see</h2>
 <p>Only your Digital Canvas folder and the files the app created, you opened with it, or you picked in <b>Uploads › Google Drive › Choose from Google Drive</b>. Nothing else in your Drive. To let the assistant use more photos or videos, pick them there. Remove access any time at <a href="https://myaccount.google.com/permissions">Google account › Third-party access</a>.</p>
 <p>Source and docs: <a href="https://github.com/Panth977/digital-canvas/tree/main/packages/mcp">packages/mcp</a>.</p>
 </html>
