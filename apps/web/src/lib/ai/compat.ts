@@ -78,7 +78,7 @@ export class CompatibleProvider implements Provider {
         c = await this.completions({ ...body, response_format: { type: 'json_object' } }, req.signal);
       } catch (e) {
         // not every model/endpoint has JSON mode: ask again without it (the reply is still parsed leniently)
-        if (!(e instanceof AIError) || e.status !== 400) throw e;
+        if (!(e instanceof AIError) || (e.status !== 400 && e.status !== 422)) throw e;
         c = await this.completions(body, req.signal);
       }
     } else c = await this.completions(body, req.signal);

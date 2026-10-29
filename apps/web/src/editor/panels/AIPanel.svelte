@@ -150,15 +150,13 @@
   async function makeImages(): Promise<void> {
     if (!mediaPrompt.trim()) return;
     error = '';
-    try { void studio.generateImages({ prompt: mediaPrompt, style, aspect, count }); } catch (e) { error = e instanceof Error ? e.message : String(e); }
+    studio.generateImages({ prompt: mediaPrompt, style, aspect, count }).catch((e) => (error = e instanceof Error ? e.message : String(e)));
   }
   async function makeVideo(): Promise<void> {
     if (!mediaPrompt.trim()) return;
     error = '';
     const img = fromImage && selImage ? { bytes: ed.assets.get(selImage.asset), mime: ed.doc.assets[selImage.asset]?.mime ?? 'image/png' } : null;
-    try {
-      void studio.generateVideo({ prompt: mediaPrompt, aspect, duration, ...(img?.bytes ? { image: { bytes: img.bytes, mime: img.mime } } : {}) });
-    } catch (e) { error = e instanceof Error ? e.message : String(e); }
+    studio.generateVideo({ prompt: mediaPrompt, aspect, duration, ...(img?.bytes ? { image: { bytes: img.bytes, mime: img.mime } } : {}) }).catch((e) => (error = e instanceof Error ? e.message : String(e)));
   }
   function dragResult(e: DragEvent, id: string): void {
     e.dataTransfer?.setData('application/x-digital-canvas', JSON.stringify({ kind: 'ai', id }));
