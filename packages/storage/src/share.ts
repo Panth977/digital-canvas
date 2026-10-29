@@ -230,6 +230,16 @@ export function shareLink(kind: 'edit' | 'view' | 'template', fileId: string, or
   return `${origin.replace(/\/$/, '')}/${path}/${enc(fileId)}`;
 }
 
+/**
+ * The note in Drive's "shared with you" email. Drive's own button links to
+ * drive.google.com (a zip it cannot preview), so the app link always comes
+ * first, then the sharer's note.
+ */
+export function inviteMessage(link: string, note = ''): string {
+  const n = note.trim();
+  return `Open in Digital Canvas: ${link}${n ? `\n\n${n}` : ''}`;
+}
+
 /** A `mailto:` with the link (Quick actions ▸ Email). */
 export function mailtoLink(title: string, link: string, from?: string): string {
   const subject = `${from ? `${from} shared` : 'Sharing'} “${title}” with you`;

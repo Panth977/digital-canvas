@@ -18,14 +18,14 @@ import { effectiveMode, parseAllowlist } from '../../../packages/mcp/src/bridge/
 import { drive, users } from '../../icebase/schema.ts';
 import config from '../../icebase.config.ts';
 import { api } from '../../icebase/api.ts';
-import { GOOGLE_CLIENT_ID, REGION } from '../../google.ts';
+import { DRIVE_FILE_SCOPE, GOOGLE_CLIENT_ID, REGION } from '../../google.ts';
 
 const app = initializeAdminApp(config, (process.env.ICEBASE_ENV ?? 'prod') as 'local' | 'prod');
 const db = getAdminFirestore(app);
 const auth = getAdminAuth(app);
 
 const SECRETS = ['GOOGLE_CLIENT_SECRET', 'TOKEN_KEY'];
-const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+const DRIVE_SCOPE = DRIVE_FILE_SCOPE;
 const ORIGINS = ['http://localhost:5181', 'https://digital-canvas-p977.web.app', 'https://digital-canvas-p977.firebaseapp.com'];
 
 interface TokenResponse {
@@ -84,7 +84,7 @@ export const googleSignIn = onCall(api.googleSignIn, { secrets: SECRETS, cors: O
   const claims = idClaims(t.id_token);
   if (claims.aud !== GOOGLE_CLIENT_ID || !claims.email) throw new HttpsError('invalid-argument', 'ID token is not for this app');
   const hasDrive = (t.scope ?? '').split(' ').includes(DRIVE_SCOPE);
-  if (!hasDrive) throw new HttpsError('permission-denied', 'Digital Canvas needs access to the files it creates in your Drive.');
+  if (!hasDrive) throw new HttpsError('permission-denied', 'Digital Canvas needs access to the files it creates in your Drive. Sign in again and tick the Google Drive box on Google\'s screen.');
 
   const uid = `google:${claims.sub}`;
   await auth.getUser(uid).catch(() => auth.createUser({ uid, email: claims.email, displayName: claims.name, photoURL: claims.picture, emailVerified: !!claims.email_verified }));

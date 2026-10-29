@@ -5,7 +5,8 @@ import { GOOGLE_SCOPES } from '@digital-canvas/backend/google';
 
 /**
  * Digital Canvas only ever asks Google for `drive.file` (files it creates or the
- * user picks with Google Picker). The restricted `drive.readonly` scope, the
+ * user picks with Google Picker) and `drive.install` (listed under Drive's
+ * "Open with"; no file access). The restricted `drive.readonly` scope, the
  * whole-Drive `drive` scope and tokeninfo scope checks must not come back:
  * they trigger Google's "unverified app" screens.
  */
@@ -22,8 +23,8 @@ function files(path: string): string[] {
 }
 
 describe('Google Drive scope', () => {
-  it('sign-in asks for drive.file only', () => {
-    expect(GOOGLE_SCOPES.filter((s) => s.includes('/auth/drive'))).toEqual(['https://www.googleapis.com/auth/drive.file']);
+  it('sign-in asks for drive.file plus drive.install (Drive "Open with"), nothing else from Drive', () => {
+    expect(GOOGLE_SCOPES.filter((s) => s.includes('/auth/drive'))).toEqual(['https://www.googleapis.com/auth/drive.file', 'https://www.googleapis.com/auth/drive.install']);
   });
 
   it('no code asks for drive.readonly, the whole Drive, or checks scopes with tokeninfo', () => {

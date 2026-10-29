@@ -23,6 +23,18 @@
   /** Title / owner when the link is public (API key), for the card. */
   let info = $state<FileAccess | null>(null);
   let started = false;
+  /**
+   * Signed in from this card: go straight on to the Picker once Drive says the
+   * file isn't granted yet (kept across a redirect sign-in in sessionStorage).
+   */
+  const AUTO = 'dc.sharedAutoPick';
+  let autoPick = (() => { try { return sessionStorage.getItem(AUTO) === untrack(() => fileId); } catch { return false; } })();
+
+  function signIn(): void {
+    autoPick = true;
+    try { sessionStorage.setItem(AUTO, fileId); } catch { /* private mode */ }
+    void account.signIn();
+  }
 
   const drive = () => (library.store.kind === 'drive' ? (library.store as DriveStore) : null);
 
@@ -43,8 +55,14 @@
       if (!template) info = await d.sharing.access(fileId);
       await open();
     } catch (e) {
-      if (needsGrant(e)) phase = 'grant';
-      else fail(e);
+      if (needsGrant(e)) {
+        phase = 'grant';
+        if (autoPick) {
+          autoPick = false;
+          try { sessionStorage.removeItem(AUTO); } catch { /* ignore */ }
+          void grant();
+        }
+      } else fail(e);
     }
   }
 
@@ -86,13 +104,14 @@
     <h2>{template ? 'Use this template' : 'Shared with you'}</h2>
     <p class="what"><b>{title}</b>{#if from}<br /><span>from {from}</span>{/if}</p>
     {#if phase === 'signin'}
-      <p>{template ? 'Sign in with Google to get your own copy in your Drive.' : 'Sign in with Google to open it.'}</p>
-      <button class="btn primary" disabled={account.busy} onclick={() => void account.signIn()} data-testid="shared-signin">Sign in with Google</button>
+      <p>{template ? 'Sign in with Google to get your own copy in your Drive.' : 'Sign in with the Google account it was shared with to open it.'}</p>
+      {#if account.error}<p class="err" data-testid="shared-signin-error">{account.error}</p>{/if}
+      <button class="btn primary" disabled={account.busy} onclick={signIn} data-testid="shared-signin">Sign in with Google</button>
       {#if !template}<button class="btn ghost" onclick={() => router.go({ name: 'view', fileId })}>View without signing in</button>{/if}
     {:else if phase === 'grant'}
       <p>Google Drive asks you to confirm the file once, so Digital Canvas can open it.</p>
       <button class="btn primary" onclick={() => void grant()} data-testid="shared-grant"><Icon name="drive" size={18} /> Open</button>
-      {#if error}<p class="err">{error}</p>{/if}
+      {#if error}<p class="err" data-testid="shared-grant-error">{error}</p>{/if}
     {:else if phase === 'error'}
       <p class="err" data-testid="shared-error">{error}</p>
       <button class="btn" onclick={() => router.go({ name: 'home' })}>Your designs</button>

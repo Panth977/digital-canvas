@@ -6,6 +6,7 @@
  */
 import { createDoc } from '@digital-canvas/scene';
 import type { DriveStore } from '@digital-canvas/storage';
+import { DriveError } from '@digital-canvas/storage';
 import { router } from './router.svelte.ts';
 
 const KEY = 'dc.driveState';
@@ -14,6 +15,8 @@ export interface DriveRequest {
   action: 'open' | 'create';
   ids?: string[];
   folderId?: string;
+  /** Google account id of the Drive user (our uid is `google:<it>`). */
+  userId?: string;
 }
 
 function fromUrl(): DriveRequest | null {
@@ -32,6 +35,8 @@ class OpenWith {
   pending = $state<DriveRequest | null>(null);
   error = $state('');
   busy = $state(false);
+  /** Drive sent the request for another Google account than the one signed in. */
+  otherAccount = $state('');
 
   constructor() {
     const s = fromUrl();
@@ -47,9 +52,14 @@ class OpenWith {
   }
 
   /** Handle the pending request with the signed-in user's Drive. */
-  async run(drive: DriveStore): Promise<void> {
+  async run(drive: DriveStore, uid?: string): Promise<void> {
     const req = this.pending;
     if (!req || this.busy) return;
+    if (req.userId && uid && uid !== `google:${req.userId}`) {
+      this.otherAccount = uid; // App shows "Switch account"; a new sign-in runs it again
+      return;
+    }
+    this.otherAccount = '';
     this.busy = true;
     this.error = '';
     try {
@@ -64,12 +74,21 @@ class OpenWith {
       sessionStorage.removeItem(KEY);
       this.pending = null;
     } catch (e) {
-      this.error = `Couldn't open the file from Drive: ${e instanceof Error ? e.message : e}`;
+      this.error = e instanceof DriveError && (e.status === 404 || e.status === 403)
+        ? 'Google Drive did not give Digital Canvas this file. In Drive, choose the file › Open with › Digital Canvas again, or ask the owner to share it with you.'
+        : `Couldn't open the file from Drive: ${e instanceof Error ? e.message : e}`;
       sessionStorage.removeItem(KEY);
       this.pending = null;
     } finally {
       this.busy = false;
     }
+  }
+
+  /** Forget the request (the user closed the message). */
+  drop(): void {
+    sessionStorage.removeItem(KEY);
+    this.pending = null;
+    this.otherAccount = '';
   }
 }
 

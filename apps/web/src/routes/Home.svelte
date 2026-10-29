@@ -1,13 +1,16 @@
 <script lang="ts">
   import { PRESET_CATEGORIES, PRESETS, createDoc, formatLength, newId, searchPresets, walk, type Doc, type Preset, type PresetCategory, type Unit } from '@digital-canvas/scene';
-  import { assetId, unpack, type ProjectMeta } from '@digital-canvas/storage';
+  import { assetId, type ProjectMeta } from '@digital-canvas/storage';
+  import { importer, importFromDevice, importFromDrive } from '../lib/importdesign.svelte.ts';
+  import { sharedList } from '../lib/sharedlist.svelte.ts';
+  import { pickDesignFile } from '../lib/picker.ts';
   import Icon from '../lib/Icon.svelte';
   import { library } from '../lib/library.svelte.ts';
   import { account } from '../lib/account.svelte.ts';
   import { bridgeUi } from '../lib/bridge/bridgeUi.svelte.ts';
   import { router } from '../lib/router.svelte.ts';
   import { tabs } from '../lib/tabs.svelte.ts';
-  import { objectUrl, pickFiles, timeAgo } from '../lib/files.ts';
+  import { objectUrl, timeAgo } from '../lib/files.ts';
   import { toast } from '../lib/toast.svelte.ts';
   import { copyDesign, downloadDesignFile, renameDesign, trashIsUndoable } from '../lib/designs.ts';
   import { TEMPLATES, fetchFonts, loadTemplate, searchTemplates, thumbUrl, type TemplateEntry } from '../lib/templates.ts';
@@ -118,16 +121,19 @@
     }
   }
 
-  /** Bring a .dcanvas file from this computer into the current store (Drive when signed in). */
-  async function openFile() {
-    const [file] = await pickFiles('.dcanvas,application/vnd.digital-canvas+zip', false);
-    if (!file) return;
+  /** Bring a .dcanvas file from this device into the current store (Drive when signed in). */
+  const openFile = () => void importFromDevice();
+
+  const shared = $derived(sharedList.of(account.user?.uid));
+  const ROLE: Record<string, string> = { writer: 'Can edit', commenter: 'Can comment', reader: 'Can view', owner: 'Yours' };
+
+  /** "Open a shared design": Google Picker on Shared with me; picking grants the file, then it opens. */
+  async function openShared() {
     try {
-      const project = unpack(new Uint8Array(await file.arrayBuffer()));
-      await library.store.save(project);
-      router.go({ name: 'editor', id: project.doc.id });
+      const picked = await pickDesignFile(await account.driveToken(), 'shared');
+      if (picked) router.go({ name: 'shared', fileId: picked.id });
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      toast.show(`Couldn't open Google Drive: ${e instanceof Error ? e.message : e}`, { timeout: 8000 });
     }
   }
 
@@ -333,6 +339,23 @@
   {#if account.error}
     <div class="banner err-banner"><Icon name="alert" /> {account.error}</div>
   {/if}
+  {#if account.needsDriveInstall}
+    <div class="banner info" data-testid="drive-install">
+      <Icon name="drive" /> Open designs straight from Google Drive: let Drive show Digital Canvas under “Open with”.
+      <button class="btn primary" disabled={account.busy} onclick={() => void account.addDriveInstall()} data-testid="drive-install-yes">Show in Drive</button>
+      <button class="btn ghost" onclick={() => account.dismissDriveInstall('later')} data-testid="drive-install-no">Not now</button>
+    </div>
+  {/if}
+  {#if importer.job}
+    {@const j = importer.job}
+    <div class="importing" role="status" data-testid="import-progress" data-phase={j.phase}>
+      <div class="ibox">
+        <b>Opening “{j.name}”</b>
+        <span>{j.phase === 'download' ? 'Downloading from Google Drive…' : j.phase === 'saving' ? (account.user ? 'Saving a copy to your Drive…' : 'Saving…') : j.total ? `Fetching pictures and fonts: ${j.done} of ${j.total}` : 'Reading the file…'}</span>
+        <div class="bar"><i style="width:{j.phase === 'saving' ? 100 : j.total ? Math.round((j.done / j.total) * 100) : 5}%"></i></div>
+      </div>
+    </div>
+  {/if}
   {#if !account.user}
     <div class="banner info">
       <Icon name="drive" /> Sign in with Google to keep your designs in your own Drive and open them on any device.
@@ -386,6 +409,30 @@
     </section>
   {/if}
 
+  {#if account.user && !q}
+    <section data-testid="shared-section">
+      <div class="row-head">
+        <h2>Shared with you</h2>
+        <div class="tools"><button class="btn" onclick={() => void openShared()} data-testid="open-shared"><Icon name="drive" size={16} /> Open a shared design</button></div>
+      </div>
+      {#if shared.length}
+        <div class="shared" data-testid="shared-list">
+          {#each shared as e (e.fileId)}
+            <div class="sh-item" data-testid="shared-item" data-file={e.fileId}>
+              <a href="/d/{e.fileId}" onclick={(ev) => { ev.preventDefault(); router.go({ name: 'shared', fileId: e.fileId }); }} data-testid="shared-open-item">
+                <span class="sh-ic"><Icon name="user" size={18} /></span>
+                <span class="sh-t"><b title={e.title}>{e.title}</b><small>{e.owner ? `from ${e.owner} · ` : ''}{ROLE[e.role] ?? ''} · opened {timeAgo(e.openedAt)}</small></span>
+              </a>
+              <button class="kebab" aria-label="Remove {e.title} from this list" title="Remove from this list" onclick={() => sharedList.remove(e.uid, e.fileId)}><Icon name="close" size={14} /></button>
+            </div>
+          {/each}
+        </div>
+      {:else}
+        <p class="muted" data-testid="shared-empty">Designs people share with you show up here once you open them: use the link in the email, or <b>Open a shared design</b> to pick one from Google Drive's “Shared with me”.</p>
+      {/if}
+    </section>
+  {/if}
+
   {#if templates.length}
     <section>
       <div class="row-head"><h2>{q ? 'Templates' : 'Start from a template'}</h2></div>
@@ -406,6 +453,7 @@
       <h2>{q ? 'Your designs' : 'Recent designs'}</h2>
       <div class="tools">
         <button class="btn" onclick={openFile} data-testid="open-file"><Icon name="upload" size={16} /> Open a .dcanvas file</button>
+        {#if account.user}<button class="btn" onclick={() => void importFromDrive()} data-testid="open-drive-file" title="Open a .dcanvas file from Google Drive (makes your own copy)"><Icon name="drive" size={16} /> From Drive</button>{/if}
         <div class="seg" role="group" aria-label="View">
           <button class:on={view === 'grid'} aria-pressed={view === 'grid'} title="Grid view" aria-label="Grid view" data-testid="view-grid" onclick={() => setView('grid')}><Icon name="gridview" size={18} /></button>
           <button class:on={view === 'list'} aria-pressed={view === 'list'} title="List view" aria-label="List view" data-testid="view-list" onclick={() => setView('list')}><Icon name="listb" size={18} /></button>
@@ -590,6 +638,19 @@
   .danger { color: var(--danger) !important; }
   .empty { padding: 40px; text-align: center; color: var(--muted); background: var(--pop); border: 1px dashed var(--line); border-radius: var(--radius); }
   .muted { color: var(--muted); }
+  .shared { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 10px; }
+  .sh-item { display: flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 12px; padding: 8px 8px 8px 10px; background: var(--pop); }
+  .sh-item a { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; color: inherit; text-decoration: none; }
+  .sh-item .kebab { opacity: 1; }
+  .sh-ic { width: 36px; height: 36px; border-radius: 50%; background: var(--chip); display: grid; place-items: center; flex: none; }
+  .sh-t { min-width: 0; display: flex; flex-direction: column; }
+  .sh-t b, .sh-t small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sh-t small { color: var(--muted); font-size: 12px; }
+  .importing { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; background: rgba(0, 0, 0, .35); }
+  .ibox { width: min(380px, calc(100vw - 32px)); background: var(--pop); color: var(--ink); border-radius: 14px; box-shadow: var(--shadow); padding: 20px; display: flex; flex-direction: column; gap: 8px; }
+  .ibox span { color: var(--ink-2); font-size: 14px; }
+  .bar { height: 6px; border-radius: 3px; background: var(--chip); overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--accent); transition: width .2s; }
   .err { color: var(--danger); display: flex; gap: 6px; align-items: center; }
   footer { margin-top: 40px; color: var(--muted); font-size: 12px; text-align: center; }
   footer a { color: inherit; }

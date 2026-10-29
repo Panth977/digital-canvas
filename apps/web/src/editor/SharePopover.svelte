@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { qrCode } from '@digital-canvas/scene';
   import {
-    SHARE_ROLES, isEmail, isShared, linkAccessOf, mailtoLink, shareLink,
+    SHARE_ROLES, inviteMessage, isEmail, isShared, linkAccessOf, mailtoLink, shareLink,
     type DriveStore, type LinkAccess, type Person, type ShareRole,
   } from '@digital-canvas/storage';
   import type { EditorState } from '../lib/editor.svelte.ts';
@@ -29,6 +29,8 @@
   let message = $state('');
   let notify = $state(true);
   let view = $state<'main' | 'qr'>('main');
+  /** Who was just added (the "send them the link" hint). */
+  let sent = $state<string[]>([]);
 
   const link = $derived(linkAccessOf(people));
   const access = $derived(ed.access);
@@ -105,10 +107,12 @@
     if (bad) { error = `“${bad}” is not an email address.`; return; }
     void run('Sharing…', async () => {
       for (const addr of list) {
-        const p = await drive!.sharing.add(fileId!, addr, role, { notify, message });
+        // Drive's email links to drive.google.com: put the app link first
+        const p = await drive!.sharing.add(fileId!, addr, role, { notify, message: inviteMessage(editLink, message) });
         people = [...people.filter((x) => x.id !== p.id), p];
       }
       toast.show(list.length === 1 ? `Shared with ${list[0]}` : `Shared with ${list.length} people`);
+      sent = list;
       email = '';
       message = '';
     });
@@ -153,6 +157,15 @@
       setLink('reader');
     }
     await copy(viewLink, 'Public view link copied');
+  }
+
+  /** Phones: the system share sheet; elsewhere an email draft with the link. */
+  async function sendLink(): Promise<void> {
+    const text = `Open “${ed.doc.title}” in Digital Canvas`;
+    if (navigator.share) {
+      try { await navigator.share({ title: ed.doc.title, text, url: editLink }); return; } catch (e) { if ((e as Error).name === 'AbortError') return; }
+    }
+    location.href = mailtoLink(ed.doc.title, editLink, account.user?.name).replace('mailto:?', `mailto:${encodeURIComponent(sent.join(','))}?`);
   }
 
   const initial = (p: { name?: string; email?: string }) => (p.name ?? p.email ?? '?').trim().charAt(0).toUpperCase();
@@ -203,9 +216,22 @@
           {#if email.trim()}
             <textarea class="input" rows="2" placeholder="Message (optional)" bind:value={message} disabled={!notify} data-testid="share-message"></textarea>
             <label class="check"><input type="checkbox" bind:checked={notify} data-testid="share-notify" /> Notify people by email</label>
+            {#if notify}
+              <div class="preview" data-testid="share-email-preview"><small>Google's email will say</small><pre>{inviteMessage(editLink, message)}</pre></div>
+            {/if}
             <button class="btn primary" disabled={!!busy} data-testid="share-send">{notify ? 'Send' : 'Share'}</button>
           {/if}
         </form>
+      {/if}
+      {#if sent.length}
+        <div class="sent" data-testid="share-sent">
+          <p><b>Shared with {sent.join(', ')}.</b> {notify ? 'Google emails them the link to open it in Digital Canvas.' : 'They were not emailed.'} You can also send it yourself:</p>
+          <div class="row">
+            <button class="btn" onclick={() => copy(editLink)} data-testid="share-sent-copy"><Icon name="link" size={16} /> Copy link</button>
+            <button class="btn" onclick={() => void sendLink()} data-testid="share-sent-send"><Icon name="send" size={16} /> Send link</button>
+            <button class="btn ghost icon" aria-label="Hide" onclick={() => (sent = [])}><Icon name="close" size={16} /></button>
+          </div>
+        </div>
       {/if}
       <ul class="people" data-testid="share-people">
         {#if owner}
@@ -297,5 +323,10 @@
   .quick button:hover:not(:disabled), .quick a:hover { background: var(--hover); }
   .quick button:disabled, .quick a.off { opacity: .45; cursor: default; pointer-events: none; }
   .quick span { width: 44px; height: 44px; border-radius: 50%; background: var(--chip); display: grid; place-items: center; }
+  .preview { background: var(--chip); border-radius: 8px; padding: 6px 10px; font-size: 12px; }
+  .preview small { color: var(--muted); }
+  .preview pre { margin: 2px 0 0; white-space: pre-wrap; word-break: break-all; font: 12px/1.4 inherit; font-family: inherit; }
+  .sent { background: color-mix(in srgb, var(--accent) 10%, transparent); border-radius: 10px; padding: 10px; font-size: 13px; display: flex; flex-direction: column; gap: 8px; }
+  .sent p { margin: 0; }
   .qr { width: 220px; height: 220px; align-self: center; background: #fff; border-radius: 8px; }
 </style>
