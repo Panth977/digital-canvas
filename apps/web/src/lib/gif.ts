@@ -15,6 +15,8 @@ export interface GifOptions {
   scale?: number;
   /** Frames per second while animating (default 15). */
   fps?: number;
+  /** Leave the page background out: see-through pixels (GIF has 1-bit transparency). */
+  transparent?: boolean;
   onProgress?: (fraction: number) => void;
 }
 
@@ -42,18 +44,28 @@ export async function exportGif(ed: EditorState, opts: GifOptions): Promise<Uint
       const f = frames[i]!;
       const page = pages[f.page]!;
       const canvas = surface.getCanvas();
-      canvas.clear(ck.WHITE);
+      canvas.clear(opts.transparent ? ck.TRANSPARENT : ck.WHITE);
       canvas.save();
       canvas.scale(W / doc.width, H / doc.height);
-      ed.renderer.drawPage(canvas, doc, animateAt(doc, page, f.t));
+      ed.renderer.drawPage(canvas, doc, animateAt(doc, page, f.t), {}, !opts.transparent);
       canvas.restore();
       surface.flush();
       const img = surface.makeImageSnapshot();
       const px = img.readPixels(0, 0, { width: W, height: H, colorType: ck.ColorType.RGBA_8888, alphaType: ck.AlphaType.Unpremul, colorSpace: ck.ColorSpace.SRGB }) as Uint8Array;
       img.delete();
-      const palette = quantize(px, 256);
-      const index = applyPalette(px, palette);
-      gif.writeFrame(index, W, H, still ? { palette } : { palette, delay: f.delay, repeat: i === 0 ? 0 : undefined });
+      let palette, index, tr: { transparent?: boolean; transparentIndex?: number; dispose?: number } = {};
+      if (opts.transparent) {
+        // half-transparent pixels round to fully on or off
+        palette = quantize(px, 256, { format: 'rgba4444', oneBitAlpha: true });
+        index = applyPalette(px, palette, 'rgba4444');
+        const t = palette.findIndex((c) => c[3] === 0);
+        // each frame replaces the last (no smearing through the see-through parts)
+        if (t >= 0) tr = { transparent: true, transparentIndex: t, dispose: 2 };
+      } else {
+        palette = quantize(px, 256);
+        index = applyPalette(px, palette);
+      }
+      gif.writeFrame(index, W, H, still ? { palette, ...tr } : { palette, delay: f.delay, repeat: i === 0 ? 0 : undefined, ...tr });
       opts.onProgress?.((i + 1) / frames.length);
       // let the page breathe on long exports
       if (i % 8 === 7) await new Promise((r) => setTimeout(r, 0));

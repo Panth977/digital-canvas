@@ -6,17 +6,22 @@
  * timing, page transitions): the same drawing as the editor's live playback.
  */
 import {
-  ALL_FORMATS, AudioBufferSource, BlobSource, BufferTarget, CanvasSource, Input, Mp4OutputFormat, Output, QUALITY_HIGH,
-  VideoSampleSink, getFirstEncodableAudioCodec, getFirstEncodableVideoCodec,
+  ALL_FORMATS, AudioBufferSource, BlobSource, BufferTarget, CanvasSource, Input, Mp3OutputFormat, Mp4OutputFormat, Output, QUALITY_HIGH,
+  VideoSampleSink, canEncodeAudio, getFirstEncodableAudioCodec, getFirstEncodableVideoCodec,
 } from 'mediabunny';
 import { clipTime, frameAt, pageDuration, pageStart, totalDuration, walk, type Doc, type Page, type VideoElement } from '@digital-canvas/scene';
 import { drawFrameAt } from '@digital-canvas/render';
 import type { EditorState } from './editor.svelte.ts';
+import { soundDuration, videoSize } from './exportutil.ts';
 
 export interface Mp4Options {
   fps?: number;
   /** Longest side in px (default 1920, like a 1080p export). */
   maxSide?: number;
+  /** Canva's quality (480, 720, 1080, 2160 = 4K): the video's short side in px. Wins over `maxSide`. */
+  quality?: number;
+  /** Export this design instead of the editor's (e.g. one page of it, see `pageDoc`). */
+  doc?: Doc;
   onProgress?: (fraction: number) => void;
 }
 
@@ -24,7 +29,7 @@ const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
 const RATE = 48000;
 
 /** Mix every sound of the design (timeline sounds and the clips' own sound) into one buffer. */
-async function mixAudio(doc: Doc, assets: Map<string, Uint8Array>, total: number): Promise<AudioBuffer | null> {
+export async function mixAudio(doc: Doc, assets: Map<string, Uint8Array>, total: number): Promise<AudioBuffer | null> {
   type Src = { asset: string; at: number; offset: number; dur: number; volume: number; loop?: boolean; fadeIn?: number; fadeOut?: number };
   const srcs: Src[] = (doc.audio ?? []).map((a) => ({ asset: a.asset, at: a.start, offset: a.offset, dur: a.duration, volume: a.volume ?? 1, fadeIn: a.fadeIn, fadeOut: a.fadeOut }));
   for (const p of doc.pages) {
@@ -76,11 +81,10 @@ export interface FrameSurface {
 }
 
 /** The export's frame drawer: white, scaled to W×H, then render `drawFrameAt` (animations, timing, transitions). */
-export function frameSurface(ed: EditorState, W: number, H: number): FrameSurface {
+export function frameSurface(ed: EditorState, W: number, H: number, doc: Doc = ed.doc): FrameSurface {
   const ck = ed.engine.ck;
   const surface = ck.MakeSurface(W, H);
   if (!surface) throw new Error('could not make a drawing surface');
-  const doc = ed.doc;
   return {
     W, H,
     draw(t) {
@@ -107,8 +111,7 @@ export function frameSurface(ed: EditorState, W: number, H: number): FrameSurfac
  */
 class ClipFrames {
   private plans = new Map<string, { el: VideoElement; page: Page; times: number[]; at: Map<number, number>; last: number; it?: AsyncGenerator<unknown>; input?: Input }>();
-  constructor(private ed: EditorState, private times: number[]) {
-    const doc = ed.doc;
+  constructor(private ed: EditorState, private times: number[], private doc: Doc = ed.doc) {
     const need = (page: Page, local: number, i: number) => {
       for (const el of walk(page.elements)) {
         if (el.type !== 'video' || el.hidden || !ed.assets.has(el.asset)) continue;
@@ -131,7 +134,7 @@ class ClipFrames {
 
   /** Set the clip pictures for frame `i` (index into `times`). */
   async set(i: number): Promise<void> {
-    const ck = this.ed.engine.ck, r = this.ed.renderer, doc = this.ed.doc;
+    const ck = this.ed.engine.ck, r = this.ed.renderer, doc = this.doc;
     for (const p of this.plans.values()) {
       const idx = p.at.get(i);
       if (idx === undefined) {
@@ -184,11 +187,11 @@ export async function exportFrameAt(ed: EditorState, t: number, W: number, H: nu
 }
 
 export async function exportMp4(ed: EditorState, opts: Mp4Options = {}): Promise<Uint8Array> {
-  const doc = ed.doc;
+  const doc = opts.doc ?? ed.doc;
   const fps = opts.fps ?? 30;
   const total = totalDuration(doc);
   if (total <= 0) throw new Error('the design has no duration');
-  const { W, H } = exportSize(doc, opts.maxSide);
+  const { W, H } = opts.quality ? videoSize(doc, opts.quality) : exportSize(doc, opts.maxSide);
 
   const vcodec = await getFirstEncodableVideoCodec(['avc', 'vp9', 'av1', 'vp8'], { width: W, height: H });
   if (!vcodec) throw new Error('this browser cannot encode video (WebCodecs missing)');
@@ -211,8 +214,8 @@ export async function exportMp4(ed: EditorState, opts: Mp4Options = {}): Promise
 
   const frames = Math.max(1, Math.round(total * fps));
   const times = Array.from({ length: frames }, (_, i) => i / fps);
-  const clips = new ClipFrames(ed, times);
-  const fs = frameSurface(ed, W, H);
+  const clips = new ClipFrames(ed, times, doc);
+  const fs = frameSurface(ed, W, H, doc);
   try {
     for (let i = 0; i < frames; i++) {
       await clips.set(i);
@@ -238,4 +241,27 @@ export async function exportMp4(ed: EditorState, opts: Mp4Options = {}): Promise
     // put the preview back
     void ed.player.refresh();
   }
+}
+
+/**
+ * Canva's "MP3 (audio only)": the design's sound track (timeline sounds and the
+ * clips' own sound, mixed like the MP4) as an MP3. Browsers have no MP3
+ * encoder in WebCodecs, so Mediabunny's LAME (WASM) extension is loaded on demand.
+ */
+export async function exportMp3(ed: EditorState, opts: { onProgress?: (fraction: number) => void } = {}): Promise<Uint8Array> {
+  const doc = ed.doc;
+  const total = soundDuration(doc);
+  const mix = total > 0 ? await mixAudio(doc, ed.assets, total) : null;
+  if (!mix) throw new Error('the design has no sound');
+  opts.onProgress?.(0.3);
+  if (!(await canEncodeAudio('mp3'))) (await import('@mediabunny/mp3-encoder')).registerMp3Encoder();
+  const output = new Output({ format: new Mp3OutputFormat(), target: new BufferTarget() });
+  const src = new AudioBufferSource({ codec: 'mp3', bitrate: 192_000 });
+  output.addAudioTrack(src);
+  await output.start();
+  await src.add(mix);
+  src.close();
+  await output.finalize();
+  opts.onProgress?.(1);
+  return new Uint8Array((output.target as BufferTarget).buffer!);
 }
