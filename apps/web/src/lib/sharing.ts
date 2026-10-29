@@ -5,6 +5,7 @@
  */
 import { DRIVE_API_KEY } from '@digital-canvas/backend/google';
 import { SHARE_ORIGIN, type KnownFiles } from '@digital-canvas/storage';
+import { sharedList } from './sharedlist.svelte.ts';
 
 /** `files.get?alt=media&key=` for files shared "anyone with the link". */
 export function driveApiKey(): string {
@@ -19,12 +20,19 @@ export function shareOrigin(): string {
 
 const KEY = 'dc.sharedFiles';
 
+/** The signed-in account (set by the library when it makes the Drive store). */
+let currentUid = '';
+export function setSharedUser(uid: string): void {
+  currentUid = uid;
+}
+
 /** doc id → Drive file id of designs that live in someone else's Drive (localStorage). */
 export const knownFiles: KnownFiles = {
   get(docId) {
     try { return (JSON.parse(localStorage.getItem(KEY) ?? '{}') as Record<string, string>)[docId]; } catch { return undefined; }
   },
-  set(docId, fileId) {
+  set(docId, fileId, info) {
+    if (info && currentUid) sharedList.add({ ...info, docId, fileId, uid: currentUid, openedAt: new Date().toISOString() });
     try {
       const all = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Record<string, string>;
       if (all[docId] === fileId) return;

@@ -63,7 +63,16 @@ interface DriveFile {
 /** Remembers the Drive file of designs outside your folder (shared with you), so they reopen after a reload. */
 export interface KnownFiles {
   get(docId: string): string | undefined;
-  set(docId: string, fileId: string): void;
+  /** `info`: what Home's "Shared with you" shows (title, owner, your role). */
+  set(docId: string, fileId: string, info?: KnownFileInfo): void;
+}
+
+/** A design outside your app folder this browser has opened (shared with you, or opened from Drive). */
+export interface KnownFileInfo {
+  title: string;
+  ownedByMe: boolean;
+  owner?: string;
+  role: 'owner' | 'writer' | 'commenter' | 'reader';
 }
 
 export interface DriveStoreOptions {
@@ -351,7 +360,10 @@ export class DriveStore implements ProjectStore {
       this.accessOf.set(docId, access);
       if (access.shared) this.sharedDocs.add(docId);
     }
-    if (!access?.ownedByMe) this.opts.known?.set(docId, fileId);
+    if (!access?.ownedByMe) {
+      const role = access?.canEdit ? 'writer' : access?.canComment ? 'commenter' : 'reader';
+      this.opts.known?.set(docId, fileId, { title: file.doc.title, ownedByMe: false, owner: access?.owner?.name ?? access?.owner?.email, role });
+    }
     if (file.links) {
       this.remote.set(docId, file.links);
       this.linked.add(docId);

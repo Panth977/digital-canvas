@@ -31,7 +31,8 @@
 
   // Drive "Open with" / "New": run once signed in.
   $effect(() => {
-    if (library.ready && account.user && openWith.pending && library.store.kind === 'drive') void openWith.run(library.store as DriveStore);
+    const u = account.user;
+    if (library.ready && u && openWith.pending && library.store.kind === 'drive' && openWith.otherAccount !== u.uid) void openWith.run(library.store as DriveStore, u.uid);
   });
 
   // an editor route opens (or focuses) that design's tab
@@ -74,9 +75,17 @@
 <svelte:window onkeydowncapture={tabKeys} />
 
 {#if openWith.pending && library.ready && !account.user}
-  <div class="drive-req" data-testid="drive-signin">Sign in with Google to open the file from Drive.</div>
+  <div class="drive-req" data-testid="drive-signin">Sign in with Google to open the file from Drive.
+    <button class="btn primary" disabled={account.busy} onclick={() => void account.signIn()} data-testid="drive-signin-btn">Sign in</button></div>
 {/if}
-{#if openWith.error}<div class="drive-req err">{openWith.error}</div>{/if}
+{#if openWith.otherAccount && account.user}
+  <div class="drive-req" data-testid="drive-other-account">
+    Drive opened this file for another Google account than {account.user.email}.
+    <button class="btn primary" onclick={async () => { await account.signOut(); await account.signIn(); }}>Switch account</button>
+    <button class="btn ghost" onclick={() => openWith.drop()}>Cancel</button>
+  </div>
+{/if}
+{#if openWith.error}<div class="drive-req err" data-testid="drive-error">{openWith.error} <button class="btn ghost" onclick={() => (openWith.error = '')}>Close</button></div>{/if}
 <div class="shell">
   {#if mode !== 'none'}<TabStrip {mode} />{/if}
   <div class="main">

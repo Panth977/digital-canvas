@@ -1,3 +1,4 @@
+import { DRIVE_INSTALL_SCOPE } from '@digital-canvas/backend/google';
 import { onAuthStateChanged, signInWithCustomToken, signOut } from '@panth977/icebase/auth';
 import { auth, driveToken, googleSignIn } from './icebase.ts';
 import { getCode, redirectForCode, takeRedirectCode } from './google.ts';
@@ -23,12 +24,17 @@ class AccountState {
   busy = $state(false);
   error = $state('');
   private token: { value: string; expires: number } | null = null;
+  /** Scopes of the last Drive token ('' until one was fetched this session). */
+  scope = $state('');
+  /** "Show in Drive's Open with" was granted (or dismissed) on this browser for the account. */
+  private installDone = $state<Record<string, boolean>>({});
 
   constructor() {
     onAuthStateChanged(auth, (u) => {
       this.user = u ? { uid: u.uid, email: u.email ?? '', name: u.displayName ?? u.email ?? 'You', photo: u.photoURL ?? undefined } : null;
       if (!u) {
         this.token = null;
+        this.scope = '';
       }
       this.known = true;
     });
@@ -46,7 +52,7 @@ class AccountState {
     try {
       const res = await googleSignIn({ code: r.code, redirectUri: r.redirectUri });
       if (!res.driveConnected) return void (await redirectForCode({ consent: true, returnTo: r.returnTo }));
-      if (res.accessToken) this.keep(res.accessToken, res.expiresIn);
+      if (res.accessToken) this.keep(res.accessToken, res.expiresIn, res.scope);
       await signInWithCustomToken(auth, res.token);
     } catch (e) {
       this.error = e instanceof Error ? e.message : String(e);
@@ -70,11 +76,16 @@ class AccountState {
         // Google only hands out a refresh token with explicit consent.
         r = await googleSignIn(await getCode({ consent: true }));
       }
-      if (r.accessToken) this.keep(r.accessToken, r.expiresIn);
+      if (r.accessToken) this.keep(r.accessToken, r.expiresIn, r.scope);
       await signInWithCustomToken(auth, r.token);
       return true;
     } catch (e) {
       if ((e as Error).name === 'SignInCancelled') return false;
+      if (/permission-denied/.test(String((e as { code?: string }).code ?? ''))) {
+        // Google's screen has a checkbox per scope: drive.file was left unticked.
+        this.error = 'Google did not give Digital Canvas access to its files in your Drive. Sign in again and tick the box “See, edit, create and delete only the specific Google Drive files you use with this app”.';
+        return false;
+      }
       // Popup blocked or failed to open: fall back to a full-page redirect.
       if (!isNative() && /popup/i.test(String((e as Error).message))) await this.signInRedirect();
       this.error = e instanceof Error ? e.message : String(e);
@@ -84,8 +95,50 @@ class AccountState {
     }
   }
 
-  private keep(value: string, expiresIn = 3600): void {
+  private keep(value: string, expiresIn = 3600, scope?: string): void {
     this.token = { value, expires: Date.now() + expiresIn * 1000 };
+    if (scope) this.scope = scope;
+  }
+
+  private installKey = (uid: string) => `dc.driveInstall.${uid}`;
+
+  /**
+   * The account has not yet let Drive list Digital Canvas under "Open with"
+   * (drive.install was added after it first signed in). Known once a Drive token was fetched.
+   */
+  get needsDriveInstall(): boolean {
+    const u = this.user;
+    if (!u || !this.scope || this.scope.split(' ').includes(DRIVE_INSTALL_SCOPE)) return false;
+    if (this.installDone[u.uid]) return false;
+    try { return localStorage.getItem(this.installKey(u.uid)) == null; } catch { return true; }
+  }
+
+  /** One Google consent for drive.install (incremental: the other scopes stay granted). */
+  async addDriveInstall(): Promise<boolean> {
+    const u = this.user;
+    if (!u) return false;
+    this.busy = true;
+    this.error = '';
+    try {
+      const r = await googleSignIn(await getCode({ hint: u.email }));
+      if (r.accessToken) this.keep(r.accessToken, r.expiresIn, r.scope);
+      const ok = (r.scope ?? '').split(' ').includes(DRIVE_INSTALL_SCOPE);
+      if (ok) this.dismissDriveInstall('granted');
+      return ok;
+    } catch (e) {
+      if ((e as Error).name !== 'SignInCancelled') this.error = e instanceof Error ? e.message : String(e);
+      return false;
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  /** Stop asking on this browser ('granted' after consent, 'later' when the user said no). */
+  dismissDriveInstall(why: 'granted' | 'later'): void {
+    const u = this.user;
+    if (!u) return;
+    this.installDone = { ...this.installDone, [u.uid]: true };
+    try { localStorage.setItem(this.installKey(u.uid), why); } catch { /* storage blocked */ }
   }
 
   async signOut(): Promise<void> {
@@ -100,7 +153,7 @@ class AccountState {
     if (!force && this.token && this.token.expires - 60_000 > Date.now()) return this.token.value;
     try {
       const r = await driveToken({});
-      this.keep(r.accessToken, r.expiresIn);
+      this.keep(r.accessToken, r.expiresIn, r.scope);
       return r.accessToken;
     } catch (e) {
       // Offline: no token, but the service worker answers Drive reads it has
@@ -110,7 +163,7 @@ class AccountState {
         // The stored connection was revoked: one consent popup fixes it.
         const r = await googleSignIn(await getCode({ consent: true, hint: this.user?.email }));
         if (!r.accessToken) throw e;
-        this.keep(r.accessToken, r.expiresIn);
+        this.keep(r.accessToken, r.expiresIn, r.scope);
         return r.accessToken;
       }
       throw e;

@@ -1,8 +1,16 @@
 /** Public Google OAuth settings shared by the web app and the functions. */
 export const GOOGLE_CLIENT_ID = '753251746130-766vmq0fhocia6s45c9e1aqfqeo708k1.apps.googleusercontent.com';
 
-/** Sign-in identity plus access to only the files this app creates or the user opens with it. */
-export const GOOGLE_SCOPES = ['openid', 'email', 'profile', 'https://www.googleapis.com/auth/drive.file'];
+/** Access to only the files this app creates or the user opens with it (Picker, "Open with"). */
+export const DRIVE_FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+/**
+ * Lists Digital Canvas in the user's Drive under "Open with" and "New" (Drive UI integration,
+ * Cloud console › Google Drive API › Drive UI integration). Grants no access to any file.
+ */
+export const DRIVE_INSTALL_SCOPE = 'https://www.googleapis.com/auth/drive.install';
+
+/** Sign-in identity, drive.file, and drive.install (so Drive offers "Open with → Digital Canvas"). */
+export const GOOGLE_SCOPES = ['openid', 'email', 'profile', DRIVE_FILE_SCOPE, DRIVE_INSTALL_SCOPE];
 
 export const REGION = 'asia-south1';
 
