@@ -118,3 +118,9 @@ Open-source Canva alternative. Built on TaskManager ticket **ORCH-27** (ORCH boa
 - googleSignIn 403 (`permission-denied`) = the user unticked the Drive box on Google's granular consent screen; the app now says so.
 - e2e two users: `FakeDrive.addUser(OWNER|RECIPIENT)`, `fakeSignIn(page, who, scope?)`; files with `owner` are per-caller (bearer token): visible only with a drive.file grant (`d.grant(email, id)`, i.e. Picker/Open with) and a permission, else 404; writes need writer. `d.calls`/`d.denied` record who did what. Cases: `e2e/qa-sharing.spec.ts` (titles start with QA-ids).
 - QA doc: `tools/qa/sharing-cases.mjs` → `node tools/qa/build.mjs` writes `apps/web/public/qa/sharing.html`; `--results <playwright.json> --out <html>` writes a pass/fail report.
+
+## Mockup library (r13-assets, 2026-10-30)
+
+- `apps/web/public/mockups/` = format v1 (`index.json` + per id `base.jpg`, `uv-hi.png`, `uv-lo.png`, `shade.png`, `tint.png`, `thumb.jpg`; entries also carry `printWidth`). All CC0, rendered by Blender (`brew install --cask blender`, 5.2) from procedural scenes; no photos (`LICENSES.md`).
+- Generator `tools/mockups/`: scenes register with `@mockup(...)` in `scenes/<category>.py` over `blib.py` helpers. One Cycles render per mockup: the print material writes AOV `pc` = (u·c, v·c, c) (premultiplied print UV + coverage), product materials AOV `tint`; shade = Combined / print albedo, auto-exposed so the print surface sits near 1.0. Any printable material must only sit on meshes with a `print` UV map (a missing map reads (0,0) = covered).
+- Run with the venv python (numpy, scipy, Pillow): `python tools/mockups/build.py [ids] [--preview]` (render → `pack.py` → contact sheet). `composite.py` is the reference compositor for the contract formula. UV/shade/tint PNGs carry no gAMA/iCCP/sRGB/cHRM chunks (`pack.py` asserts it).
