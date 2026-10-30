@@ -230,7 +230,7 @@ describe('editing', () => {
     const r = await h.call('apply_template', { design_id: applied, template_id: 'community-cards' });
     expect(r.isError, r.text).toBe(false);
     expect((await h.call('render_page', { design_id: applied, page: 1 })).isError).toBe(false);
-  });
+  }, 30_000); // two full renders of a picture-heavy template
 
   it('brand kit: read and apply (colours, fonts, logo)', async () => {
     expect((await h.call('get_brand_kit')).json.empty).toBe(true);
