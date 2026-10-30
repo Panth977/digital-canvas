@@ -122,8 +122,8 @@ def garment_mesh(name, outline, mat, height_fn, step=0.004, print_box=None, seam
     if drift:
         r2 = np.random.default_rng(11)
         env = np.clip(d_edge / 0.03, 0, 1)
-        Pd[:, 0] += drift * waves(P, r2, 8, (0.08, 0.2)) * env
-        Pd[:, 1] += drift * waves(P, r2, 8, (0.08, 0.2)) * env
+        Pd[:, 0] += drift * waves(P, r2, 8, (0.12, 0.3)) * env
+        Pd[:, 1] += drift * waves(P, r2, 8, (0.12, 0.3)) * env
     verts = np.column_stack([Pd, Z])
     o = B.mesh_obj(name, verts, faces, mat)
     me = o.data
@@ -220,7 +220,7 @@ def tee_flat(name_prefix, outline, print_box, rng, col_mat, back_mat, extra_seam
         for f in (folds or []):
             z += 2.0 * ridge(P, *f) * env
         return np.maximum(z, 0.0) + 0.0005
-    front, P = garment_mesh(name_prefix + 'Front', outline, col_mat, hf, print_box=print_box, seams=seams, drift=0.004)
+    front, P = garment_mesh(name_prefix + 'Front', outline, col_mat, hf, print_box=print_box, seams=seams, drift=0.0018)
     # back panel: same outline but neck cut higher; sits slightly below
     bo = outline.copy()
     nb = (np.abs(bo[:, 0]) < 0.09) & (bo[:, 1] > 0.2)
@@ -309,3 +309,204 @@ def hoodie():
     B.camera((0.0, 0.0, 1.75), (0.0, 0.03, 0.0), lens=50)
     B.bpy.context.scene.camera.rotation_euler = (0, 0, 0)
     B.bpy.context.scene.camera.location = (0.0, 0.03, 1.75)
+
+
+def m_canvas(name='Canvas', color=(0.84, 0.82, 0.77), printable=True, tint=True, scale=260.0):
+    """Plain-weave cotton canvas on 'weave' UV (metres)."""
+    m, nb = B.new_mat(name)
+    wv = nb.uv('weave')
+    a = nb.wave(wv, scale=scale, axis='X', dist=1.2, detail=1, profile='SIN')
+    b = nb.wave(wv, scale=scale, axis='Y', dist=1.2, detail=1, profile='SIN')
+    sl = nb.noise(nb.node('ShaderNodeMapping', inputs={'Scale': (1, 25, 1), 'Vector': wv}), scale=30, detail=2)
+    fz = nb.noise(wv, scale=60, detail=4)
+    h = nb.math('ADD', nb.math('MULTIPLY', a.outputs[1], b.outputs[1]), nb.math('MULTIPLY', sl.outputs[0], 0.4))
+    sep = nb.node('ShaderNodeSeparateXYZ')
+    nb._set(sep.inputs[0], nb.uv('seam'))
+    crease = nb.math('EXPONENT', nb.math('MULTIPLY', -1.0, nb.math('POWER', nb.math('DIVIDE', sep.outputs['X'], 0.0018), 2.0)))
+    h = nb.math('SUBTRACT', h, nb.math('MULTIPLY', crease, 2.0))
+    col = nb.mix(nb.math('ADD', nb.math('MULTIPLY', fz.outputs[0], 0.15), nb.math('MULTIPLY', sl.outputs[0], 0.15)),
+                 color, tuple(c * 0.88 for c in color))
+    nb.output(nb.bsdf(color=col, rough=0.92, normal=nb.bump(h, strength=0.35, distance=0.0008), sheen=0.4, spec=0.25))
+    if tint:
+        nb.aov('tint', value=1.0)
+    if printable:
+        nb.print_aov()
+    return m
+
+
+def rotate_pts(pts, pivot, ang, mask):
+    c, s = math.cos(ang), math.sin(ang)
+    q = pts.copy()
+    d = pts[mask] - pivot
+    q[mask] = pivot + np.column_stack([d[:, 0] * c - d[:, 1] * s, d[:, 0] * s + d[:, 1] * c])
+    return q
+
+
+def wall_scene(wall_color=(0.78, 0.76, 0.72), sun_dir=(-1.0, -0.9, 0.6), sun=3.0, gobo=True, floor=True):
+    wall = B.m_plaster('Wall', color=wall_color)
+    B.plane(8, 5, (0, 0.0, 1.5), rot=(90, 0, 0), mat=wall, name='Wall')
+    if floor:
+        B.plane(8, 6, (0, -3, -0.9), mat=B.m_wood('Floor', tone=(0.55, 0.42, 0.3), plank=5, axis='Y'))
+    B.world_color((0.78, 0.84, 0.95), 0.35)
+    B.sun_light(sun_dir, sun, angle=2.0)
+    if gobo:
+        d = B.Vector(sun_dir).normalized()
+        B.window_gobo(tuple(B.Vector((0, 0, 0.5)) + d * 2.0), sun_dir, w=1.3, h=1.8, panes=(2, 3), bar=0.06)
+    B.area_light((0.6, -2.5, 1.0), (0, 0, 0.3), size=2.5, power=150, color=(0.96, 0.97, 1.0))
+
+
+@mockup('tshirt-hanger', 'T-shirt on a hanger', 'Apparel', aspect=0.8, res=(1280, 1600), tint=True, colors=TINT_TEE,
+        albedo=0.84, target=0.92)
+def tshirt_hanger():
+    rng = np.random.default_rng(8)
+    wall_scene(wall_color=(0.72, 0.72, 0.7), sun_dir=(-1.0, -0.8, 0.7))
+    o = tee_outline()
+    for sgn in (1, -1):
+        m = (sgn * o[:, 0] > 0.225) & (o[:, 1] > 0.08)
+        o = rotate_pts(o, np.array([sgn * 0.235, 0.31]), -sgn * math.radians(22), m)
+    cot = m_cotton('Tee')
+    cot_in = m_cotton('TeeIn', color=(0.68, 0.68, 0.67), printable=False)
+    rib = m_cotton('TeeRib', printable=False, rib=True)
+    hem = [(-0.255, -0.338), (0.255, -0.338)]
+    folds = [((0.2, 0.3), (0.12, -0.3), 0.02, 0.006), ((-0.18, 0.3), (-0.1, -0.32), 0.025, 0.005),
+             ((0.24, 0.12), (0.05, 0.05), 0.02, 0.004), ((-0.24, 0.12), (-0.06, 0.04), 0.02, 0.004),
+             ((0.0, 0.28), (0.02, -0.1), 0.03, 0.003)]
+    front, back = tee_flat('Tee', o, (-0.14, 0.235, 0.28, 0.35), rng, cot, cot_in,
+                           extra_seams=[(hem, False)], folds=folds, puff=0.012)
+    fr, bk = neck_curves(0.29, 0.345)
+    c1 = collar(fr, 0.0075, rib, z=0.008)
+    c2 = collar(bk, 0.007, rib, name='CollarBack', z=0.002)
+    root = B.bpy.data.objects.new('Shirt', None)
+    B.link(root)
+    for x in (front, back, c1, c2):
+        x.parent = root
+    root.rotation_euler = (math.radians(90), 0, 0)
+    root.location = (0, -0.06, 0.0)
+    # hanger (behind shirt, visible through neck) + hook
+    wood = B.m_wood('Hanger', tone=(0.6, 0.42, 0.26), axis='X', rough=0.35, coat=0.4)
+    pts = [(-0.21, -0.045, 0.3), (-0.1, -0.045, 0.345), (0.0, -0.045, 0.358), (0.1, -0.045, 0.345), (0.21, -0.045, 0.3)]
+    h = B.curve_tube('Hanger', pts, 0.008, wood)
+    h.scale = (1, 1.6, 1)
+    h.location.y = 0.03
+    steel = B.m_metal('Hook', (0.8, 0.8, 0.82), rough=0.2)
+    B.curve_tube('Hook', [(0, -0.03, 0.36), (0, -0.03, 0.42), (0.012, -0.03, 0.455), (0.0, -0.03, 0.47),
+                          (-0.018, -0.03, 0.455)], 0.0018, steel)
+    B.box((0.5, 0.04, 0.03), (0, -0.01, 0.47), mat=B.m_wood('Rail', tone=(0.4, 0.28, 0.18)), bevel=0.004)
+    B.camera((0.0, -1.5, 0.05), (0.0, 0.0, 0.05), lens=50)
+
+
+@mockup('tote-bag', 'Tote bag', 'Apparel', aspect=0.85, res=(1280, 1600), tint=True,
+        colors=['#f1ebdf', '#1d1d1f', '#2f3e46', '#b5838d', '#e9c46a'], albedo=0.8, target=0.92)
+def tote_bag():
+    rng = np.random.default_rng(4)
+    wall_scene(wall_color=(0.62, 0.66, 0.64), sun_dir=(1.0, -0.8, 0.8))
+    W, H = 0.38, 0.42
+    outline = chaikin([(-W / 2, H / 2), (-W / 2 + 0.002, -H / 2), (W / 2 - 0.002, -H / 2), (W / 2, H / 2)], 2,
+                      sharp={0, 1, 2, 3})
+    can = m_canvas('Tote')
+    folds = [((-0.12, 0.2), (-0.05, -0.15), 0.025, 0.006), ((0.13, 0.2), (0.06, -0.12), 0.025, 0.005),
+             ((0.0, 0.2), (0.0, 0.05), 0.02, 0.004)]
+    top = [(-W / 2, H / 2 - 0.025), (W / 2, H / 2 - 0.025)]
+
+    def hf(P, d):
+        z = 0.012 * (1 - np.exp(-d / 0.01))
+        env = np.clip(d / 0.03, 0, 1)
+        z += 0.005 * waves(P, rng, 10, (0.08, 0.25)) * env
+        for f in folds:
+            z += ridge(P, *f) * env
+        # bag bulge lower half
+        z += 0.015 * np.clip(1 - ((P[:, 1] + 0.05) / 0.25) ** 2, 0, 1) * np.clip(1 - (P[:, 0] / 0.19) ** 2, 0, 1)
+        return z
+    body, _ = garment_mesh('Tote', outline, can, hf, step=0.004, print_box=(-0.14, 0.15, 0.28, 0.28 / 0.85),
+                           seams=[(top, False)], drift=0.003)
+    back, _ = garment_mesh('ToteBack', outline, m_canvas('ToteB', printable=False),
+                           lambda P, d: -0.004 * (1 - np.exp(-d / 0.01)), step=0.01)
+    hm = m_canvas('Strap', printable=False)
+    root = B.bpy.data.objects.new('Tote', None)
+    B.link(root)
+    for x in (body, back):
+        x.parent = root
+    # straps: flat bands from the top edge up to a peg
+    for sx in (-0.07, 0.07):
+        pts = [(sx * 1.0, 0.0, H / 2 - 0.02), (sx * 0.8, -0.002, H / 2 + 0.12), (0.0, -0.01, H / 2 + 0.25)]
+        for sgn in (1, -1):
+            pass
+    for sx in (-0.075, 0.075):
+        t = B.curve_tube('Strap', [(sx, -0.004, H / 2 - 0.03), (sx * 0.7, -0.012, H / 2 + 0.1), (sx * 0.15, -0.03, H / 2 + 0.2)],
+                         0.012, hm)
+        t.scale = (1, 0.25, 1)
+        t.parent = None
+    root.rotation_euler = (math.radians(90), 0, 0)
+    root.location = (0, -0.06, 0.0)
+    # strap pieces were built in world space already (y = depth)
+    for o in B.bpy.data.objects:
+        if o.name.startswith('Strap'):
+            o.location.y += -0.06
+    peg = B.m_wood('Peg', tone=(0.55, 0.4, 0.25), rough=0.35, coat=0.3)
+    B.cylinder(0.012, 0.09, (0, -0.045, H / 2 + 0.21), rot=(90, 0, 0), mat=peg)
+    B.sphere(0.016, (0, -0.09, H / 2 + 0.21), mat=peg)
+    B.camera((0.0, -1.45, 0.08), (0.0, 0.0, 0.08), lens=50)
+
+
+@mockup('cap', 'Baseball cap', 'Apparel', aspect=2.0, res=(1600, 1280), tint=True,
+        colors=['#f4f4f2', '#1d1d1f', '#14213d', '#9b2226', '#606c38', '#e9d8a6'], albedo=0.84, target=0.92)
+def cap():
+    B.studio(color=(0.72, 0.7, 0.66), key_side=-1)
+    R = 0.095
+    mat = m_cotton('CapTwill', knit_scale=350)
+    bpy = B.bpy
+    bpy.ops.mesh.primitive_uv_sphere_add(radius=R, segments=96, ring_count=48)
+    cr = bpy.context.active_object
+    cr.name = 'Crown'
+    import bmesh
+    bm = bmesh.new()
+    bm.from_mesh(cr.data)
+    bmesh.ops.delete(bm, geom=[v for v in bm.verts if v.co.z < -1e-4], context='VERTS')
+    for v in bm.verts:
+        x, y, z = v.co
+        # flatten top slightly, bulge front panel
+        s = 1.0 + 0.06 * max(0.0, -y / R) * (z / R)
+        v.co = B.Vector((x * 1.0 * s, y * 1.14, z * 1.12 * (1 - 0.1 * (z / R) ** 4) * (1 - 0.08 * max(0.0, y / R))))
+    bm.to_mesh(cr.data)
+    bm.free()
+    for p in cr.data.polygons:
+        p.use_smooth = True
+    B.set_mat(cr, mat)
+    seams_phi = [math.radians(a) for a in (0, 60, -60, 120, -120, 180)]
+
+    def seam_uv(co, fc):
+        phi = math.atan2(co.x, -co.y)
+        r = math.hypot(co.x, co.y)
+        dmin = min(abs((phi - a + math.pi) % (2 * math.pi) - math.pi) for a in seams_phi) * r
+        if co.z < 0.012:
+            dmin = min(dmin, abs(co.z - 0.008))
+        return (dmin, 1.0)
+    B.set_uv(cr, 'seam', seam_uv)
+    B.set_uv(cr, 'weave', lambda co, fc: (co.x + co.y, co.z))
+    B.set_uv(cr, 'print', lambda co, fc: ((co.x + 0.05) / 0.1, (co.z - 0.034) / 0.05),
+             face_filter=lambda p: p.normal.y < -0.25)
+    B.solidify(cr, 0.002, 1)
+    # brim
+    brim_m = m_cotton('CapBrim', printable=False, knit_scale=350)
+
+    def bfn(s, t):
+        phi = math.radians(-82 + 164 * s)
+        x0, y0 = R * math.sin(phi), -R * 1.14 * math.cos(phi)
+        L = 0.072 * max(0.0, math.cos(phi)) ** 1.3 + 0.002
+        r = t * L
+        dx, dy = math.sin(phi), -math.cos(phi)
+        z = -0.004 - 0.6 * r * r - 0.035 * (math.sin(phi) ** 2) * t - 0.012 * math.sin(phi) ** 2
+        return (x0 + dx * r, y0 + dy * r * 1.05, z + 0.004)
+    br = B.grid_mesh('Brim', 60, 12, bfn, mat=brim_m)
+    B.set_uv(br, 'weave', lambda co, fc: (co.x, co.y))
+    B.set_uv(br, 'seam', lambda co, fc: (abs(((co.x ** 2 + (co.y / 1.14) ** 2) ** 0.5 - R) % 0.008 - 0.004) * 2 + 0.002, 1.0))
+    B.solidify(br, 0.003, 0)
+    B.subsurf(br, 1)
+    btn = B.sphere(0.0075, (0, 0, R * 1.12 * 0.9 - 0.002), mat=brim_m, scale=(1, 1, 0.45))
+    root = bpy.data.objects.new('Cap', None)
+    B.link(root)
+    for o in (cr, br, btn):
+        o.parent = root
+    root.rotation_euler = (math.radians(-4), 0, math.radians(-18))
+    root.location = (0, 0, 0.012)
+    B.camera((0.0, -0.7, 0.2), (0.0, 0.0, 0.05), lens=70, fstop=8)
