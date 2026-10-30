@@ -63,6 +63,15 @@ def cover_fit(design, aspect):
     return design.crop((0, y0, w, y0 + nh))
 
 
+def contain_fit(design, aspect):
+    """Whole design centred on a transparent canvas of the print area's aspect."""
+    w, h = design.size
+    cw, ch = (w, round(w / aspect)) if w / h > aspect else (round(h * aspect), h)
+    out = Image.new('RGBA', (cw, ch), (0, 0, 0, 0))
+    out.paste(design, ((cw - w) // 2, (ch - h) // 2))
+    return out
+
+
 def bilinear(img, x, y):
     h, w = img.shape[:2]
     x0 = np.clip(np.floor(x).astype(int), 0, w - 1)
@@ -76,7 +85,7 @@ def bilinear(img, x, y):
     return a * (1 - fy) + b * fy
 
 
-def composite(mid, design, color=None, lib=LIB):
+def composite(mid, design, color=None, lib=LIB, use_fit=False):
     meta = next(m for m in json.load(open(os.path.join(lib, 'index.json')))['mockups'] if m['id'] == mid)
     d = os.path.join(lib, mid)
     base = np.asarray(Image.open(os.path.join(d, 'base.jpg')).convert('RGB'), np.float64)
@@ -89,7 +98,11 @@ def composite(mid, design, color=None, lib=LIB):
         pc = hex_rgb(color or meta['colors'][0]) / 255
         color_px = color_px * (1 - tint) + (color_px * pc) * tint
     m = hi[..., 2] / 255
-    des = np.asarray(cover_fit(design.convert('RGBA'), meta['aspect']), np.float64)
+    fit = meta.get('fit') or ('contain' if meta['category'] in ('Apparel', 'Packaging', 'Home') else 'cover')
+    if use_fit and fit == 'contain':
+        des = np.asarray(contain_fit(design.convert('RGBA'), meta['aspect']), np.float64)
+    else:
+        des = np.asarray(cover_fit(design.convert('RGBA'), meta['aspect']), np.float64)
     dh, dw = des.shape[:2]
     on = m > 0
     u = (hi[..., 0][on] * 256 + lo[..., 0][on]) / 65535
@@ -141,11 +154,11 @@ if __name__ == '__main__':
             continue
         des = Image.open(design_path) if design_path else test_design(m['aspect'])
         col = m['colors'][1] if (color_alt and m['tint'] and len(m['colors']) > 1) else None
-        im = composite(m['id'], des, col)
+        im = composite(m['id'], des, col, use_fit=bool(design_path))
         imgs.append(im)
         labels.append(f"{m['category']} / {m['id']}")
         if m['id'] in big:
-            im.save(os.path.join(bigdir, f"r13-mockup-{m['id']}.jpg"), quality=88)
+            im.save(os.path.join(bigdir, f"r14-mockup-{m['id']}.jpg"), quality=88)
     if sheet_out:
         sheet(imgs, labels, sheet_out)
         print('sheet', sheet_out, len(imgs))
