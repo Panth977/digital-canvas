@@ -203,6 +203,20 @@ test('blur brush: only the painted part blurs, its strength stays editable, Esc 
   expect((await el0(page)).blurBrush).toBeUndefined();
 });
 
+test('a stroke started while the brush loads never drags the picture', async ({ page }) => {
+  await newDesign(page);
+  const img = await upload(page, await png(page, 800, 800, '#ff2020'));
+  await page.getByTestId('edit-image').click();
+  await page.getByTestId('tool-erase').click(); // no wait for the picture to decode
+  const b = (await page.getByTestId('brush-canvas').boundingBox())!;
+  await page.mouse.move(b.x + b.width * 0.3, b.y + b.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(b.x + b.width * 0.8, b.y + b.height / 2, { steps: 6 });
+  await page.mouse.up();
+  const el = await el0(page);
+  expect([el.x, el.y]).toEqual([img.x, img.y]);
+});
+
 test('Magic Eraser fills what was brushed; undo brings it back', async ({ page }) => {
   await newDesign(page);
   const img = await upload(page, await png(page, 200, 200, '#ff2020'));

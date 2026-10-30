@@ -121,9 +121,10 @@
   }
 
   function down(e: PointerEvent): void {
-    if (!ready || e.button > 0) return;
+    // always swallowed: a stroke that starts while the picture loads must not drag the element below
     e.preventDefault();
     e.stopPropagation();
+    if (!ready || e.button > 0) return;
     view!.setPointerCapture(e.pointerId);
     last = null;
     stroke(toMask(e));
@@ -205,7 +206,7 @@
   const canApply = $derived(ready && (brush.tool === 'bg' || brush.tool === 'blur' || (painted && (brush.tool !== 'edit' || (!!brush.prompt.trim() && !needKey)))));
   const dpr = Math.min(2, globalThis.devicePixelRatio || 1);
   const addLabel = $derived(brush.tool === 'bg' ? 'Restore' : 'Brush');
-  const removeLabel = $derived(brush.tool === 'bg' ? 'Erase' : 'Undo brush');
+  const removeLabel = $derived(brush.tool === 'bg' ? 'Erase' : 'Remove');
 </script>
 
 <svelte:window onkeydowncapture={keys} />

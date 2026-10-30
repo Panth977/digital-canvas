@@ -221,7 +221,7 @@ export function defaultShadow(style: ImageShadowStyle): ImageShadow {
   switch (style) {
     case 'glow': return { ...base, size: 50, transparency: 30, color: '#ffd84d' };
     case 'drop': return base;
-    case 'angle': return { ...base, angle: 135, size: 60, blur: 30, transparency: 55 };
+    case 'angle': return { ...base, angle: 135, size: 30, blur: 30, transparency: 60 };
     case 'curved': return { ...base, size: 45, blur: 45, transparency: 45 };
     case 'lift': return { ...base, size: 50, blur: 45, transparency: 45 };
     case 'backdrop': return { ...base, distance: 40, blur: 0, transparency: 0, color: '#8b5cf6' };
@@ -270,7 +270,7 @@ export function stylizeOf(look: ImageLook): ImageStylize | undefined {
   return look.effect?.type === 'pixelate' ? { type: 'pixelate', amount: look.effect.size } : undefined;
 }
 
-/** Duotone presets (shadows, highlights), from open palettes. */
+/** Duotone presets (shadows, highlights). */
 export const DUOTONES: { id: string; label: string; dark: string; light: string }[] = [
   { id: 'peach', label: 'Peach', dark: '#3b1c6b', light: '#ffd1dc' },
   { id: 'ocean', label: 'Ocean', dark: '#03045e', light: '#90e0ef' },
