@@ -221,23 +221,35 @@ def build(spec, path):
         cov = np.where(band, cov, 0).astype(np.float32) if spec.get('hard') else cov
     else:
         q = np.array(spec['quad'], np.float64) if spec.get('quad') else fit_quad(seg)
-        q = order_quad(q) if not spec.get('keep_order') else q
+        q = np.roll(order_quad(q), spec.get('rot', 0), 0)
+        if spec.get('shrink'):
+            c = q.mean(0)
+            q = np.array([p + (c - p) / np.hypot(*(c - p)) * spec['shrink'] * 1.4 for p in q])
         u, v = homography_uv(q, w, h)
-        asp = spec.get('aspect') or round(true_aspect(q, w, h), 3)
+        asp = spec.get('aspect') or true_aspect(q, w, h)
         cov = poly_mask([q], w, h)
         if kind == 'cloth':
-            k = spec.get('warp', 7)
-            sm = cv2.GaussianBlur(lum, (0, 0), spec.get('warp_sigma', 7))
+            k = spec.get('warp', 2.5)
+            sm = cv2.GaussianBlur(lum, (0, 0), spec.get('warp_sigma', 10))
             gx, gy = cv2.Sobel(sm, cv2.CV_32F, 1, 0, ksize=3), cv2.Sobel(sm, cv2.CV_32F, 0, 1, ksize=3)
             sd = max(float(np.std(gx[cov > 0.5])), float(np.std(gy[cov > 0.5])), 1e-3)
             mx, my = np.meshgrid(np.arange(w, dtype=np.float32), np.arange(h, dtype=np.float32))
-            dx, dy = k * gx / sd, k * gy / sd
-            dx, dy = cv2.GaussianBlur(dx, (0, 0), 3), cv2.GaussianBlur(dy, (0, 0), 3)
+            dx = cv2.GaussianBlur(np.clip(k * gx / sd, -2.5 * k, 2.5 * k), (0, 0), 6)
+            dy = cv2.GaussianBlur(np.clip(k * gy / sd, -2.5 * k, 2.5 * k), (0, 0), 6)
             u = cv2.remap(u.astype(np.float32), mx + dx, my + dy, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE).astype(np.float64)
             v = cv2.remap(v.astype(np.float32), mx + dx, my + dy, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE).astype(np.float64)
+            band = (u >= 0) & (u <= 1) & (v >= 0) & (v <= 1)
+            cov = cv2.GaussianBlur(band.astype(np.float32), (0, 0), feather)
+    if spec.get('radius'):
+        # rounded screen corners, measured in pixels along the surface
+        pw, ph = np.hypot(*(q[1] - q[0])), np.hypot(*(q[3] - q[0]))
+        r = spec['radius']
+        dx = np.maximum(r - np.minimum(u, 1 - u) * pw, 0)
+        dy = np.maximum(r - np.minimum(v, 1 - v) * ph, 0)
+        cov = cov * np.clip(r - np.hypot(dx, dy) + 0.5, 0, 1).astype(np.float32)
     if spec.get('poly'):
         cov = cov * poly_mask(spec['poly'], w, h)
-    if seg is not None:
+    if seg is not None and not spec.get('noseg'):
         soft = cv2.GaussianBlur((seg > 0).astype(np.float32), (0, 0), feather)
         cov = cov * np.clip((soft - 0.5) * 2 + 0.5 if spec.get('tight') else soft * 1.0, 0, 1)
     if spec.get('exclude'):
@@ -247,6 +259,8 @@ def build(spec, path):
         k = 2 * spec['inset'] + 1
         cov = cv2.erode(cov, np.ones((k, k), np.uint8))
     shade = make_shade(lum, cov, spec.get('ref'), spec.get('gamma', 1.0), spec.get('pct', 92), spec.get('lo', 205), spec.get('smooth', 4))
+    if spec.get('flat_shade'):
+        shade = np.full(lum.shape, spec['flat_shade'], np.float32)
     tint = None
     t = spec.get('tint')
     if t:
@@ -259,4 +273,4 @@ def build(spec, path):
             tint = tint * (1 - cv2.GaussianBlur(poly_mask(t['exclude'], w, h), (0, 0), 1.2))
     cov = np.clip(cov, 0, 1)
     cov[cov < 1.5 / 255] = 0
-    return rgb, u, v, cov, shade, tint, asp
+    return rgb, u, v, cov, shade, tint, round(float(asp), 3)
