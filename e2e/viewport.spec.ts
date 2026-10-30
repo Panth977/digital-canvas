@@ -279,13 +279,13 @@ test('drag to reorder pages in the Pages strip and the grid view', async ({ page
   // page 1 dropped after page 3
   const last = (await strip.nth(2).boundingBox())!;
   await strip.nth(0).dragTo(strip.nth(2), { targetPosition: { x: last.width - 4, y: last.height / 2 } });
-  expect((await doc(page)).pages.map((p: any) => p.id)).toEqual([ids[1], ids[2], ids[0]]);
+  await expect.poll(async () => (await doc(page)).pages.map((p: any) => p.id)).toEqual([ids[1], ids[2], ids[0]]);
   // grid view: the (now) last page dropped before the first
   await page.getByTestId('grid-btn').click();
   const grid = page.getByTestId('grid-page');
   await expect(grid).toHaveCount(3);
   await grid.nth(2).dragTo(grid.nth(0), { targetPosition: { x: 4, y: 20 } });
-  expect((await doc(page)).pages.map((p: any) => p.id)).toEqual([ids[0], ids[1], ids[2]]);
+  await expect.poll(async () => (await doc(page)).pages.map((p: any) => p.id)).toEqual([ids[0], ids[1], ids[2]]);
 });
 
 test('dragging an element to the workspace edge scrolls the view', async ({ page }) => {
