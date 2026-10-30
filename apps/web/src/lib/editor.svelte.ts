@@ -702,6 +702,29 @@ export class EditorState {
     this.select([], r.pageId);
   }
 
+  /**
+   * A picture as a new page after the current one (mockups): pages share the
+   * design's size, so the picture is fitted inside it (contain) and centred.
+   */
+  async addImagePage(bytes: Uint8Array, mime: string, name: string): Promise<string | null> {
+    const id = await this.addAsset(bytes, mime, name);
+    const meta = id ? this.doc.assets[id] : null;
+    if (!id || !meta?.width || !meta.height) return null;
+    const r = addPage(this.doc, this.pageId);
+    const s = Math.min(this.doc.width / meta.width, this.doc.height / meta.height);
+    const w = meta.width * s, h = meta.height * s;
+    this.commit(addElements(r.doc, r.pageId, [image(id, { x: (this.doc.width - w) / 2, y: (this.doc.height - h) / 2, w, h })]));
+    this.seal();
+    this.select([], r.pageId);
+    return r.pageId;
+  }
+
+  /** A page as straight RGBA at exactly w × h px (mockups). */
+  pageRgba(pageId: string, w: number, h: number): { width: number; height: number; data: Uint8Array } {
+    const page = this.doc.pages.find((p) => p.id === pageId) ?? this.page;
+    return this.renderer.renderPageRgba(this.doc, page, w, h);
+  }
+
   duplicatePage(pageId = this.pageId): void {
     const r = duplicatePage(this.doc, pageId);
     this.commit(r.doc);

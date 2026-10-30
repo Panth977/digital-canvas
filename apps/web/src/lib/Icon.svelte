@@ -118,6 +118,7 @@
     send: 'M4 12l16-8-6 16-2.5-6.5zM11.5 13.5L20 4',
     star: 'M12 3l2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3l-5.5 2.9 1-6.2L3 9.6l6.2-.9z',
     bolt: 'M13 2L4 14h7l-1 8 9-12h-7z',
+    tshirt: 'M9 3L3.5 6 5.5 10.5 8 9.5V21h8V9.5l2.5 1L20.5 6 15 3c-.4 1.5-1.6 2.5-3 2.5S9.4 4.5 9 3z',
   } as const;
   export type IconName = keyof typeof ICONS;
 </script>

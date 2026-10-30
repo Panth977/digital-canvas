@@ -34,7 +34,7 @@
   let size = $state<'auto' | 'half' | 'full'>('half');
 
   const RAIL_TITLES: Record<RailTab, string> = {
-    ai: 'AI', templates: 'Design', elements: 'Elements', text: 'Text', brand: 'Brand', uploads: 'Uploads', draw: 'Draw',
+    ai: 'AI', templates: 'Design', elements: 'Elements', mockups: 'Mockups', text: 'Text', brand: 'Brand', uploads: 'Uploads', draw: 'Draw',
     projects: 'Projects', apps: 'Apps', photos: 'Photos', videos: 'Videos', sounds: 'Audio',
   };
   const SHEET_TITLES = { size: 'Font size', spacing: 'Spacing', opacity: 'Transparency', format: 'Format', pages: 'Pages', menu: '', download: 'Download', resize: 'Resize', share: 'Share' } as const;

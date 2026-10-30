@@ -13,6 +13,7 @@
   import PhotosPanel from './panels/PhotosPanel.svelte';
   import VideosPanel from './panels/VideosPanel.svelte';
   import AudioPanel from './panels/AudioPanel.svelte';
+  import MockupsPanel from './panels/MockupsPanel.svelte';
 
   /** The rail sections' contents: the desktop side panel and the phone's bottom sheet both show them. */
   let { ed }: { ed: EditorState } = $props();
@@ -40,6 +41,8 @@
   <AppsPanel {ed} />
 {:else if ui.panel === 'text'}
   <TextPanel {ed} />
+{:else if ui.panel === 'mockups'}
+  <MockupsPanel {ed} />
 {:else if ui.panel === 'uploads'}
   <UploadsPanel {ed} />
 {/if}

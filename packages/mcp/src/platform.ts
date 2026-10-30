@@ -55,6 +55,11 @@ export interface Platform {
   exportMp4(file: ProjectFile, opts: VideoExportOptions): Promise<Uint8Array>;
   /** IP addresses of a host (servers refuse private ones). Omitted where there is no DNS API. */
   lookup?(host: string): Promise<string[]>;
+  /**
+   * A file of the mockup library (`index.json`, `<id>/base.jpg`, …). Omitted:
+   * fetched from the deployed site (src/mockups.ts).
+   */
+  mockupFile?(path: string): Promise<Uint8Array>;
   /** No network for fonts (tests). */
   readonly offline?: boolean;
 }

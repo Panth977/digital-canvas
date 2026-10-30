@@ -75,6 +75,7 @@
       add({ id: 'templates', label: 'Design', icon: 'templates', on: isOpen('templates'), act: () => rail('templates') });
       add({ id: 'elements', label: 'Elements', icon: 'elements', on: isOpen('elements'), act: () => rail('elements') });
       add({ id: 'text', label: 'Text', icon: 'text', on: isOpen('text'), act: () => rail('text') });
+      add({ id: 'mockups', label: 'Mockups', icon: 'tshirt', on: isOpen('mockups'), act: () => rail('mockups') });
       add({ id: 'uploads', label: 'Uploads', icon: 'cloud', on: isOpen('uploads'), act: () => rail('uploads') });
       add({ id: 'photos', label: 'Photos', icon: 'image', on: isOpen('photos'), act: () => rail('photos') });
       add({ id: 'draw', label: 'Draw', icon: 'pen', on: isOpen('draw'), act: () => rail('draw') });

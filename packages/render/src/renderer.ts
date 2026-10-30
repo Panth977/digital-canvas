@@ -685,6 +685,28 @@ export class Renderer {
     }
   }
 
+  /** Render a page off-screen at exactly `width × height` px and read it back as straight-alpha RGBA (mockups). */
+  renderPageRgba(doc: Doc, page: Page, width: number, height: number): { width: number; height: number; data: Uint8Array } {
+    const ck = this.ck;
+    const w = Math.max(1, Math.round(width)), h = Math.max(1, Math.round(height));
+    const surface = ck.MakeSurface(w, h);
+    if (!surface) throw new Error(`could not make a ${w}×${h} surface`);
+    try {
+      const canvas = surface.getCanvas();
+      canvas.clear(ck.TRANSPARENT);
+      canvas.scale(w / doc.width, h / doc.height);
+      this.drawPage(canvas, doc, page);
+      surface.flush();
+      const img = surface.makeImageSnapshot();
+      const data = img.readPixels(0, 0, { width: w, height: h, colorType: ck.ColorType.RGBA_8888, alphaType: ck.AlphaType.Unpremul, colorSpace: ck.ColorSpace.SRGB }) as Uint8Array | null;
+      img.delete();
+      if (!data) throw new Error('could not read the page pixels');
+      return { width: w, height: h, data };
+    } finally {
+      surface.delete();
+    }
+  }
+
   /** Forget cached layouts for elements that no longer exist. */
   gc(liveIds: ReadonlySet<string>): void {
     this.text.gc(liveIds);

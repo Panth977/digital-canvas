@@ -25,6 +25,7 @@ const RELAY_LOCAL: Record<string, (args: Record<string, unknown>) => boolean> = 
   search_fonts: () => true,
   search_stock: () => true,
   list_templates: (a) => !a.design_id,
+  list_mockups: () => true,
 };
 
 export interface RelayOptions {

@@ -13,6 +13,7 @@ import { registerAssetTools } from './tools/assets.ts';
 import { registerDesignTools } from './tools/designs.ts';
 import { registerEditTools } from './tools/edit.ts';
 import { registerExportTools, runJob } from './tools/export.ts';
+import { registerMockupTools } from './tools/mockups.ts';
 import { registerVideoTools } from './tools/video.ts';
 import { registerViewTools } from './tools/view.ts';
 import type { Workspace } from './workspace.ts';
@@ -24,7 +25,9 @@ const INSTRUCTIONS = `Digital Canvas is an open-source design editor (like Canva
 How to work well:
 ${WORKFLOW}
 
-Read the resource dcanvas://guide for sizes, type scales, font pairings, filters, animations and video tips. Always look at your work with render_page before you call it done.`;
+Read the resource dcanvas://guide for sizes, type scales, font pairings, filters, animations and video tips. Always look at your work with render_page before you call it done.
+
+To show a design on a real product (T-shirt, tote bag, mug, poster on a wall, billboard, phone…): list_mockups, then render_mockup with the page and a mockup id (and a product colour where the mockup allows it).`;
 
 export function createServer(ws: Workspace, opts: ServerOptions = {}): McpServer {
   const ctx = new Context(ws, opts);
@@ -45,6 +48,7 @@ export function createServer(ws: Workspace, opts: ServerOptions = {}): McpServer
   registerViewTools(server, ctx);
   registerVideoTools(server, ctx);
   registerExportTools(server, ctx);
+  registerMockupTools(server, ctx);
 
   // ---- resources
 

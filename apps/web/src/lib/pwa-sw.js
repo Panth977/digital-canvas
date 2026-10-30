@@ -5,7 +5,7 @@
  *  - App shell (index.html, hashed JS/CSS, CanvasKit wasm, fonts, icons): precached
  *    per build, served cache-first; a new build gets a new cache.
  *  - Page loads: network first, the cached index.html when offline.
- *  - /templates/*.png and Fontsource fonts: stale-while-revalidate.
+ *  - /templates/*.png, /mockups/*/thumb.jpg and Fontsource fonts: stale-while-revalidate.
  *  - Google Drive reads (file lists, file bodies, thumbnails): network first, kept in
  *    a small cache so recently opened designs open offline. Only GETs; the token
  *    is never stored (the cache key is the URL).
@@ -47,6 +47,8 @@ self.addEventListener('fetch', (event) => {
   if (url.origin === self.location.origin) {
     if (req.mode === 'navigate') return event.respondWith(page(req));
     if (url.pathname.startsWith('/templates/')) return event.respondWith(staleWhileRevalidate(req, RUNTIME));
+    // mockup thumbnails are small and shown first; the big maps go to the network (HTTP cache)
+    if (url.pathname.startsWith('/mockups/')) return url.pathname.endsWith('/thumb.jpg') ? event.respondWith(staleWhileRevalidate(req, RUNTIME)) : undefined;
     if (url.pathname === '/sw.js') return;
     return event.respondWith(shellFirst(req));
   }

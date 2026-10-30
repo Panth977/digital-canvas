@@ -21,6 +21,7 @@ const base = new URL(import.meta.env.BASE_URL, self.location.origin).href;
 setPlatform(browserPlatform({
   canvasKit: () => CanvasKitInit({ locateFile: () => new URL(wasmUrl, self.location.origin).href }),
   fontsBase: `${base}fonts/`,
+  mockupsBase: `${base}mockups/`,
   templateIndex: INDEX as TemplateEntry[],
   templateDoc: async (id) => {
     const load = templates[`../../templates/${id}.json`];

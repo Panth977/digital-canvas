@@ -5,6 +5,7 @@
  */
 import type { CanvasKit } from 'canvaskit-wasm';
 import type { Platform, TemplateEntry } from '../platform.ts';
+import { fetchMockupFile } from '../mockupfetch.ts';
 import { videoFrameWebCodecs } from './media.ts';
 import { exportMp4Browser, webCodecsProblem } from './mp4.ts';
 
@@ -15,6 +16,8 @@ export interface BrowserPlatformOptions {
   fontsBase: string;
   templateIndex: TemplateEntry[];
   templateDoc: (id: string) => Promise<unknown>;
+  /** Absolute URL of the mockup library (ends with /), e.g. the app's own `/mockups/`. Default: the deployed site. */
+  mockupsBase?: string;
 }
 
 export function browserPlatform(o: BrowserPlatformOptions): Platform {
@@ -27,5 +30,21 @@ export function browserPlatform(o: BrowserPlatformOptions): Platform {
     videoFrame: (bytes, at) => videoFrameWebCodecs(bytes, at),
     videoProblem: webCodecsProblem,
     exportMp4: exportMp4Browser,
+    ...(o.mockupsBase ? { mockupFile: cachedFetch(o.mockupsBase) } : {}),
+  };
+}
+
+/** Mockup files over HTTP, kept in memory (a few, the maps are big). */
+function cachedFetch(base: string): (path: string) => Promise<Uint8Array> {
+  const cache = new Map<string, Promise<Uint8Array>>();
+  return (path) => {
+    let hit = cache.get(path);
+    if (!hit) {
+      hit = fetchMockupFile(base, path);
+      hit.catch(() => cache.delete(path));
+      cache.set(path, hit);
+      if (cache.size > 24) cache.delete(cache.keys().next().value!);
+    }
+    return hit;
   };
 }

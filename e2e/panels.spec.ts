@@ -59,7 +59,10 @@ test('keyboard: arrows move along the rail, Enter opens a section, Esc closes it
   await newDesign(page);
   await page.getByTestId('tab-elements').focus();
   await page.keyboard.press('ArrowDown');
+  await expect(page.getByTestId('tab-mockups')).toBeFocused();
+  await page.keyboard.press('ArrowDown');
   await expect(page.getByTestId('tab-text')).toBeFocused();
+  await page.keyboard.press('ArrowUp');
   await page.keyboard.press('ArrowUp');
   await page.keyboard.press('ArrowUp');
   await expect(page.getByTestId('tab-templates')).toBeFocused();
