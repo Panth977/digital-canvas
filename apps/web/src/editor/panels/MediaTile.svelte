@@ -98,6 +98,9 @@
   /* single-colour icons are drawn black: give them a light chip in dark mode */
   .tile.icon { background: #f2f3f5; }
   .tile.icon:hover { background: #e8e9ee; }
+  /* line art is drawn black too: same light chip, and show the whole drawing */
+  .tile.illustration { background: #f2f3f5; }
+  .tile.illustration img { object-fit: contain; }
   .ph { display: grid; place-items: center; width: 100%; height: 100%; color: var(--muted); }
   .badge { position: absolute; left: 6px; bottom: 6px; background: rgba(0, 0, 0, .6); color: #fff; font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 4px; display: flex; align-items: center; }
   .busy { cursor: progress; }
