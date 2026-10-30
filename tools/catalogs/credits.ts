@@ -59,6 +59,13 @@ const SECTIONS: { title: string; intro?: string; rows: Row[] }[] = [
     row('Wikimedia Commons', 'https://commons.wikimedia.org', 'many authors', L.Each, 'credit kept with each item'),
     row('NASA Image and Video Library', 'https://images.nasa.gov', 'NASA', L.Each, 'generally public domain'),
     row('OpenStreetMap', 'https://www.openstreetmap.org/copyright', 'OpenStreetMap contributors', L.ODbL) ] },
+  { title: 'Image models and libraries', intro: 'Downloaded to your device on first use and run there.', rows: [
+    row('BiRefNet-lite', 'https://github.com/ZhengPeng7/BiRefNet', 'Peng Zheng and co-authors', L.MIT, 'background remover and subject finder; 512 px export by studioludens'),
+    row('MODNet', 'https://github.com/ZHKKKe/MODNet', 'Zhanghan Ke and co-authors', L.Apache, 'fallback background remover'),
+    row('LaMa', 'https://github.com/advimman/lama', 'Roman Suvorov and co-authors', L.Apache, 'Magic Eraser, Magic Grab, Grab Text; ONNX export by Carve'),
+    row('Tesseract.js', 'https://github.com/naptha/tesseract.js', 'Project Naptha and contributors', L.Apache, 'Grab Text'),
+    row('ONNX Runtime Web', 'https://github.com/microsoft/onnxruntime', 'Microsoft', L.MIT, 'runs the models'),
+  ] },
   { title: 'Device mockups', rows: [ row('Digital Canvas mockups', '', 'rendered with Blender for this project', L.CC0, 'see public/mockups/LICENSES.md') ] },
 ];
 

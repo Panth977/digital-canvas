@@ -277,6 +277,35 @@ describe('assets & content', () => {
 });
 
 describe('seeing the result', () => {
+  it('picture looks: new adjustments, shadow, duotone, stylize, blend and border survive and render', async () => {
+    const id = (await h.call('create_design', { preset: 'instagram-post', title: 'Looks' })).json.id;
+    const add = await h.call('add_elements', { design_id: id, elements: [{
+      type: 'image', asset: photo, x: 0, y: 0, w: 600, h: 600, name: 'pic',
+      filter: { name: 'film', intensity: 60 }, adjust: { vibrance: 20, whites: 10, clarity: 15, grain: 12 },
+      colorEdit: { blue: { hue: 30, saturation: -20 } }, invert: true, shadow: { style: 'backdrop', color: '#ff0066' }, duotone: { preset: 'ocean', intensity: 50 },
+      stylize: { type: 'halftone', amount: 30 }, retouch: 20, border: { color: '#112233', width: 6 }, straighten: 5, tiltX: 10, blend: 'multiply',
+    }] });
+    expect(add.isError).toBe(false);
+    expect(add.text).not.toMatch(/unknown|not understood/i);
+    const el = (await h.call('open_design', { design_id: id })).json.pages[0].elements.find((e: { name?: string }) => e.name === 'pic');
+    expect(el).toMatchObject({ blend: 'multiply', invert: true, retouch: 20, straighten: 5, tiltX: 10 });
+    expect(el.adjust).toMatchObject({ vibrance: 20, clarity: 15 });
+    expect(el.shadow).toMatchObject({ style: 'backdrop', color: '#ff0066' });
+    expect(el.duotone).toEqual({ dark: '#03045e', light: '#90e0ef', intensity: 50 });
+    expect(el.border).toMatchObject({ color: '#112233', width: 6 });
+    expect((await h.call('render_page', { design_id: id, size: 256 })).images.length).toBe(1);
+    const off = await h.call('update_elements', { design_id: id, updates: [{ id: el.id, shadow: null, duotone: null, stylize: null, invert: null, blend: null, border: null }] });
+    expect(off.isError).toBe(false);
+    const after = (await h.call('open_design', { design_id: id })).json.pages[0].elements.find((e: { name?: string }) => e.name === 'pic');
+    for (const k of ['shadow', 'duotone', 'stylize', 'invert', 'blend', 'border']) expect(after[k]).toBeUndefined();
+  }, 30_000);
+
+  it('the guide lists the new picture settings', async () => {
+    const r = await h.client.readResource({ uri: 'dcanvas://guide' });
+    const text = String((r.contents[0] as { text?: string }).text);
+    for (const w of ['vibrance', 'colorEdit', 'backdrop', 'halftone', 'duotone', 'multiply', 'straighten']) expect(text).toContain(w);
+  });
+
   it('render_page returns a PNG (with numbered outlines), the grid shows every page', async () => {
     const id = await make({ pages: 3 });
     await h.call('add_elements', { design_id: id, elements: [{ type: 'text', text: 'Look', fontSize: 100 }] });

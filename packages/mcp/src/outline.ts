@@ -49,6 +49,8 @@ export function elementOutline(e: Element, doc: Doc, depth = 0): Record<string, 
       if (e.type === 'image' && e.mask) o.mask = typeof e.mask === 'string' ? e.mask : 'custom';
       if (e.filter) o.filter = e.filter.name;
       if (e.effect) o.effect = e.effect.type;
+      for (const k of ['adjust', 'colorEdit', 'invert', 'shadow', 'duotone', 'stylize', 'retouch', 'border', 'straighten', 'tiltX', 'tiltY'] as const) if (e[k]) o[k] = e[k];
+      if (e.blend) o.blend = e.blend;
       if (e.type === 'video') {
         o.clip = [e.trimStart ?? 0, e.trimEnd ?? (m?.duration !== undefined ? r(m.duration) : null)];
         if (e.loop) o.loop = true;

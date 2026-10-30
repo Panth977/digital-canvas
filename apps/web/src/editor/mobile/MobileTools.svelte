@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Page, TextAlign, TextElement } from '@digital-canvas/scene';
+  import { BLEND_MODES, type BlendMode, type Page, type TextAlign, type TextElement } from '@digital-canvas/scene';
   import type { EditorState } from '../../lib/editor.svelte.ts';
   import Icon, { type IconName } from '../../lib/Icon.svelte';
   import { mobile } from '../../lib/mobile.svelte.ts';
@@ -98,6 +98,11 @@
   <label class="sl" data-testid="m-opacity-sheet"><span>Transparency</span>
     <input type="range" min="0" max="100" value={opacity} data-testid="m-opacity" oninput={(e) => ed.update({ opacity: num(e) / 100 }, key('op'))} onchange={end} />
     <b>{opacity}</b></label>
+  <label class="sl"><span>Blend</span>
+    <select class="input" value={sel[0]?.blend ?? ''} data-testid="m-blend" onchange={(e) => { ed.update({ blend: ((e.currentTarget as HTMLSelectElement).value || undefined) as BlendMode | undefined }); end(); }}>
+      {#each BLEND_MODES as m (m.mode)}<option value={m.mode}>{m.label}</option>{/each}
+    </select>
+  </label>
 {:else if mobile.sheet === 'pages'}
   <div class="pages" data-testid="m-pages-sheet">
     {#each ed.doc.pages as p, i (p.id)}

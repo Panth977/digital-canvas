@@ -130,7 +130,7 @@ test('filters: previews, Mono at full and zero intensity', async ({ page }) => {
   const cx = img.x + img.w / 2, cy = img.y + img.h / 2;
   await page.getByTestId('edit-image').click();
   await page.getByTestId('imgtab-filters').click();
-  await expect(page.locator('[data-testid^="filter-"] img')).toHaveCount(13); // None + 12
+  await expect(page.locator('[data-testid^="filter-"] img')).toHaveCount(36); // None + 35
   await page.getByTestId('filter-mono').click();
   expect((await el0(page)).filter).toEqual({ name: 'mono', intensity: 100 });
   const [r, , b] = await pixel(page, cx, cy);
@@ -152,20 +152,22 @@ test('effects: drop shadow paints below-right of the image', async ({ page }) =>
   expect(await pixel(page, px, py)).toEqual([255, 255, 255, 255]);
 
   await page.getByTestId('edit-image').click();
-  await page.getByTestId('imgtab-effects').click();
-  await page.getByTestId('img-effect').selectOption('shadow');
-  expect((await el0(page)).effect.type).toBe('shadow');
-  await slide(page.getByTestId('ifx-offset'), 100);
-  await slide(page.getByTestId('ifx-blur'), 0);
-  await slide(page.getByTestId('ifx-transparency'), 0);
-  expect((await el0(page)).effect).toMatchObject({ blur: 0, transparency: 0 });
+  await page.getByTestId('imgtab-shadows').click();
+  await page.getByTestId('shadow-drop').click();
+  expect((await el0(page)).shadow.style).toBe('drop');
+  await slide(page.getByTestId('shadow-distance'), 100);
+  await slide(page.getByTestId('shadow-blur'), 0);
+  await slide(page.getByTestId('shadow-transparency'), 0);
+  expect((await el0(page)).shadow).toMatchObject({ blur: 0, transparency: 0 });
   const [r, g, b] = await pixel(page, px, py);
   expect(r! + g! + b!).toBeLessThan(60);
 
-  await page.getByTestId('img-effect').selectOption('duotone');
-  expect((await el0(page)).effect).toMatchObject({ type: 'duotone' });
-  await page.getByTestId('img-effect').selectOption('');
-  expect((await el0(page)).effect).toBeUndefined();
+  await page.getByTestId('imgtab-duotone').click();
+  await page.getByTestId('duo-ocean').click();
+  expect((await el0(page)).duotone).toMatchObject({ dark: '#03045e' });
+  expect((await el0(page)).shadow.style).toBe('drop'); // both stay on
+  await page.getByTestId('duo-none').click();
+  expect((await el0(page)).duotone).toBeUndefined();
 });
 
 test('background remover (stub model): new PNG asset, original kept, restore and undo', async ({ page }) => {

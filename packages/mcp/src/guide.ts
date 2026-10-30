@@ -1,5 +1,5 @@
 /** The design guide served as a resource and quoted by the prompts. */
-import { IMAGE_FILTERS } from '@digital-canvas/scene';
+import { DUOTONES, FILTER_GROUPS, IMAGE_FILTERS } from '@digital-canvas/scene';
 
 export const WORKFLOW = `1. Understand the brief: format (post, story, reel, poster, thumbnail…), message, audience, brand.
 2. Gather material first: list_assets / search_drive (the user's own photos and clips are best), get_brand_kit, search_stock for anything missing. Import what you'll use.
@@ -34,8 +34,12 @@ Gradients: fill { colors: ["#ff7e5f", "#feb47b"], angle: 135 } (CSS angles: 180 
 
 ## Pictures
 image/video: fit "cover" (default) crops to the box, focus {x,y} keeps a subject in frame; mask "ellipse" for round photos; radius for rounded corners.
-Filters (name): ${IMAGE_FILTERS.map((f) => f.name).join(', ')} (intensity 0..100). Adjust: brightness, contrast, saturation, temperature, tint, highlights, shadows, fade, vignette, blur, sharpen (-100..100).
-Effects: shadow, glow, duotone {light, dark}, pixelate, outline.
+Filters (name, intensity 0..100): ${FILTER_GROUPS.map((g) => `${g}: ${IMAGE_FILTERS.filter((f) => f.group === g).map((f) => f.name).join(', ')}`).join(' · ')}.
+Adjust (-100..100; blur, sharpen, fade, grain 0..100): temperature, tint · brightness, contrast, highlights, shadows, whites, blacks · vibrance, saturation · texture, clarity, sharpen, fade, grain, vignette, blur.
+colorEdit: per band (red, orange, yellow, green, aqua, blue, purple, magenta) { hue, saturation, lightness }. invert: true for a negative.
+These three can be combined: shadow { style glow|drop|angle|curved|lift|backdrop|outline, size, blur, angle, distance, transparency, color } · duotone { preset, or dark + light, intensity } (presets: ${DUOTONES.map((d) => d.id).join(', ')}) · stylize { type pixelate|halftone|posterize|glitch|screen|sketch, amount }.
+Also: retouch 0..100 smooths skin; border { color, width, dash }; straighten -45..45 and tiltX/tiltY -100..100 inside the box; blend multiply|screen|overlay|darken|lighten|color-dodge|color-burn|hard-light|soft-light|difference|exclusion|hue|saturation|color|luminosity on any element. Older effect { type shadow|glow|duotone|pixelate|outline } still works.
+Background removal, Magic tools, selective edits and Auto Focus run in the editor (open_in_editor); they need the on-device models. Designs that already use them render the same here.
 Icons: search_stock kind icon/graphic/sticker → add_elements {type:"icon", icon:"ph:coffee-bold", color}.
 
 ## Text effects

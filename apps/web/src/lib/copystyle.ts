@@ -4,14 +4,20 @@
  * give fill, border and corners; pictures give adjustments, filter and
  * effect; any element gives its transparency.
  */
-import type { Element, ElementPatch, TextElement } from '@digital-canvas/scene';
+import { portableLook, type Element, type ElementPatch, type ImageLook, type TextElement } from '@digital-canvas/scene';
+
+/** The look fields of a picture, nothing else. */
+function pickLook(e: ImageLook): ImageLook {
+  const { adjust, filter, effect, auto, colorEdit, invert, shadow, duotone, stylize, retouch, border } = e;
+  return { adjust, filter, effect, auto, colorEdit, invert, shadow, duotone, stylize, retouch, border };
+}
 
 export interface CopiedStyle {
   from: Element['type'];
   opacity: number;
   text?: Pick<TextElement, 'style' | 'effect' | 'gradient' | 'list'>;
   shape?: { fill: Extract<Element, { type: 'shape' }>['fill']; stroke: Extract<Element, { type: 'shape' }>['stroke']; radius: number };
-  picture?: Pick<Extract<Element, { type: 'image' }>, 'adjust' | 'filter' | 'effect' | 'radius'>;
+  picture?: ImageLook & { radius: number };
   line?: Extract<Element, { type: 'line' }>['stroke'];
   /** Single colour to give anything else (a graphic, a line) from a text or shape. */
   color?: string;
@@ -28,7 +34,7 @@ export function copyStyle(e: Element): CopiedStyle {
     s.shape = { fill: clone(e.fill), stroke: clone(e.stroke), radius: e.radius };
     if (e.fill?.type === 'solid') s.color = e.fill.color;
   } else if (e.type === 'image' || e.type === 'video') {
-    s.picture = { adjust: clone(e.adjust), filter: clone(e.filter), effect: clone(e.effect), radius: e.radius };
+    s.picture = { ...clone(portableLook(pickLook(e))), radius: e.radius };
   } else if (e.type === 'line') {
     s.line = clone(e.stroke);
     s.color = e.stroke.color;
@@ -57,9 +63,7 @@ export function pasteStyle(s: CopiedStyle, target: Element): ElementPatch {
     } else if (s.color) out.fill = { type: 'solid', color: s.color };
   } else if (target.type === 'image' || target.type === 'video') {
     if (s.picture) {
-      opt('adjust', s.picture.adjust);
-      opt('filter', s.picture.filter);
-      opt('effect', s.picture.effect);
+      for (const k of ['adjust', 'filter', 'effect', 'auto', 'colorEdit', 'invert', 'shadow', 'duotone', 'stylize', 'retouch', 'border'] as const) opt(k, s.picture[k]);
       out.radius = s.picture.radius;
     }
   } else if (target.type === 'line') {

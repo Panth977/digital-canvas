@@ -43,7 +43,26 @@ export const imageEffect = z.object({
 export const adjust = z.object({
   brightness: z.number(), contrast: z.number(), saturation: z.number(), temperature: z.number(), tint: z.number(),
   highlights: z.number(), shadows: z.number(), fade: z.number(), vignette: z.number(), blur: z.number(), sharpen: z.number(),
-}).partial().describe('Photo adjustments, each -100..100 (blur/sharpen 0..100).');
+  vibrance: z.number(), whites: z.number(), blacks: z.number(), texture: z.number(), clarity: z.number(), grain: z.number(),
+}).partial().describe('Photo adjustments, each -100..100 (blur, sharpen, fade, grain 0..100).');
+
+const band = z.object({ hue: z.number(), saturation: z.number(), lightness: z.number() }).partial();
+
+/** The picture look settings beyond adjust and filter. */
+export const lookFields = {
+  colorEdit: z.object({ red: band, orange: band, yellow: band, green: band, aqua: band, blue: band, purple: band, magenta: band }).partial().nullable().optional().describe('image/video: Colour edit, hue/saturation/lightness -100..100 per colour band.'),
+  invert: z.boolean().nullable().optional().describe('image/video: negative colours.'),
+  shadow: z.object({ style: z.enum(['glow', 'drop', 'angle', 'curved', 'lift', 'backdrop', 'outline']), size: z.number().optional(), blur: z.number().optional(), angle: z.number().optional(), distance: z.number().optional(), transparency: z.number().optional(), color: z.string().optional() }).nullable().optional().describe('image/video: a shadow style; amounts 0..100, angle in degrees (0 = right, 90 = down). Combines with duotone and stylize.'),
+  duotone: z.object({ preset: z.string().optional(), dark: z.string().optional(), light: z.string().optional(), intensity: z.number().optional() }).nullable().optional().describe('image/video: two-colour look, by preset id or dark + light colours, intensity 0..100.'),
+  stylize: z.object({ type: z.enum(['pixelate', 'halftone', 'posterize', 'glitch', 'screen', 'sketch']), amount: z.number() }).nullable().optional().describe('image/video: a pixel look, amount 0..100.'),
+  retouch: z.number().min(0).max(100).nullable().optional().describe('image/video: smooth skin tones, 0..100.'),
+  border: z.object({ color: z.string().optional(), width: z.number().optional(), dash: z.enum(['solid', 'dashed', 'dotted']).optional() }).nullable().optional().describe('image/video: border along its outline (frame or rounded corners).'),
+  straighten: z.number().min(-45).max(45).nullable().optional().describe('image/video: rotate the picture inside its box, degrees.'),
+  tiltX: z.number().min(-100).max(100).nullable().optional().describe('image/video: perspective, left-right.'),
+  tiltY: z.number().min(-100).max(100).nullable().optional().describe('image/video: perspective, up-down.'),
+};
+
+const BLENDS = ['multiply', 'screen', 'overlay', 'darken', 'lighten', 'color-dodge', 'color-burn', 'hard-light', 'soft-light', 'difference', 'exclusion', 'hue', 'saturation', 'color', 'luminosity'] as const;
 
 const SHAPES = ['rect', 'ellipse', 'circle', 'square', 'triangle', 'diamond', 'pentagon', 'hexagon', 'star', 'arrow'] as const;
 
@@ -56,6 +75,7 @@ const props = {
   h: z.number().positive().optional().describe('Height, px. Text: measured automatically when left out.'),
   rotation: z.number().optional().describe('Degrees clockwise.'),
   opacity: z.number().min(0).max(1).optional(),
+  blend: z.enum(BLENDS).nullable().optional().describe('How it mixes with what is under it (absent or null = normal).'),
   locked: z.boolean().optional(),
   hidden: z.boolean().optional(),
   animation: animation.nullable().optional(),
@@ -98,6 +118,7 @@ const props = {
   mask: z.enum(SHAPES).optional().describe('image/video: show it only inside this shape (circle photo = "ellipse").'),
   filter: z.object({ name: z.string(), intensity: z.number().min(0).max(100).optional() }).optional().describe('image filter preset by name (see the design guide resource), intensity 0..100.'),
   adjust: adjust.optional(),
+  ...lookFields,
   trimStart: z.number().min(0).optional().describe('video: start of the part to use, seconds into the file.'),
   trimEnd: z.number().min(0).optional().describe('video: end of the part to use, seconds into the file.'),
   loop: z.boolean().optional().describe('video: start again when the clip ends before the page does.'),

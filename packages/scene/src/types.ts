@@ -45,6 +45,8 @@ export interface ElementBase {
   flipY?: boolean;
   locked?: boolean;
   hidden?: boolean;
+  /** How the element mixes with what is under it (absent = normal). */
+  blend?: BlendMode;
   /** Enter animation (presentations, video and GIF export). See anim.ts. */
   animation?: Animation;
   /**
@@ -53,6 +55,8 @@ export interface ElementBase {
    */
   timing?: { start?: number; end?: number };
 }
+
+export type BlendMode = 'multiply' | 'screen' | 'overlay' | 'darken' | 'lighten' | 'color-dodge' | 'color-burn' | 'hard-light' | 'soft-light' | 'difference' | 'exclusion' | 'hue' | 'saturation' | 'color' | 'luminosity';
 
 export type AnimationType = 'rise' | 'pan' | 'fade' | 'pop' | 'wipe' | 'typewriter' | 'baseline' | 'drift' | 'tumble';
 export type AnimationDirection = 'left' | 'right' | 'up' | 'down';
@@ -161,6 +165,18 @@ export interface ImageAdjust {
   vignette?: number;
   blur?: number;
   sharpen?: number;
+  /** Saturation that spares colours which are already strong. */
+  vibrance?: number;
+  /** The brightest tones. */
+  whites?: number;
+  /** The darkest tones. */
+  blacks?: number;
+  /** Fine detail: + crisper, - smoother. */
+  texture?: number;
+  /** Local contrast in the midtones. */
+  clarity?: number;
+  /** Film grain, 0..100. */
+  grain?: number;
 }
 
 export type ImageAdjustKey = keyof ImageAdjust;
@@ -184,11 +200,89 @@ export type ImageEffect =
 
 export type ImageEffectType = ImageEffect['type'];
 
+/** The colour bands of Colour edit, around the hue wheel. */
+export type ColorBand = 'red' | 'orange' | 'yellow' | 'green' | 'aqua' | 'blue' | 'purple' | 'magenta';
+
+/** One band's shifts, each -100..100. */
+export interface BandEdit {
+  hue?: number;
+  saturation?: number;
+  lightness?: number;
+}
+
+export type ColorEdit = Partial<Record<ColorBand, BandEdit>>;
+
+export type ImageShadowStyle = 'glow' | 'drop' | 'angle' | 'curved' | 'lift' | 'backdrop' | 'outline';
+
+/**
+ * Canva's Shadows: amounts are 0..100 and scale with the picture; `angle` is in
+ * degrees (0 = right, 90 = down). A style reads only the settings it has
+ * (`SHADOW_SLIDERS`).
+ */
+export interface ImageShadow {
+  style: ImageShadowStyle;
+  size: number;
+  blur: number;
+  angle: number;
+  distance: number;
+  transparency: number;
+  color: Color;
+}
+
+export interface ImageDuotone {
+  light: Color;
+  dark: Color;
+  /** 0..100 (absent = 100). */
+  intensity?: number;
+}
+
+export type ImageStylizeType = 'pixelate' | 'halftone' | 'posterize' | 'glitch' | 'screen' | 'sketch';
+
+/** A pixel-level look on top of everything else; `amount` is 0..100. */
+export interface ImageStylize {
+  type: ImageStylizeType;
+  amount: number;
+}
+
+/** A mask painted over a picture (an image asset; its alpha is the mask, stretched over the whole image). */
+export interface BlurBrush {
+  asset: string;
+  /** 0..100. */
+  intensity: number;
+}
+
 /** Look settings shared by images and video clips. */
 export interface ImageLook {
   adjust?: ImageAdjust;
   filter?: ImageFilter;
+  /** Older single effect; new designs use `shadow`, `duotone` and `stylize`, which can be combined. */
   effect?: ImageEffect;
+  /** Auto-adjust: the values worked out from the picture, at 0..100 intensity. */
+  auto?: { adjust: ImageAdjust; intensity: number };
+  /** Hue, saturation and lightness per colour band. */
+  colorEdit?: ColorEdit;
+  /** Negative colours. */
+  invert?: boolean;
+  shadow?: ImageShadow;
+  duotone?: ImageDuotone;
+  stylize?: ImageStylize;
+  /** Face retouch: skin smoothing, 0..100. */
+  retouch?: number;
+  /** Border along the picture's outline (its frame or rounded corners). */
+  border?: Stroke;
+  /** Rotate the picture inside its box, degrees (-45..45). */
+  straighten?: number;
+  /** Perspective inside the box, -100..100. */
+  tiltX?: number;
+  tiltY?: number;
+  /** An image asset whose alpha is the subject (the same picture, any size): selective edits read it. */
+  matte?: string;
+  /** Extra adjustments for the subject or everything behind it (need `matte`). */
+  selective?: { foreground?: ImageAdjust; background?: ImageAdjust };
+  /** Auto Focus: blur everything but the subject, 0..100 (needs `matte`). */
+  autoFocus?: number;
+  /** Blur painted with a brush. */
+  blurBrush?: BlurBrush;
 }
 
 export interface ImageElement extends ElementBase, ImageLook {

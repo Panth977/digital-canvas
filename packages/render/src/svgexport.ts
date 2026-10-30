@@ -1,5 +1,5 @@
 import type { Doc, Element, Fill, ImageElement, Page, PathElement, ShapeElement, TextElement, VideoElement } from '@digital-canvas/scene';
-import { dashArray, hasLook, posterOf, type Decomposed } from '@digital-canvas/scene';
+import { dashArray, hasLook, lookAssets, posterOf, type Decomposed } from '@digital-canvas/scene';
 import type { Renderer } from './renderer.ts';
 import { shapePath } from './renderer.ts';
 import type { FontFace } from './fonts.ts';
@@ -22,6 +22,7 @@ export const pictureNeedsRaster = (el: ImageElement | VideoElement): boolean => 
 /** Decode an image's (or a video poster's) bytes into the renderer so it can be drawn; its pixel size, or null. */
 export function loadPicture(renderer: Renderer, el: ImageElement | VideoElement, assets: ReadonlyMap<string, Uint8Array>): { width: number; height: number } | null {
   const assetId = el.type === 'video' ? posterOf(el) : el.asset;
+  for (const a of lookAssets(el)) { const b = assets.get(a); if (b) renderer.setImage(a, b); }
   const bytes = assetId ? assets.get(assetId) : undefined;
   return bytes ? renderer.setImage(assetId, bytes) : null;
 }

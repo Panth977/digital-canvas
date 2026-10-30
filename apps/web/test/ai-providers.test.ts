@@ -147,6 +147,16 @@ describe('OpenAI', () => {
     expect(m.calls[0]!.body).toEqual({ model: 'gpt-image-2.5-flare', prompt: 'a cat', n: 2, size: '1024x1536' });
   });
 
+  it('editImage: picture and mask to /images/edits, key to OpenAI only', async () => {
+    const m = mock([['POST https://api.openai.com/v1/images/edits', { json: { data: [{ b64_json: b64(PNG) }] } }]]);
+    const out = await new OpenAIProvider({ key: KEY, fetch: m.fetch }).editImage({ model: 'gpt-image-2.5-flare', prompt: 'a red hat', image: { bytes: PNG, mime: 'image/png' }, mask: { bytes: PNG, mime: 'image/png' } });
+    expect([...out.bytes]).toEqual([...PNG]);
+    expect(m.calls[0]!.body).toMatchObject({ model: 'gpt-image-2.5-flare', prompt: 'a red hat', n: '1' });
+    expect(m.calls[0]!.body.image).toBeInstanceOf(Blob);
+    expect(m.calls[0]!.body.mask).toBeInstanceOf(Blob);
+    expect(m.calls[0]!.headers.authorization).toBe(`Bearer ${KEY}`);
+  });
+
   it('video: Sora job (multipart), polled with progress, then downloaded', async () => {
     let polls = 0;
     const m = mock([
@@ -175,6 +185,14 @@ describe('OpenAI', () => {
 
 describe('Gemini', () => {
   const KEY = 'AIzaSyFAKE-key-0123456789abcdefghij';
+  it('editImage: sends the picture, the mask and the instruction', async () => {
+    const m = mock([[/POST https:\/\/generativelanguage\.googleapis\.com\/v1beta\/interactions/, { json: { status: 'completed', outputs: [{ type: 'image', data: b64(PNG), mime_type: 'image/png' }] } }]]);
+    const out = await new GeminiProvider({ key: KEY, fetch: m.fetch }).editImage({ model: 'gemini-3-pro-image', prompt: 'a red hat', image: { bytes: PNG, mime: 'image/png' }, mask: { bytes: PNG, mime: 'image/png' } });
+    expect([...out.bytes]).toEqual([...PNG]);
+    expect(m.calls[0]!.body.input).toHaveLength(3);
+    expect(m.calls[0]!.body.input[2].text).toContain('a red hat');
+  });
+
   it('chat: Interactions API, x-goog-api-key header (never Api-Revision: CORS), JSON response_format, steps parsing', async () => {
     const m = mock([['POST https://generativelanguage.googleapis.com/v1beta/interactions', { json: { status: 'completed', steps: [{ type: 'user_input', content: [{ type: 'text', text: 'q' }] }, { type: 'thought', content: [] }, { type: 'model_output', content: [{ type: 'text', text: '{"ok":1}' }] }] } }]]);
     const out = await new GeminiProvider({ key: KEY, fetch: m.fetch }).chat({ model: 'gemini-3.8-flash', system: 'sys', content: [{ type: 'text', text: 'q' }, { type: 'image', mime: 'image/png', data: 'QQ==' }], json: true });

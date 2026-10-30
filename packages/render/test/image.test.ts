@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { CanvasKit } from 'canvaskit-wasm';
-import { addElements, createDoc, image, type ImageElement } from '@digital-canvas/scene';
+import { addElements, createDoc, defaultShadow, duotoneOf, hasLook, image, pruneAssets, shadowOf, straightenMatrix, stylizeOf, type ImageElement } from '@digital-canvas/scene';
 import { applyMatrix, colorMatrix, exportSvg, FontLibrary, IDENTITY, Renderer } from '../src/index.ts';
 
 const require = createRequire(import.meta.url);
@@ -206,5 +206,172 @@ describe('image look with M6 frames and vector export', () => {
     const svg = exportSvg(renderer, doc, doc.pages[0]!, { assets: new Map([['grey', greyPng]]) });
     expect(svg).toContain('data:image/png;base64,');
     expect(svg).not.toContain('clip-path'); // rastered, not the plain vector picture
+  });
+});
+
+describe('image look (r15)', () => {
+  const sum = (a: number[], b: number[]) => a.slice(0, 3).reduce((s, v, i) => s + Math.abs(v - b[i]!), 0);
+
+  it('whites and blacks move only their end of the tones', () => {
+    const whole = { crop: { x: 0, y: 0, w: 1, h: 1 } };
+    const base = render('ramp', whole, { w: 64, h: 8 }, { x: 0, y: 0, w: 64, h: 8 });
+    const whites = render('ramp', { ...whole, adjust: { whites: -100 } }, { w: 64, h: 8 }, { x: 0, y: 0, w: 64, h: 8 });
+    const blacks = render('ramp', { ...whole, adjust: { blacks: 100 } }, { w: 64, h: 8 }, { x: 0, y: 0, w: 64, h: 8 });
+    expect(whites.at(62, 4)[0]!).toBeLessThan(base.at(62, 4)[0]! - 30);
+    expect(whites.at(5, 4)[0]!).toBeCloseTo(base.at(5, 4)[0]!, -1);
+    expect(blacks.at(2, 4)[0]!).toBeGreaterThan(base.at(2, 4)[0]! + 30);
+    expect(blacks.at(60, 4)[0]!).toBeCloseTo(base.at(60, 4)[0]!, -1);
+  });
+
+  it('vibrance lifts a dull colour more than a strong one', () => {
+    renderer.setImage('dull', png(4, 4, () => [150, 120, 110, 255]));
+    renderer.setImage('strong', png(4, 4, () => [230, 30, 30, 255]));
+    const gain = (id: string) => {
+      const a = render(id).at(50, 50), b = render(id, { adjust: { vibrance: 100 } }).at(50, 50);
+      return (b[0]! - b[2]!) / (a[0]! - a[2]!);
+    };
+    expect(gain('dull')).toBeGreaterThan(1.5);
+    expect(gain('dull')).toBeGreaterThan(gain('strong'));
+  });
+
+  it('texture and clarity raise local contrast; negative texture softens', () => {
+    const edge = (look: Partial<ImageElement>) => render('edge', look).at(47, 50)[0]!;
+    expect(edge({ adjust: { texture: -100 } })).toBeGreaterThan(edge({}));
+    const hi = render('checker', { adjust: { clarity: 100 } }), lo = render('checker', { adjust: { clarity: -100 } });
+    const spread = (r: ReturnType<typeof render>) => Math.abs(r.at(50, 50)[0]! - r.at(53, 50)[0]!);
+    expect(spread(hi)).toBeGreaterThanOrEqual(spread(lo));
+  });
+
+  it('grain is noise, and the same on every render', () => {
+    const a = render('grey', { adjust: { grain: 100 } }), b = render('grey', { adjust: { grain: 100 } });
+    const seen = new Set<number>();
+    for (let x = 0; x < 100; x++) seen.add(a.at(x, 50)[0]!);
+    expect(seen.size).toBeGreaterThan(10);
+    expect(a.at(33, 33)).toEqual(b.at(33, 33));
+  });
+
+  it('colour edit moves one band and leaves others and greys alone', () => {
+    const r = render('rg', { colorEdit: { red: { hue: 100 } } });
+    expect(r.at(25, 50)[1]!).toBeGreaterThan(50); // red turned towards orange
+    expect(sum(r.at(75, 50), [0, 255, 0])).toBeLessThan(8);
+    const s = render('rg', { colorEdit: { green: { saturation: -100 } } });
+    expect(Math.abs(s.at(75, 50)[0]! - s.at(75, 50)[1]!)).toBeLessThan(12);
+    expect(sum(render('grey', { colorEdit: { red: { hue: 100, saturation: 100, lightness: 100 } } }).at(50, 50), [128, 128, 128])).toBeLessThan(4);
+    const light = render('rg', { colorEdit: { red: { lightness: 100 } } });
+    expect(light.at(25, 50)[1]!).toBeGreaterThan(40);
+  });
+
+  it('invert gives the negative; duotone has an intensity', () => {
+    expect(sum(render('rg', { invert: true }).at(25, 50), [0, 255, 255])).toBeLessThan(6);
+    const full = render('grey', { duotone: { dark: '#ff0000', light: '#ff0000' } }).at(50, 50);
+    const half = render('grey', { duotone: { dark: '#ff0000', light: '#ff0000', intensity: 50 } }).at(50, 50);
+    expect(sum(full, [255, 0, 0])).toBeLessThan(6);
+    expect(sum(half, [191, 64, 64])).toBeLessThan(10);
+  });
+
+  it('shadow, duotone and stylize can be on together', () => {
+    const r = render('rg', { shadow: { style: 'drop', size: 50, blur: 0, angle: 0, distance: 60, transparency: 0, color: '#0000ff' }, duotone: { dark: '#00ff00', light: '#00ff00' } }, { w: 200, h: 100 }, { x: 40, y: 0, w: 100, h: 100 });
+    expect(sum(r.at(80, 50), [0, 255, 0])).toBeLessThan(6);
+    expect(sum(r.at(146, 50), [0, 0, 255])).toBeLessThan(6);
+  });
+
+  for (const style of ['glow', 'angle', 'curved', 'lift', 'backdrop', 'outline'] as const) {
+    it(`${style} shadow draws outside the picture`, () => {
+      const plain = render('grey', {}, { w: 200, h: 200 }, { x: 50, y: 50, w: 100, h: 100 });
+      const r = render('grey', { shadow: { ...defaultShadow(style), transparency: 0, color: '#ff00ff', blur: 10, size: 80, distance: 60, angle: style === 'angle' ? 135 : 45 } }, { w: 200, h: 200 }, { x: 50, y: 50, w: 100, h: 100 });
+      let changed = 0;
+      for (let y = 0; y < 200; y += 3) for (let x = 0; x < 200; x += 3) {
+        if (x >= 50 && x < 150 && y >= 50 && y < 150) continue;
+        if (sum(r.at(x, y), plain.at(x, y)) > 40) changed++;
+      }
+      expect(changed).toBeGreaterThan(5);
+    });
+  }
+
+  for (const st of ['halftone', 'posterize', 'glitch', 'screen', 'sketch', 'pixelate'] as const) {
+    it(`${st} stylize changes the picture`, () => {
+      const whole = { crop: { x: 0, y: 0, w: 1, h: 1 } };
+      const asset = st === 'pixelate' || st === 'glitch' ? 'checker' : 'ramp';
+      const plain = render(asset, whole), r = render(asset, { ...whole, stylize: { type: st, amount: 70 } });
+      let changed = 0;
+      for (let y = 0; y < 100; y += 2) for (let x = 0; x < 100; x += 2) if (sum(r.at(x, y), plain.at(x, y)) > 30) changed++;
+      expect(changed).toBeGreaterThan(50);
+    });
+  }
+
+  it('older effects still draw through the new fields', () => {
+    const r = render('rg', { effect: { type: 'duotone', dark: '#00ff00', light: '#00ff00' } });
+    expect(sum(r.at(25, 50), [0, 255, 0])).toBeLessThan(6);
+    expect(duotoneOf({ effect: { type: 'duotone', dark: '#000000', light: '#ffffff' } })?.dark).toBe('#000000');
+    expect(shadowOf({ effect: { type: 'glow', size: 1, transparency: 2, color: '#123456' } })?.style).toBe('glow');
+    expect(stylizeOf({ effect: { type: 'pixelate', size: 9 } })).toEqual({ type: 'pixelate', amount: 9 });
+  });
+
+  it('selective edits follow the matte; without one they do nothing', () => {
+    renderer.setImage('half-matte', png(20, 20, (x) => (x < 10 ? [255, 255, 255, 255] : [0, 0, 0, 0])));
+    const on = render('grey', { matte: 'half-matte', selective: { foreground: { brightness: 100 }, background: { brightness: -100 } } });
+    expect(on.at(20, 50)[0]!).toBeGreaterThan(150);
+    expect(on.at(80, 50)[0]!).toBeLessThan(110);
+    expect(hasLook({ selective: { foreground: { brightness: 100 } } })).toBe(false);
+    const pop = render('rg', { matte: 'half-matte', selective: { background: { saturation: -100 } } });
+    expect(sum(pop.at(25, 50), [255, 0, 0])).toBeLessThan(6);
+    expect(Math.abs(pop.at(75, 50)[0]! - pop.at(75, 50)[1]!)).toBeLessThan(12);
+  });
+
+  it('auto focus blurs only behind the subject', () => {
+    renderer.setImage('left-matte', png(20, 20, (x) => (x < 10 ? [255, 255, 255, 255] : [0, 0, 0, 0])));
+    const r = render('checker', { matte: 'left-matte', autoFocus: 100 });
+    const range = (x0: number, x1: number) => { let lo = 255, hi = 0; for (let x = x0; x < x1; x++) { const v = r.at(x, 48)[0]!; lo = Math.min(lo, v); hi = Math.max(hi, v); } return hi - lo; };
+    expect(range(5, 40)).toBeGreaterThan(100);
+    expect(range(65, 95)).toBeLessThan(60);
+  });
+
+  it('a blur brush blurs only where it was painted', () => {
+    renderer.setImage('brush', png(20, 20, (x) => (x >= 10 ? [255, 255, 255, 255] : [0, 0, 0, 0])));
+    const r = render('checker', { blurBrush: { asset: 'brush', intensity: 100 } });
+    const range = (x0: number, x1: number) => { let lo = 255, hi = 0; for (let x = x0; x < x1; x++) { const v = r.at(x, 48)[0]!; lo = Math.min(lo, v); hi = Math.max(hi, v); } return hi - lo; };
+    expect(range(5, 40)).toBeGreaterThan(100);
+    expect(range(65, 95)).toBeLessThan(60);
+  });
+
+  it('skin smoothing leaves non-skin colours alone', () => {
+    renderer.setImage('skin', png(32, 32, (x, y) => ((x + y) % 2 ? [226, 170, 140, 255] : [200, 140, 112, 255])));
+    const spread = (id: string, look: Partial<ImageElement>) => { const r = render(id, look); let lo = 255, hi = 0; for (let x = 20; x < 60; x++) { const v = r.at(x, 41)[0]!; lo = Math.min(lo, v); hi = Math.max(hi, v); } return hi - lo; };
+    expect(spread('skin', { retouch: 100 })).toBeLessThan(spread('skin', {}));
+    expect(spread('checker', { retouch: 100 })).toBeGreaterThan(80);
+  });
+
+  it('straighten keeps the box covered; tilt warps', () => {
+    const r = render('rg', { straighten: 30 });
+    for (const [x, y] of [[1, 1], [98, 1], [1, 98], [98, 98]] as const) expect(r.at(x, y)[3]).toBe(255);
+    expect(render('rg').at(50, 2)).not.toEqual(r.at(50, 2));
+    const t = render('edge', { tiltX: 60 });
+    expect(t.at(50, 2)).not.toEqual(render('edge').at(50, 2));
+    expect(straightenMatrix({ x: 0, y: 0, w: 10, h: 10 }, {})).toBeNull();
+  });
+
+  it('a border follows a frame and rounded corners', () => {
+    const r = render('grey', { border: { color: '#ff0000', width: 8 }, radius: 0 });
+    expect(sum(r.at(50, 1), [255, 0, 0])).toBeLessThan(6);
+    const round = render('grey', { border: { color: '#ff0000', width: 8 }, mask: 'ellipse' });
+    expect(sum(round.at(50, 2), [255, 0, 0])).toBeLessThan(10);
+    expect(sum(round.at(2, 2), [255, 255, 255])).toBeLessThan(6);
+  });
+
+  it('blend modes mix with the page; multiply on white keeps the picture, on black goes black', () => {
+    let doc = createDoc({ width: 100, height: 100 });
+    doc = addElements(doc, doc.pages[0]!.id, [{ ...image('grey', { x: 0, y: 0, w: 100, h: 100 }), blend: 'multiply' }]);
+    const white = pixels(renderer.exportPage(doc, doc.pages[0]!, { format: 'png', scale: 1 }));
+    expect(sum(white.at(50, 50), [128, 128, 128])).toBeLessThan(6);
+    const dark = { ...doc.pages[0]!, background: { type: 'solid' as const, color: '#000000' } };
+    expect(pixels(renderer.exportPage(doc, dark, { format: 'png', scale: 1 })).at(50, 50).slice(0, 3)).toEqual([0, 0, 0]);
+  });
+
+  it('matte and brush assets survive pruneAssets', () => {
+    let doc = createDoc({ width: 10, height: 10 });
+    const meta = { name: 'x', mime: 'image/png', width: 1, height: 1, size: 1 } as any;
+    doc = { ...doc, assets: { a: meta, m: meta, b: meta, gone: meta } };
+    doc = addElements(doc, doc.pages[0]!.id, [{ ...image('a', { x: 0, y: 0, w: 5, h: 5 }), matte: 'm', blurBrush: { asset: 'b', intensity: 5 } }]);
+    expect(Object.keys(pruneAssets(doc).assets).sort()).toEqual(['a', 'b', 'm']);
   });
 });

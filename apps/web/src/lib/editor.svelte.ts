@@ -13,7 +13,9 @@ import { assetId, pack, type FileAccess, type ProjectFile, type ProjectStore } f
 import { toast } from './toast.svelte.ts';
 import type { Engine } from './engine.ts';
 import { isImage } from './files.ts';
-import { removeBackground, type BackgroundRemover } from './bgremove.ts';
+import { inpaintLocal, removeBackground, type BackgroundRemover, type Inpainter } from './bgremove.ts';
+import { tesseractOcr, type Ocr } from './vision/tools.svelte.ts';
+import type { Media } from './ai/types.ts';
 import { addCssFace, fetchFamily, type CatalogFont, type FontFile } from './fonts.ts';
 import { isAudioFile, isVideoFile, mediaMime, probeAudio, probeVideo } from './media.ts';
 import { Player } from './player.svelte.ts';
@@ -66,6 +68,12 @@ export class EditorState {
   access = $state<FileAccess | null>(null);
   /** The background remover to use (swappable: other models, tests). */
   bgRemover: BackgroundRemover = removeBackground;
+  /** Fills part of a picture on the device; tests use a stub. */
+  inpainter: Inpainter = inpaintLocal;
+  /** Stands in for the user's AI provider in tests. */
+  imageEditor = $state<((image: Media, mask: Media, prompt: string) => Promise<Media>) | null>(null);
+  /** Reads text in a picture; tests use a stub. */
+  ocr: Ocr = tesseractOcr;
 
   readonly renderer: Renderer;
   /** Plays the design as a video (pages, clips, sounds). */
@@ -302,6 +310,15 @@ export class EditorState {
     this.seal();
   }
 
+  /** Undo "set as background": the picture is a normal element again, a bit smaller, in the middle. */
+  detachBackground(): void {
+    const id = this.pictures[0];
+    if (!id) return;
+    const W = this.doc.width, H = this.doc.height, w = W * 0.7, h = H * 0.7;
+    this.update({ locked: false, x: (W - w) / 2, y: (H - h) / 2, w, h }, null, [id]);
+    this.seal();
+  }
+
   /**
    * Remove the background of the selected image. The cut-out becomes a new PNG
    * asset; the old one stays as `original` so it can be restored (or undone).
@@ -326,10 +343,32 @@ export class EditorState {
     }
   }
 
+  /** A copy of an element right above it, with some fields changed; its id. */
+  overlayCopy(id: string, patch: ElementPatch): string | null {
+    const { doc, ids } = duplicateElements(this.doc, [id], 0);
+    const copy = ids[0];
+    if (!copy) return null;
+    this.commit(updateElements(doc, [copy], patch));
+    return copy;
+  }
+
+  /** A line of text placed by box (Grab Text). */
+  addTextAt(content: string, x: number, y: number, w: number, h: number, color: string): string {
+    const t = text(content, { x, y, w: Math.max(w * 1.15, 20), h }, { fontSize: Math.max(8, h), color });
+    this.commit(addElements(this.doc, this.pageId, [t]));
+    return t.id;
+  }
+
+  /** The selection alone on a transparent page, as a PNG. */
+  exportSelection(): Uint8Array {
+    const ids = new Set(this.selection);
+    return this.renderer.exportPage(this.doc, { ...this.page, elements: this.page.elements.filter((e) => ids.has(e.id)) }, { format: 'png', scale: 2, transparent: true });
+  }
+
   /** Put back the image from before its background was removed. */
   restoreOriginal(): void {
     this.commit(updateElements(this.doc, this.pictures, (e) => {
-      return e.type === 'image' && e.original ? { asset: e.original, original: undefined } : {};
+      return e.type === 'image' && e.original ? { asset: e.original, original: undefined, matte: undefined } : {};
     }));
     this.seal();
   }

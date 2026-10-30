@@ -9,7 +9,7 @@ Open-source Canva alternative. Built on TaskManager ticket **ORCH-27** (ORCH boa
 - Drive access: **`drive.file` only** (owner decision 2026-10-28: `drive.readonly` dropped, it caused Google's "unverified app" screens). The app sees its own folder plus files the user picks with **Google Picker** (Uploads → Google Drive) or opens with it. Never request another Drive scope (the only extra is `drive.install`, r12: lists the app under Drive's "Open with", no file access); `apps/web/test/drive-scope.test.ts` greps for it.
 - Backend: **IceBase in firebase mode** on Firebase project `digital-canvas-p977` (created 2026-10-26, Drive + Picker APIs enabled). Backend stores almost nothing: user, login count, Drive refresh token. Designs never touch it.
 - Phase 1 = the page editor (M1–M6 in README). No sharing/invites in phase 1.
-- Canva's AI tools are out of scope; our own AI comes later via the open scene format.
+- Canva's generative tools run on open on-device models or the user's own AI key (r15); nothing goes through our backend.
 
 ## Rules
 
@@ -144,3 +144,14 @@ Panth's rule: no generated design content. Templates, stickers, illustrations, f
 - Other catalogues: `tools/catalogs/build.ts` writes `apps/web/src/lib/content/data/*.json` (Open Color, Tailwind, uiGradients, Hero Patterns, Fonttrio) and `public/illustrations/open-doodles/`. `tools/catalogs/credits.ts` writes `LICENSES` and `public/credits.html` from that data: run it after any catalogue change.
 - Hero Patterns come in as a PNG (`patternPng`): a page of vector tiles would be megabytes of path. Open Doodles are rasterised on insert because the renderer doesn't read SVG files.
 - DiceBear: only CC0, CC BY and MIT styles; Avataaars and Bottts are under the artist's own terms and stay out.
+
+## Image editing (r15-image, 2026-10-31)
+
+- Look data: `ImageLook` in scene/types.ts (adjust, filter, auto, colorEdit, invert, shadow, duotone, stylize, retouch, border, straighten, tiltX/Y, matte, selective, autoFocus, blurBrush). Ranges, presets and pure helpers in `scene/image.ts`. The old single `effect` is still read (`shadowOf`, `duotoneOf`, `stylizeOf`); the panel writes the new fields, which combine.
+- Renderer (`drawImage`, `drawPass`, `drawMasked`, `drawBehind`): one shader `LOOK_SKSL` (coordinates are page units, so a look is the same at any zoom and in every export). Selective edits and the blur brush draw the picture again through a mask asset (alpha = mask, same picture, any size). A new asset field must go in `lookAssets()`, or saves and vector exports lose it.
+- `ElementBase.blend` works on any element. A vector PDF page with a blend is drawn whole as an image.
+- Models: `lib/vision/worker.ts` (one module worker; WebGPU, else WASM; one model in memory; ORT from jsDelivr kept by the SW; models in Cache `dc-models`, pinned revisions). BiRefNet-lite 512 fp16 (MIT, 99 MB) for cut-outs and the subject mask, MODNet (Apache-2.0, 25 MB) only if BiRefNet can't run, LaMa (Apache-2.0, 208 MB) for inpainting; only a window round the mask goes through the model, the patch is feathered in. Tesseract.js (Apache-2.0) for Grab Text. BiRefNet at 1024 px still fails in onnxruntime-web (too many storage buffers on WebGPU, bad_alloc on WASM).
+- Bake-off: BiRefNet-lite 512 won on real products, animals and people; it returns an empty mask on scenes with no one subject (a room, a far-off horse), which the UI reports.
+- `lib/vision/tools.svelte.ts` = the tools (`busy` for progress and errors; results are new assets, the first stays in `original`). `lib/vision/brush.svelte.ts` + `editor/ImageBrush.svelte` = the mask brush over the element, in element space; the bar stops pointerdown so the stage doesn't capture the pointer. Pure maths: `lib/vision/matte.ts`.
+- Injectable for tests: `ed.bgRemover`, `ed.inpainter`, `ed.ocr`, `ed.imageEditor`. `Provider.editImage` exists on OpenAI (real mask) and Gemini (mask as a second image); the result is always cut by our mask, so only the painted part can change.
+- e2e: `image-panel.spec.ts`, `image-mobile.spec.ts`. `DC_REAL_MODELS=1` runs the real models (downloads them); page.route can't fulfil 100 MB bodies, it hangs the page. `SHOTS=` / `SHOTS_DIR=` write the audit screenshots.

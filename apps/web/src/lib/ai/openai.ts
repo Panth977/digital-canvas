@@ -4,7 +4,7 @@
  * The API allows browser calls with the key (CORS checked).
  */
 import { AIError, download, fromBase64, json, nearest, poll, report } from './http.ts';
-import type { AdapterOptions, Cap, ChatRequest, ImageRequest, Media, ModelInfo, Provider, VideoRequest } from './types.ts';
+import type { AdapterOptions, Cap, ChatRequest, ImageEditRequest, ImageRequest, Media, ModelInfo, Provider, VideoRequest } from './types.ts';
 
 export const OPENAI_API = 'https://api.openai.com/v1';
 const NAME = 'OpenAI';
@@ -112,6 +112,23 @@ export class OpenAIProvider implements Provider {
     }
     if (!out.length) throw new AIError('OpenAI sent back no image.');
     return out;
+  }
+
+  async editImage(req: ImageEditRequest): Promise<Media> {
+    report(req.onProgress, null, 'Editing…');
+    const form = new FormData();
+    form.set('model', req.model);
+    form.set('prompt', req.prompt);
+    form.set('n', '1');
+    form.set('image', new Blob([req.image.bytes as BlobPart], { type: req.image.mime }), 'image.png');
+    form.set('mask', new Blob([req.mask.bytes as BlobPart], { type: req.mask.mime }), 'mask.png');
+    const r = await json<{ data?: { b64_json?: string; url?: string }[] }>(this.o, NAME, `${OPENAI_API}/images/edits`, {
+      method: 'POST', headers: this.auth(), body: form, signal: req.signal ?? null,
+    });
+    const d = r.data?.[0];
+    if (d?.b64_json) return { bytes: fromBase64(d.b64_json), mime: 'image/png' };
+    if (d?.url) return download(this.o, NAME, d.url, {}, 'image/png');
+    throw new AIError('OpenAI sent back no image.');
   }
 
   async video(req: VideoRequest): Promise<Media> {

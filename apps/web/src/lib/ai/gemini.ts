@@ -7,7 +7,7 @@
  * does NOT (preflight 403), so it is never sent.
  */
 import { AIError, base64, download, fromBase64, json, nearestRatio, poll, report } from './http.ts';
-import type { AdapterOptions, Cap, ChatPart, ChatRequest, ImageRequest, Media, ModelInfo, Provider, VideoRequest } from './types.ts';
+import type { AdapterOptions, Cap, ChatPart, ChatRequest, ImageEditRequest, ImageRequest, Media, ModelInfo, Provider, VideoRequest } from './types.ts';
 
 export const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta';
 const NAME = 'Google Gemini';
@@ -104,6 +104,20 @@ export class GeminiProvider implements Provider {
     const out = (await Promise.all(Array.from({ length: Math.max(1, req.count) }, one))).flat();
     if (!out.length) throw new AIError('Gemini sent back no image (it may have been blocked by a safety filter).');
     return out;
+  }
+
+  /** Gemini has no mask field: the image goes in with the instruction, and the caller keeps only the masked part. */
+  async editImage(req: ImageEditRequest): Promise<Media> {
+    report(req.onProgress, null, 'Editing…');
+    const input = [
+      { type: 'image', data: base64(req.image.bytes), mime_type: req.image.mime },
+      { type: 'image', data: base64(req.mask.bytes), mime_type: req.mask.mime },
+      { type: 'text', text: `${req.prompt}\n\nThe second image is a mask: change only the part of the first image where the mask is transparent, and return the whole picture at the same size.` },
+    ];
+    const r = await this.create({ model: req.model, input, store: false, response_format: { type: 'image' } }, req.signal);
+    const c = outputsOf(r).find((x) => x.type === 'image' && x.data);
+    if (!c?.data) throw new AIError('Gemini sent back no image (it may have been blocked by a safety filter).');
+    return { bytes: fromBase64(c.data), mime: c.mime_type ?? 'image/png' };
   }
 
   async video(req: VideoRequest): Promise<Media> {
