@@ -6,7 +6,7 @@
  */
 import type { CanvasKit } from 'canvaskit-wasm';
 import { FontLibrary, Renderer } from '@digital-canvas/render';
-import { posterOf, walk, type Doc, type Page } from '@digital-canvas/scene';
+import { lookAssets, posterOf, walk, type Doc, type Page } from '@digital-canvas/scene';
 import type { ProjectFile } from '@digital-canvas/storage';
 import { platform } from './platform.ts';
 
@@ -35,6 +35,7 @@ export function assetsOf(pages: readonly Page[]): Set<string> {
   for (const p of pages) for (const e of walk(p.elements)) {
     if (e.type === 'image') { if (e.asset) ids.add(e.asset); }
     else if (e.type === 'video') { ids.add(posterOf(e)); }
+    if (e.type === 'image' || e.type === 'video') for (const a of lookAssets(e)) ids.add(a);
   }
   return ids;
 }

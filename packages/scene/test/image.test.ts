@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  addAdjust, ADJUST_SLIDERS, autoAdjust, bandWeights, colorEditUniforms, defaultShadow, FILTER_GROUPS, lookAssets, pictureStats, portableLook, ratioFrame, SHADOW_SLIDERS, SHADOW_STYLES, straightenMatrix, subjectCrop,
   addElements, coverCrop, cropPatch, localToPage, pageToLocal, createDoc, cropFromBoxes, effectiveAdjust, findElement, hasLook, image, imageBox, IMAGE_FILTERS, panImage,
   resizeFrame, scaleImage, setAsBackground, shape, groupElements, pruneAssets, childrenOf, type ImageElement,
 } from '../src/index.ts';
@@ -119,5 +120,91 @@ describe('image tools inside groups (M4 × M5)', () => {
     expect(group ? childrenOf(group)!.some((c) => c.id === img.id) : false).toBe(false);
     // an empty frame has nothing to put on the background
     expect(setAsBackground(doc, other.id)).toBe(doc);
+  });
+});
+
+describe('image tools (r15)', () => {
+  it('has every Canva adjust group and slider, with a filter set per family', () => {
+    expect(ADJUST_SLIDERS.map((s) => s.key)).toEqual(expect.arrayContaining(['temperature', 'tint', 'brightness', 'contrast', 'highlights', 'shadows', 'whites', 'blacks', 'vibrance', 'saturation', 'texture', 'clarity', 'fade', 'vignette', 'blur']));
+    for (const g of FILTER_GROUPS) expect(IMAGE_FILTERS.filter((f) => f.group === g).length).toBeGreaterThanOrEqual(5);
+    expect(new Set(IMAGE_FILTERS.map((f) => f.name)).size).toBe(IMAGE_FILTERS.length);
+  });
+  it('effectiveAdjust adds own, filter and auto-adjust, clamped', () => {
+    expect(effectiveAdjust({ adjust: { brightness: 10 }, auto: { adjust: { brightness: 20 }, intensity: 50 } }).brightness).toBe(20);
+    expect(effectiveAdjust({ adjust: { saturation: -80 }, filter: { name: 'mono', intensity: 100 } }).saturation).toBe(-100);
+    expect(addAdjust({ blur: 90 }, { blur: 50 }).blur).toBe(100);
+    expect(addAdjust({ blur: 10 }, { blur: -10 }).blur).toBeUndefined();
+  });
+  it('pictureStats ignores transparent pixels and reads the range', () => {
+    const px: number[] = [];
+    for (let i = 0; i < 100; i++) px.push(100, 100, 100, 255);
+    px.push(255, 0, 0, 0);
+    const s = pictureStats(px);
+    expect(s.low).toBeCloseTo(100 / 255, 2);
+    expect(s.high).toBeCloseTo(100 / 255, 2);
+    expect(s.saturation).toBe(0);
+  });
+  it('autoAdjust stretches flat, dark, cast pictures and leaves good ones nearly alone', () => {
+    const flat = autoAdjust({ low: 0.3, high: 0.6, mean: 0.3, saturation: 0.1, red: 0.3, blue: 0.2 });
+    expect(flat.blacks!).toBeLessThan(0);
+    expect(flat.whites!).toBeGreaterThan(0);
+    expect(flat.brightness!).toBeGreaterThan(0);
+    expect(flat.contrast!).toBeGreaterThan(0);
+    expect(flat.temperature!).toBeLessThan(0);
+    const good = autoAdjust({ low: 0, high: 1, mean: 0.48, saturation: 0.3, red: 0.5, blue: 0.5 });
+    expect(Object.values(good).every((v) => Math.abs(v as number) <= 4)).toBe(true);
+  });
+  it('bandWeights adds to 1, with neighbours blending', () => {
+    for (const h of [0, 15, 30, 90, 200, 300, 350, 359.9, -10, 720]) expect(bandWeights(h).reduce((a, b) => a + b, 0)).toBeCloseTo(1, 6);
+    expect(bandWeights(15)[0]).toBeCloseTo(0.5, 6);
+    expect(bandWeights(15)[1]).toBeCloseTo(0.5, 6);
+    expect(bandWeights(340)[7]).toBeCloseTo(0.5, 6);
+    expect(bandWeights(340)[0]).toBeCloseTo(0.5, 6);
+  });
+  it('colorEditUniforms is null when nothing is edited', () => {
+    expect(colorEditUniforms(undefined)).toBeNull();
+    expect(colorEditUniforms({ red: { hue: 0 } })).toBeNull();
+    const u = colorEditUniforms({ orange: { saturation: 50 } })!;
+    expect(u.length).toBe(24);
+    expect(u[4]).toBe(0.5);
+  });
+  it('every shadow style has defaults and its own sliders', () => {
+    for (const { style } of SHADOW_STYLES) {
+      expect(defaultShadow(style).style).toBe(style);
+      for (const s of SHADOW_SLIDERS[style]) expect(typeof defaultShadow(style)[s.k]).toBe('number');
+    }
+  });
+  it('hasLook sees the new settings; selective edits need a matte', () => {
+    expect(hasLook({})).toBe(false);
+    for (const l of [{ invert: true }, { retouch: 5 }, { straighten: 1 }, { tiltY: 3 }, { stylize: { type: 'glitch', amount: 1 } }, { border: { color: '#000000', width: 2 } }] as const) expect(hasLook(l as never)).toBe(true);
+    expect(hasLook({ autoFocus: 50 })).toBe(false);
+    expect(hasLook({ matte: 'm', autoFocus: 50 })).toBe(true);
+    expect(lookAssets({ matte: 'm', blurBrush: { asset: 'b', intensity: 1 } })).toEqual(['m', 'b']);
+    expect(portableLook({ matte: 'm', autoFocus: 2, adjust: { blur: 1 } })).toEqual({ adjust: { blur: 1 } });
+  });
+  it('straightenMatrix maps the centre to itself and covers the box', () => {
+    const box = { x: 10, y: 20, w: 200, h: 100 };
+    const m = straightenMatrix(box, { straighten: 20 })!;
+    const map = (x: number, y: number) => { const z = m[6]! * x + m[7]! * y + m[8]!; return [(m[0]! * x + m[1]! * y + m[2]!) / z, (m[3]! * x + m[4]! * y + m[5]!) / z]; };
+    const [cx, cy] = map(110, 70);
+    expect(cx).toBeCloseTo(110, 6);
+    expect(cy).toBeCloseTo(70, 6);
+    const t = straightenMatrix(box, { tiltX: 50 })!;
+    expect(t[6]).not.toBe(0);
+  });
+  it('ratioFrame fits the ratio inside the image', () => {
+    const f = ratioFrame({ x: 0, y: 0, w: 100, h: 100 }, { x: 0, y: 0, w: 200, h: 100 }, 16 / 9);
+    expect(f.w / f.h).toBeCloseTo(16 / 9, 5);
+    expect(f.x).toBeGreaterThanOrEqual(0);
+    expect(f.x + f.w).toBeLessThanOrEqual(200);
+    expect(f.h).toBeLessThanOrEqual(100);
+  });
+  it('subjectCrop centres the subject, keeps the aspect and stays in the image', () => {
+    const c = subjectCrop({ x: 0.4, y: 0.4, w: 0.2, h: 0.2 }, 1000, 1000, 1.5);
+    expect((c.w * 1000) / (c.h * 1000)).toBeCloseTo(1.5, 5);
+    expect(c.x + c.w / 2).toBeCloseTo(0.5, 5);
+    const edge = subjectCrop({ x: 0.9, y: 0.9, w: 0.1, h: 0.1 }, 1000, 500, 1);
+    expect(edge.x + edge.w).toBeLessThanOrEqual(1.0000001);
+    expect(edge.y + edge.h).toBeLessThanOrEqual(1.0000001);
   });
 });

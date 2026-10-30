@@ -1,7 +1,7 @@
 import type { Canvas, CanvasKit, Image, ImageFilter, Paint, Path, RuntimeEffect, Shader } from 'canvaskit-wasm';
-import { childrenOf, cropOf, posterOf, effectiveAdjust, hasLook, imageBox, type Doc, type Element, type Fill, type ImageElement, type Page, type PathElement, type ShapeElement, type ShapeKind, type TextElement, type VideoElement } from '@digital-canvas/scene';
+import { addAdjust, childrenOf, colorEditUniforms, cropOf, duotoneOf, posterOf, effectiveAdjust, hasLook, imageBox, shadowOf, straightenMatrix, stylizeOf, type BlendMode, type ImageAdjust, type ImageShadow, type Doc, type Element, type Fill, type ImageElement, type Page, type PathElement, type ShapeElement, type ShapeKind, type TextElement, type VideoElement } from '@digital-canvas/scene';
 import { aabb, dashArray, decompose, type Decomposed, type Prim, type PrimText } from '@digital-canvas/scene';
-import { colorMatrix, LOOK_SKSL } from './look.ts';
+import { colorMatrix, LOOK_SKSL, lookFloats, needsLookShader, STYLE_ID, type LookUniforms } from './look.ts';
 import { color, FontLibrary } from './fonts.ts';
 import { listIndent, TextLayouts, type TextPiece } from './text.ts';
 
@@ -218,10 +218,11 @@ export class Renderer {
     if (kids) {
       // a group: children are in page coordinates; only its opacity applies
       if (el.opacity <= 0) return;
-      const layered = el.opacity < 1;
+      const layered = el.opacity < 1 || !!el.blend;
       if (layered) {
         const p = new ck.Paint();
         p.setAlphaf(el.opacity);
+        if (el.blend) p.setBlendMode(this.blendMode(el.blend));
         canvas.saveLayer(p);
         p.delete();
       }
@@ -231,10 +232,11 @@ export class Renderer {
     }
     canvas.save();
     this.transform(canvas, el);
-    const layered = el.opacity < 1;
+    const layered = el.opacity < 1 || !!el.blend;
     if (layered) {
       const p = new ck.Paint();
       p.setAlphaf(Math.max(0, el.opacity));
+      if (el.blend) p.setBlendMode(this.blendMode(el.blend));
       canvas.saveLayer(p);
       p.delete();
     }
@@ -245,6 +247,11 @@ export class Renderer {
     else if (el.type === 'image' || el.type === 'video') this.drawImage(canvas, el);
     if (layered) canvas.restore();
     canvas.restore();
+  }
+
+  private blendMode(m: BlendMode) {
+    const b = this.ck.BlendMode;
+    return { multiply: b.Multiply, screen: b.Screen, overlay: b.Overlay, darken: b.Darken, lighten: b.Lighten, 'color-dodge': b.ColorDodge, 'color-burn': b.ColorBurn, 'hard-light': b.HardLight, 'soft-light': b.SoftLight, difference: b.Difference, exclusion: b.Exclusion, hue: b.Hue, saturation: b.Saturation, color: b.Color, luminosity: b.Luminosity }[m];
   }
 
   private setFill(fill: Fill, x: number, y: number, w: number, h: number): void {
@@ -358,6 +365,8 @@ export class Renderer {
     this.transform(canvas, el);
     const p = new ck.Paint();
     p.setAlphaf(alpha);
+    const turn = straightenMatrix(el, el);
+    if (turn) canvas.concat(turn);
     canvas.drawImageRectOptions(img, ck.XYWHRect(0, 0, img.width(), img.height()), ck.XYWHRect(box.x, box.y, box.w, box.h), ck.FilterMode.Linear, ck.MipmapMode.Linear, p);
     p.delete();
     canvas.restore();
@@ -435,9 +444,10 @@ export class Renderer {
 
     // ---- with adjustments, a filter or an effect ----
     const adj = effectiveAdjust(el);
-    const fx = el.effect;
     const short = Math.min(el.w, el.h);
-    const outer = this.outerEffect(el, short);
+    const shadow = shadowOf(el);
+    this.drawBehind(canvas, el, img, src, dst, shadow, short);
+    const outer = this.outerEffect(shadow, short);
     if (outer) {
       const p = new ck.Paint();
       p.setImageFilter(outer);
@@ -449,20 +459,73 @@ export class Renderer {
     this.clipFrame(canvas, el, dst, true); // inside the layer, so shadow/glow/outline follow a frame's shape
 
     const sx = el.w / (crop.w * iw), sy = el.h / (crop.h * ih);
-    const local = [sx, 0, el.x - crop.x * iw * sx, 0, sy, el.y - crop.y * ih * sy, 0, 0, 1];
+    const local = this.pictureMatrix(el, crop, iw, ih);
+    const matte = el.matte ? this.images.get(el.matte) : undefined;
+    const fg = el.selective?.foreground, bg = el.selective?.background;
+    const selective = !!matte && (!!fg || !!bg || !!el.autoFocus);
+    const backAdj = selective ? addAdjust(adj, { ...bg, blur: (bg?.blur ?? 0) + (el.autoFocus ?? 0) }) : adj;
+    this.drawPass(canvas, el, img, dst, local, sx, sy, short, backAdj);
+    if (selective) this.drawMasked(canvas, el, matte!, dst, () => this.drawPass(canvas, el, img, dst, local, sx, sy, short, addAdjust(adj, fg)));
+    const brush = el.blurBrush ? this.images.get(el.blurBrush.asset) : undefined;
+    if (brush) this.drawMasked(canvas, el, brush, dst, () => this.drawPass(canvas, el, img, dst, local, sx, sy, short, addAdjust(adj, { blur: el.blurBrush!.intensity })));
+
+    if (adj.vignette) {
+      // darker (or, below 0, lighter) towards the edges, inside the frame
+      const v = adj.vignette / 100;
+      const edge = v > 0 ? ck.Color4f(0, 0, 0, 0.85 * v) : ck.Color4f(1, 1, 1, -0.85 * v);
+      const clear = v > 0 ? ck.Color4f(0, 0, 0, 0) : ck.Color4f(1, 1, 1, 0);
+      const cx = el.x + el.w / 2, cy = el.y + el.h / 2;
+      // a unit circle stretched so it passes through the frame's corners
+      const rx = el.w / Math.SQRT2, ry = el.h / Math.SQRT2;
+      const g = ck.Shader.MakeRadialGradient([0, 0], 1, [clear, clear, edge], [0, 0.45, 1], ck.TileMode.Clamp, [rx, 0, cx, 0, ry, cy, 0, 0, 1]);
+      const vp = new ck.Paint();
+      vp.setShader(g);
+      vp.setBlendMode(ck.BlendMode.SrcATop); // a cut-out keeps its transparent parts
+      canvas.drawRect(dst, vp);
+      vp.delete();
+      g.delete();
+    }
+    canvas.restore();
+    if (el.border && el.border.width > 0) this.drawBorder(canvas, el);
+    if (outer) canvas.restore();
+  }
+
+  /** Image pixels → page coordinates, with the straighten and tilt on top. */
+  private pictureMatrix(el: ImageElement | VideoElement, crop: { x: number; y: number; w: number; h: number }, iw: number, ih: number): number[] {
+    const sx = el.w / (crop.w * iw), sy = el.h / (crop.h * ih);
+    const m = [sx, 0, el.x - crop.x * iw * sx, 0, sy, el.y - crop.y * ih * sy, 0, 0, 1];
+    const t = straightenMatrix(el, el);
+    if (!t) return m;
+    const out: number[] = [];
+    for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) out.push(t[r * 3]! * m[c]! + t[r * 3 + 1]! * m[c + 3]! + t[r * 3 + 2]! * m[c + 6]!);
+    return out;
+  }
+
+  /** One full draw of the picture with these adjustments. */
+  private drawPass(canvas: Canvas, el: ImageElement | VideoElement, img: Image, dst: Float32Array, local: number[], sx: number, sy: number, short: number, adj: ImageAdjust): void {
+    const ck = this.ck;
     const base = img.makeShaderOptions(ck.TileMode.Clamp, ck.TileMode.Clamp, ck.FilterMode.Linear, ck.MipmapMode.Linear, local);
     let shader: Shader = base;
-    const cell = fx?.type === 'pixelate' ? Math.max(2, (fx.size / 100) * short * 0.08) : 0;
-    const sharpen = (adj.sharpen ?? 0) / 100, hi = (adj.highlights ?? 0) / 100, sh = (adj.shadows ?? 0) / 100;
-    const effect = cell || sharpen || hi || sh ? this.look() : null;
+    const st = stylizeOf(el);
+    const amount = (st?.amount ?? 0) / 100;
+    const u: LookUniforms = {
+      px: [Math.max(sx, 1), Math.max(sy, 1)],
+      sharpen: ((adj.sharpen ?? 0) / 100) * 0.6, hi: (adj.highlights ?? 0) / 100, sh: (adj.shadows ?? 0) / 100,
+      cell: st?.type === 'pixelate' ? Math.max(2, amount * short * 0.08) : 0,
+      origin: [el.x, el.y],
+      whites: (adj.whites ?? 0) / 100, blacks: (adj.blacks ?? 0) / 100, vibrance: (adj.vibrance ?? 0) / 100, texture: (adj.texture ?? 0) / 100,
+      clarity: (adj.clarity ?? 0) / 100, grain: (adj.grain ?? 0) / 100, retouch: (el.retouch ?? 0) / 100,
+      size: short, style: st ? STYLE_ID[st.type] : 0, amount, bands: colorEditUniforms(el.colorEdit),
+    };
+    const effect = needsLookShader(u) ? this.look() : null;
     if (effect) {
-      shader = effect.makeShaderWithChildren([Math.max(sx, 1), Math.max(sy, 1), sharpen * 0.6, hi, sh, cell, el.x, el.y], [base]);
+      shader = effect.makeShaderWithChildren(lookFloats(u), [base]);
       base.delete();
     }
     const p = new ck.Paint();
     p.setAntiAlias(true);
     p.setShader(shader);
-    const m = colorMatrix(adj, fx?.type === 'duotone' ? fx : undefined);
+    const m = colorMatrix(adj, duotoneOf(el), !!el.invert);
     if (m) {
       const cf = ck.ColorFilter.MakeMatrix(m);
       p.setColorFilter(cf);
@@ -477,30 +540,102 @@ export class Renderer {
     canvas.drawRect(dst, p);
     p.delete();
     shader.delete();
-
-    if (adj.vignette) {
-      // darker (or, below 0, lighter) towards the edges, inside the frame
-      const v = adj.vignette / 100;
-      const edge = v > 0 ? ck.Color4f(0, 0, 0, 0.85 * v) : ck.Color4f(1, 1, 1, -0.85 * v);
-      const clear = v > 0 ? ck.Color4f(0, 0, 0, 0) : ck.Color4f(1, 1, 1, 0);
-      const cx = el.x + el.w / 2, cy = el.y + el.h / 2;
-      // a unit circle stretched so it passes through the frame's corners
-      const rx = el.w / Math.SQRT2, ry = el.h / Math.SQRT2;
-      const g = ck.Shader.MakeRadialGradient([0, 0], 1, [clear, clear, edge], [0, 0.45, 1], ck.TileMode.Clamp, [rx, 0, cx, 0, ry, cy, 0, 0, 1]);
-      const vp = new ck.Paint();
-      vp.setShader(g);
-      canvas.drawRect(dst, vp);
-      vp.delete();
-      g.delete();
-    }
-    canvas.restore();
-    if (outer) canvas.restore();
   }
 
-  /** Shadow, glow and outline draw around the picture: an image filter for a layer holding it. */
-  private outerEffect(el: ImageElement | VideoElement, short: number): ImageFilter | null {
-    const ck = this.ck, fx = el.effect;
-    if (!fx) return null;
+  /** Draw something only where a mask (an image asset of the same picture, any size) has alpha. */
+  private drawMasked(canvas: Canvas, el: ImageElement | VideoElement, mask: Image, dst: Float32Array, draw: () => void): void {
+    const ck = this.ck;
+    const layer = new ck.Paint();
+    canvas.saveLayer(layer);
+    layer.delete();
+    draw();
+    const crop = cropOf(el, mask.width(), mask.height());
+    const shader = mask.makeShaderOptions(ck.TileMode.Clamp, ck.TileMode.Clamp, ck.FilterMode.Linear, ck.MipmapMode.None, this.pictureMatrix(el, crop, mask.width(), mask.height()));
+    const p = new ck.Paint();
+    p.setShader(shader);
+    p.setBlendMode(ck.BlendMode.DstIn);
+    canvas.drawRect(dst, p);
+    p.delete();
+    shader.delete();
+    canvas.restore();
+  }
+
+  private drawBorder(canvas: Canvas, el: ImageElement | VideoElement): void {
+    const ck = this.ck, b = el.border!;
+    const path = (el.type === 'image' ? this.maskPath(el) : null) ?? shapePath(ck, 'rect', el.x, el.y, el.w, el.h, el.radius);
+    const p = new ck.Paint();
+    p.setAntiAlias(true);
+    p.setStyle(ck.PaintStyle.Stroke);
+    p.setStrokeWidth(b.width);
+    p.setColor(color(ck, b.color));
+    const w = b.width;
+    const dash = b.dash === 'dashed' ? ck.PathEffect.MakeDash([w * 3, w * 2]) : b.dash === 'dotted' ? ck.PathEffect.MakeDash([w, w]) : null;
+    p.setPathEffect(dash);
+    canvas.drawPath(path, p);
+    dash?.delete();
+    p.delete();
+    path.delete();
+  }
+
+  /** Shadows that are a shape of their own under the picture (angle, curved, page lift, backdrop). */
+  private drawBehind(canvas: Canvas, el: ImageElement | VideoElement, img: Image, src: Float32Array, dst: Float32Array, s: ImageShadow | undefined, short: number): void {
+    if (!s || s.style === 'drop' || s.style === 'glow' || s.style === 'outline') return;
+    const ck = this.ck;
+    const alpha = 1 - s.transparency / 100;
+    const sigma = (s.blur / 100) * short * 0.06;
+    const p = new ck.Paint();
+    p.setAntiAlias(true);
+    if (sigma > 0.01) {
+      const f = ck.ImageFilter.MakeBlur(sigma, sigma, ck.TileMode.Decal, null);
+      p.setImageFilter(f);
+      f.delete();
+    }
+    const l = el.x, r = el.x + el.w, b = el.y + el.h;
+    if (s.style === 'curved' || s.style === 'lift') {
+      p.setColor(color(ck, s.color, alpha));
+      const k = (s.size / 100) * el.h * 0.08;
+      const bl = new ck.PathBuilder();
+      if (s.style === 'curved') {
+        // a bow under the bottom edge, deepest in the middle
+        bl.moveTo(l + el.w * 0.02, b - k * 0.5);
+        bl.quadTo((l + r) / 2, b + k * 1.6, r - el.w * 0.02, b - k * 0.5);
+        bl.lineTo(r - el.w * 0.02, b - el.h * 0.1);
+        bl.lineTo(l + el.w * 0.02, b - el.h * 0.1);
+        bl.close();
+      } else {
+        // the two bottom corners lift off the page
+        const w = el.w * 0.42;
+        bl.addPolygon([l + el.w * 0.03, b - el.h * 0.12, l + w, b - el.h * 0.06, l + w, b - k * 0.1, l + el.w * 0.02, b + k], true);
+        bl.addPolygon([r - el.w * 0.03, b - el.h * 0.12, r - w, b - el.h * 0.06, r - w, b - k * 0.1, r - el.w * 0.02, b + k], true);
+      }
+      const path = bl.detachAndDelete();
+      canvas.drawPath(path, p);
+      path.delete();
+    } else {
+      // the picture's own silhouette: laid on the floor (angle) or offset behind it (backdrop)
+      const cf = ck.ColorFilter.MakeBlend(color(ck, s.color, alpha), ck.BlendMode.SrcIn);
+      p.setColorFilter(cf);
+      cf.delete();
+      canvas.save();
+      const a = (s.angle * Math.PI) / 180;
+      if (s.style === 'backdrop') {
+        const d = (s.distance / 100) * short * 0.15;
+        canvas.translate(Math.cos(a) * d, Math.sin(a) * d);
+      } else {
+        const len = 0.15 + (s.size / 100) * 0.85, skew = -Math.cos(a) / Math.max(0.2, Math.sin(a));
+        canvas.concat([1, skew * len, -skew * len * b, 0, len, b * (1 - len), 0, 0, 1]);
+      }
+      this.clipFrame(canvas, el, dst);
+      canvas.drawImageRectOptions(img, src, dst, ck.FilterMode.Linear, ck.MipmapMode.Linear, p);
+      canvas.restore();
+    }
+    p.delete();
+  }
+
+  /** Drop shadow, glow and outline draw around the picture: an image filter for a layer holding it. */
+  private outerEffect(s: ImageShadow | undefined, short: number): ImageFilter | null {
+    const ck = this.ck;
+    if (!s) return null;
     const tinted = (hex: string, alpha: number, input: ImageFilter) => {
       const cf = ck.ColorFilter.MakeBlend(color(ck, hex, alpha), ck.BlendMode.SrcIn);
       const f = ck.ImageFilter.MakeColorFilter(cf, input);
@@ -512,26 +647,27 @@ export class Renderer {
       bg.delete();
       return f;
     };
-    switch (fx.type) {
-      case 'shadow': {
-        const dist = (fx.offset / 100) * short * 0.15;
-        const rad = (fx.direction * Math.PI) / 180;
-        const sigma = (fx.blur / 100) * short * 0.08;
-        return ck.ImageFilter.MakeDropShadow(Math.cos(rad) * dist, Math.sin(rad) * dist, sigma, sigma, color(ck, fx.color, 1 - fx.transparency / 100), null);
+    switch (s.style) {
+      case 'drop': {
+        const dist = (s.distance / 100) * short * 0.15;
+        const rad = (s.angle * Math.PI) / 180;
+        const sigma = (s.blur / 100) * short * 0.08;
+        return ck.ImageFilter.MakeDropShadow(Math.cos(rad) * dist, Math.sin(rad) * dist, sigma, sigma, color(ck, s.color, 1 - s.transparency / 100), null);
       }
       case 'glow': {
-        const size = (fx.size / 100) * short * 0.06;
+        const size = (s.size / 100) * short * 0.06;
         const dil = ck.ImageFilter.MakeDilate(size / 2, size / 2, null);
-        const blur = ck.ImageFilter.MakeBlur(size + 0.5, size + 0.5, ck.TileMode.Decal, dil);
+        const sig = size * (s.blur / 50) + 0.5;
+        const blur = ck.ImageFilter.MakeBlur(sig, sig, ck.TileMode.Decal, dil);
         dil.delete();
-        const t = tinted(fx.color, 1 - fx.transparency / 100, blur);
+        const t = tinted(s.color, 1 - s.transparency / 100, blur);
         blur.delete();
         return under(t);
       }
       case 'outline': {
-        const r = (fx.thickness / 100) * short * 0.05 + 0.5;
+        const r = (s.size / 100) * short * 0.05 + 0.5;
         const dil = ck.ImageFilter.MakeDilate(r, r, null);
-        const t = tinted(fx.color, 1, dil);
+        const t = tinted(s.color, 1, dil);
         dil.delete();
         return under(t);
       }
@@ -619,7 +755,7 @@ export class Renderer {
     const ck = this.ck;
     const b = aabb(el);
     const pad = el.type === 'text' ? el.style.fontSize * 0.8
-      : (el.type === 'image' || el.type === 'video') && el.effect ? 4 + Math.min(el.w, el.h) * 0.5 // shadow, glow, outline reach outside the box
+      : (el.type === 'image' || el.type === 'video') && (el.effect || el.shadow || el.border) ? 4 + Math.min(el.w, el.h) * 0.5 // shadow, glow, outline reach outside the box
       : 4 + ('stroke' in el && el.stroke ? el.stroke.width * 4 : 0);
     const x = Math.floor(b.x - pad), y = Math.floor(b.y - pad), w = Math.ceil(b.w + 2 * pad), h = Math.ceil(b.h + 2 * pad);
     const surface = ck.MakeSurface(Math.max(1, Math.round(w * scale)), Math.max(1, Math.round(h * scale)));

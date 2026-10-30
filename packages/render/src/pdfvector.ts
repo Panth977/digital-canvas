@@ -7,7 +7,7 @@ import {
 import fontkit from '@pdf-lib/fontkit';
 import type { Path } from 'canvaskit-wasm';
 import type { Color, Doc, Element, Fill, ImageElement, Page, PathElement, ShapeElement, Stroke, TextElement, VideoElement } from '@digital-canvas/scene';
-import { dashArray, posterOf, type Decomposed } from '@digital-canvas/scene';
+import { dashArray, posterOf, walk, type Decomposed } from '@digital-canvas/scene';
 import type { FontFace } from './fonts.ts';
 import { shapePath, transformPath, type Renderer } from './renderer.ts';
 import { loadPicture, pictureNeedsRaster, textNeedsRaster, type VectorExportOptions } from './svgexport.ts';
@@ -271,9 +271,11 @@ export async function exportVectorPdf(renderer: Renderer, doc: Doc, opts: Vector
     ops(pushGraphicsState(), concatTransformationMatrix(0.75, 0, 0, -0.75, 0, hPt), concatTransformationMatrix(1, 0, 0, 1, lay.trim.x, lay.trim.y));
     // artwork stops at the bleed (the marks' slug stays clean)
     ops(...pathOps([{ op: 'M', x: -bl, y: -bl }, { op: 'L', x: doc.width + bl, y: -bl }, { op: 'L', x: doc.width + bl, y: doc.height + bl }, { op: 'L', x: -bl, y: doc.height + bl }, { op: 'Z' }]), clip(), endPath());
-    if (opts.flatten) {
+    // a blend mixes with what's under it, which vectors drawn one by one can't do: draw the page whole
+    const blended = [...walk(page.elements)].some((e) => e.blend);
+    if (opts.flatten || blended) {
       // the whole page as one picture (bleed included)
-      const scale = opts.flatten.dpi / 96;
+      const scale = (opts.flatten?.dpi ?? 300) / 96;
       const bytes = renderer.exportPage(doc, page, { scale, format: isCmyk ? 'png' : 'jpeg', quality: 92, bleed: bl });
       const img = isCmyk ? cmykFromEncoded(bytes) : (await pdf.embedJpg(bytes)).ref;
       if (img) placeImage(img, -bl, -bl, doc.width + 2 * bl, doc.height + 2 * bl);

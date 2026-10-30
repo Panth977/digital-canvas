@@ -1,6 +1,7 @@
 import { FORMAT, VERSION } from './types.ts';
 import type { AudioClip, ChartElement, Doc, Element, Fill, GroupElement, Page, PathElement, ShapeElement, ShapeKind, TableElement, TextElement, TextStyle, ImageElement, LineElement, Unit, VideoElement } from './types.ts';
 import { toPx, MIN_SIDE, MAX_SIDE } from './units.ts';
+import { lookAssets } from './image.ts';
 import { childrenOf, mapLists, offsetElement, transformChildren, walk, withChildren } from './tree.ts';
 
 /** The image a video shows when it isn't playing. */
@@ -273,6 +274,7 @@ export function pruneAssets(doc: Doc): Doc {
     for (const e of walk(p.elements)) {
       if ((e.type === 'image' || e.type === 'video') && e.asset) used.add(e.asset);
       if (e.type === 'image' && e.original) used.add(e.original);
+      if (e.type === 'image' || e.type === 'video') for (const a of lookAssets(e)) used.add(a);
       if (e.type === 'video' && e.poster) used.add(e.poster);
     }
   }
