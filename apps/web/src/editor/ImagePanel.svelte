@@ -114,7 +114,7 @@
   }
 
   // ---- tools ----
-  const hasKey = $derived(!!editProvider());
+  const hasKey = $derived(!!editProvider() || !!ed.imageEditor);
   let expandOpen = $state(false);
   const EXPAND = [{ id: '1:1', r: 1 }, { id: '4:5', r: 4 / 5 }, { id: '16:9', r: 16 / 9 }, { id: '9:16', r: 9 / 16 }, { id: 'Page', r: 0 }];
   const expandTo = (r: number) => { expandOpen = false; void magicExpand(ed, r || ed.doc.width / ed.doc.height); };
@@ -130,7 +130,7 @@
     tool('tool-erase', 'Magic Eraser', 'eraser', 'Brush out objects. On this device, 208 MB the first time.', () => openBrush('erase'), false, BUSY),
     tool('tool-grab', 'Magic Grab', 'sparkle', 'The subject becomes its own element, the photo is filled in behind it.', () => void magicGrab(ed), false, BUSY),
     tool('tool-text', 'Grab Text', 'text', 'Words in the photo become editable text. English.', () => void grabText(ed), false, BUSY),
-    tool('tool-edit', 'Magic Edit', 'wand', hasKey ? 'Brush an area and describe the change.' : 'Needs your OpenAI or Google key.', () => openBrush('edit'), false, BUSY),
+    tool('tool-edit', 'Magic Edit', 'wand', hasKey ? 'Brush an area and describe the change.' : 'Needs your OpenAI or Google key.', () => openBrush('edit'), false, BUSY || !hasKey),
     tool('tool-expand', 'Magic Expand', 'crop', hasKey ? 'Grow the photo to a new shape.' : 'Needs your OpenAI or Google key.', () => (expandOpen = !expandOpen), expandOpen, BUSY || !hasKey),
     tool('tool-crop', 'Magic Crop', 'crop', 'Frame the subject.', () => void magicCrop(ed), false, BUSY),
     tool('tool-blur', 'Blur', 'sliders', 'Brush blur on, or over the whole picture.', () => openBrush('blur'), blurs, BUSY),
@@ -308,8 +308,8 @@
 <style>
   .ip { display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; }
   .sc { display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; padding-bottom: 16px; }
-  .itabs { display: flex; gap: 2px; overflow-x: auto; flex-shrink: 0; border-bottom: 1px solid var(--line); scrollbar-width: none; }
-  .itabs button { flex: 0 0 auto; border: 0; background: none; padding: 7px 8px; font-size: 13px; font-weight: 600; color: var(--muted); border-bottom: 2px solid transparent; }
+  .itabs { display: flex; gap: 0; overflow-x: auto; flex-shrink: 0; border-bottom: 1px solid var(--line); scrollbar-width: none; }
+  .itabs button { flex: 1 0 auto; border: 0; background: none; padding: 7px 4px; font-size: 12.5px; font-weight: 600; color: var(--muted); border-bottom: 2px solid transparent; }
   .itabs button.on { color: var(--ink); border-bottom-color: var(--accent); }
   h4 { margin: 6px 0 0; font-size: 14px; font-weight: 600; }
   .hint { color: var(--muted); font-size: 12px; line-height: 1.5; margin: 0; }

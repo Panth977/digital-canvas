@@ -4,8 +4,8 @@
  * "loose" reader; pictures, clips, icons and QR codes are resolved here.
  */
 import {
-  completePage, coverCrop, defaultEffect, defaultImageEffect, filterPreset, fitGroup, line, looseColor, looseFill, newId, qrCode, qrUpdate,
-  type Animation, type Element, type ImageEffect, type ImageElement, type PathElement, type ShapeKind, type TextEffect, type TextElement, type TextRun,
+  completePage, coverCrop, defaultEffect, defaultImageEffect, defaultShadow, DUOTONES, filterPreset, SHADOW_STYLES, fitGroup, line, looseColor, looseFill, newId, qrCode, qrUpdate,
+  type Animation, type Element, type ImageEffect, type ImageElement, type ImageShadow, type ImageShadowStyle, type PathElement, type ShapeKind, type TextEffect, type TextElement, type TextRun,
   type TextStyle, type VideoElement, type Doc,
 } from '@digital-canvas/scene';
 import type { ProjectFile } from '@digital-canvas/storage';
@@ -19,13 +19,14 @@ const SHAPE_ALIAS: Record<string, ShapeKind> = { circle: 'ellipse', square: 'rec
 const shapeKind = (s: string): ShapeKind => SHAPE_ALIAS[s] ?? (s as ShapeKind);
 
 /** Keys each element type understands (others are reported). */
-const COMMON = ['type', 'name', 'x', 'y', 'w', 'h', 'rotation', 'opacity', 'locked', 'hidden', 'animation', 'timing', 'id'];
+const COMMON = ['type', 'name', 'x', 'y', 'w', 'h', 'rotation', 'opacity', 'blend', 'locked', 'hidden', 'animation', 'timing', 'id'];
+const LOOK = ['filter', 'adjust', 'effect', 'colorEdit', 'invert', 'shadow', 'duotone', 'stylize', 'retouch', 'border', 'straighten', 'tiltX', 'tiltY'];
 const KEYS: Record<string, string[]> = {
   text: ['text', 'fontFamily', 'fontSize', 'color', 'bold', 'italic', 'underline', 'strike', 'uppercase', 'align', 'lineHeight', 'letterSpacing', 'list', 'curve', 'gradient', 'effect', 'anchor', 'runs', 'autoFit'],
   shape: ['shape', 'fill', 'stroke', 'radius'],
   line: ['x1', 'y1', 'x2', 'y2', 'color', 'strokeWidth', 'stroke', 'startMarker', 'endMarker', 'route'],
-  image: ['asset', 'url', 'driveFileId', 'fit', 'focus', 'mask', 'filter', 'adjust', 'effect', 'radius'],
-  video: ['asset', 'url', 'driveFileId', 'fit', 'focus', 'mask', 'filter', 'adjust', 'effect', 'radius', 'trimStart', 'trimEnd', 'loop', 'muted', 'volume'],
+  image: ['asset', 'url', 'driveFileId', 'fit', 'focus', 'mask', ...LOOK, 'radius'],
+  video: ['asset', 'url', 'driveFileId', 'fit', 'focus', 'mask', ...LOOK, 'radius', 'trimStart', 'trimEnd', 'loop', 'muted', 'volume'],
   icon: ['icon', 'color'],
   qr: ['text', 'color', 'background'],
   chart: ['chart', 'labels', 'series', 'colors', 'legend', 'grid', 'fontFamily', 'fontSize', 'color'],
@@ -100,6 +101,7 @@ function viaLoose(spec: Obj, doc: Doc): Element | null {
 function common<T extends Element>(el: T, spec: Obj): T {
   const out: Obj = { ...el };
   if (typeof spec.name === 'string') out.name = spec.name;
+  if (typeof spec.blend === 'string') out.blend = spec.blend;
   for (const k of ['locked', 'hidden'] as const) if (typeof spec[k] === 'boolean') out[k] = spec[k];
   if (spec.animation) out.animation = cleanAnimation(spec.animation);
   if (spec.timing && typeof spec.timing === 'object') out.timing = { ...(spec.timing as Obj) };
@@ -217,6 +219,30 @@ function lookOf(pic: ImageElement | VideoElement, spec: Obj, warnings: string[],
     if (['shadow', 'glow', 'duotone', 'pixelate', 'outline'].includes(String(t))) pic.effect = imageEffect(spec.effect as Obj);
     else warnings.push(`${where}: "${t}" is not an image effect (shadow, glow, duotone, pixelate, outline)`);
   } else if (spec.effect === null) delete pic.effect;
+  const nullable = ['colorEdit', 'invert', 'stylize', 'retouch', 'straighten', 'tiltX', 'tiltY'] as const;
+  for (const k of nullable) {
+    if (spec[k] === null) delete pic[k];
+    else if (spec[k] !== undefined) (pic as unknown as Obj)[k] = spec[k];
+  }
+  if (spec.shadow === null) delete pic.shadow;
+  else if (spec.shadow && typeof spec.shadow === 'object') {
+    const v = spec.shadow as Obj, style = String(v.style) as ImageShadowStyle;
+    if (SHADOW_STYLES.some((x) => x.style === style)) {
+      const base = defaultShadow(style) as unknown as Obj, out: Obj = { ...base };
+      for (const k of Object.keys(base)) if (v[k] !== undefined && k !== 'style') out[k] = k === 'color' ? looseColor(v[k]) ?? base[k] : v[k];
+      pic.shadow = out as unknown as ImageShadow;
+    } else warnings.push(`${where}: "${style}" is not a shadow style (${SHADOW_STYLES.map((x) => x.style).join(', ')})`);
+  }
+  if (spec.duotone === null) delete pic.duotone;
+  else if (spec.duotone && typeof spec.duotone === 'object') {
+    const v = spec.duotone as Obj, preset = DUOTONES.find((d) => d.id === v.preset);
+    pic.duotone = { dark: looseColor(v.dark) ?? preset?.dark ?? '#3b1c6b', light: looseColor(v.light) ?? preset?.light ?? '#ffd1dc', ...(typeof v.intensity === 'number' ? { intensity: v.intensity } : {}) };
+  }
+  if (spec.border === null) delete pic.border;
+  else if (spec.border && typeof spec.border === 'object') {
+    const v = spec.border as Obj;
+    pic.border = { color: looseColor(v.color) ?? '#000000', width: typeof v.width === 'number' ? v.width : 8, ...(v.dash ? { dash: v.dash as 'dashed' } : {}) };
+  }
 }
 
 // ---------------------------------------------------------------- measuring text
@@ -284,6 +310,7 @@ export async function patchElement(ctx: Context, file: ProjectFile, el: Element,
   if (extra.length) warnings.push(`${where}: ignored ${extra.map((k) => `"${k}"`).join(', ')} (not used by ${el.type} elements)`);
   const o: Obj = { ...el };
   for (const k of ['name', 'x', 'y', 'w', 'h', 'rotation', 'opacity', 'locked', 'hidden'] as const) if (p[k] !== undefined) o[k] = p[k];
+  if (p.blend === null) delete o.blend; else if (p.blend !== undefined) o.blend = p.blend;
   if (p.animation === null) delete o.animation; else if (p.animation) o.animation = cleanAnimation(p.animation);
   if (p.timing === null) delete o.timing; else if (p.timing) o.timing = { ...(p.timing as Obj) };
   let refit = false;

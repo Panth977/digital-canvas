@@ -27,9 +27,6 @@ export function editProvider(): { provider: Provider; model: string; label: stri
   return c ? { provider: aiSettings.provider(c.provider), model: c.model, label: aiSettings.get(c.provider)?.label ?? c.provider } : null;
 }
 
-/** Injected by tests instead of a provider. */
-export const editHook: { fn: ((image: Media, mask: Media, prompt: string) => Promise<Media>) | null } = { fn: null };
-
 /** The selected image. */
 export function selectedImage(ed: EditorState): ImageElement | null {
   const el = ed.selected.find((e) => e.type === 'image');
@@ -243,7 +240,7 @@ export async function grabText(ed: EditorState): Promise<void> {
 
 /** Run the user's image model on a picture and a mask; the mask's clear parts are what changes. */
 async function askEdit(ed: EditorState, image: Media, mask: Media, prompt: string): Promise<Media> {
-  if (editHook.fn) return editHook.fn(image, mask, prompt);
+  if (ed.imageEditor) return ed.imageEditor(image, mask, prompt);
   const p = editProvider();
   if (!p) throw new Error('this needs an image key from OpenAI or Google. Add one in File › Settings › AI and devices.');
   return p.provider.editImage!({ model: p.model, prompt, image, mask, onProgress: (x) => (ed.bgStatus = { msg: x.message, fraction: x.fraction ?? undefined }) });

@@ -9,7 +9,7 @@
   import { untrack } from 'svelte';
   import type { EditorState } from '../lib/editor.svelte.ts';
   import { brush } from '../lib/vision/brush.svelte.ts';
-  import { busy, eraseMasked, magicEdit, editProvider } from '../lib/vision/tools.svelte.ts';
+  import { eraseMasked, magicEdit, editProvider } from '../lib/vision/tools.svelte.ts';
   import Icon from '../lib/Icon.svelte';
 
   let { ed, left, top, zoom }: { ed: EditorState; left: number; top: number; zoom: number } = $props();
@@ -106,7 +106,7 @@
     const c = crop();
     const scale = (mask!.width * c.w) / (el!.w * zoom); // screen px → mask px
     g.save();
-    g.globalCompositeOperation = (brush.tool === 'bg' ? brush.mode === 'remove' : brush.mode === 'remove') ? 'destination-out' : 'source-over';
+    g.globalCompositeOperation = brush.mode === 'remove' ? 'destination-out' : 'source-over';
     g.strokeStyle = g.fillStyle = '#fff';
     g.lineCap = g.lineJoin = 'round';
     g.lineWidth = brush.size * scale;
@@ -187,7 +187,7 @@
     if (e.key === 'Escape' && brush.id) { e.stopPropagation(); brush.close(); }
   }
 
-  const needKey = $derived(brush.tool === 'edit' && !editProvider());
+  const needKey = $derived(brush.tool === 'edit' && !editProvider() && !ed.imageEditor);
   const canApply = $derived(ready && (brush.tool === 'bg' || brush.tool === 'blur' || (painted && (brush.tool !== 'edit' || (!!brush.prompt.trim() && !needKey)))));
   const dpr = Math.min(2, globalThis.devicePixelRatio || 1);
   const addLabel = $derived(brush.tool === 'bg' ? 'Restore' : 'Brush');

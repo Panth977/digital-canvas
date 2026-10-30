@@ -15,6 +15,7 @@ import type { Engine } from './engine.ts';
 import { isImage } from './files.ts';
 import { inpaintLocal, removeBackground, type BackgroundRemover, type Inpainter } from './bgremove.ts';
 import { tesseractOcr, type Ocr } from './vision/tools.svelte.ts';
+import type { Media } from './ai/types.ts';
 import { addCssFace, fetchFamily, type CatalogFont, type FontFile } from './fonts.ts';
 import { isAudioFile, isVideoFile, mediaMime, probeAudio, probeVideo } from './media.ts';
 import { Player } from './player.svelte.ts';
@@ -69,6 +70,8 @@ export class EditorState {
   bgRemover: BackgroundRemover = removeBackground;
   /** Fills part of a picture on the device; tests use a stub. */
   inpainter: Inpainter = inpaintLocal;
+  /** Stands in for the user's AI provider in tests. */
+  imageEditor: ((image: Media, mask: Media, prompt: string) => Promise<Media>) | null = null;
   /** Reads text in a picture; tests use a stub. */
   ocr: Ocr = tesseractOcr;
 
