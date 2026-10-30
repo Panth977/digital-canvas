@@ -22,6 +22,7 @@ setPlatform(browserPlatform({
   canvasKit: () => CanvasKitInit({ locateFile: () => new URL(wasmUrl, self.location.origin).href }),
   fontsBase: `${base}fonts/`,
   mockupsBase: `${base}mockups/`,
+  templateAssetsBase: `${base}templates/assets/`,
   templateIndex: INDEX as TemplateEntry[],
   templateDoc: async (id) => {
     const load = templates[`../../templates/${id}.json`];

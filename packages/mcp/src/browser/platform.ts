@@ -16,6 +16,8 @@ export interface BrowserPlatformOptions {
   fontsBase: string;
   templateIndex: TemplateEntry[];
   templateDoc: (id: string) => Promise<unknown>;
+  /** Absolute URL of the template pictures (ends with /), e.g. the app's own `/templates/assets/`. */
+  templateAssetsBase: string;
   /** Absolute URL of the mockup library (ends with /), e.g. the app's own `/mockups/`. Default: the deployed site. */
   mockupsBase?: string;
 }
@@ -27,6 +29,11 @@ export function browserPlatform(o: BrowserPlatformOptions): Platform {
     loadBundledFonts: (fonts) => fonts.loadBundled(o.fontsBase),
     templateIndex: () => o.templateIndex,
     templateDoc: o.templateDoc,
+    templateAsset: async (id) => {
+      const r = await fetch(`${o.templateAssetsBase}${id}`);
+      if (!r.ok) throw new Error(`template picture ${id}: HTTP ${r.status}`);
+      return new Uint8Array(await r.arrayBuffer());
+    },
     videoFrame: (bytes, at) => videoFrameWebCodecs(bytes, at),
     videoProblem: webCodecsProblem,
     exportMp4: exportMp4Browser,

@@ -3,7 +3,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { createDoc, isVideo, looseFill, newId, resizeDoc, searchPresets, setTitle, totalDuration, type Doc, type Page } from '@digital-canvas/scene';
 import { ToolError, round, type Context } from '../context.ts';
-import { POPULAR_PRESETS, findPreset, fitPages, loadTemplate } from '../library.ts';
+import { POPULAR_PRESETS, findPreset, fitPages, loadTemplate, loadTemplateAssets } from '../library.ts';
 import { designOutline } from '../outline.ts';
 import { fill as fillSchema } from '../schemas.ts';
 import { json, safe } from './util.ts';
@@ -90,7 +90,7 @@ export function registerDesignTools(server: McpServer, ctx: Context): void {
     const dur = a.page_duration ?? (size?.video ? 5 : undefined);
     if (dur) pages = pages.map((p) => ({ ...p, duration: p.duration ?? dur }));
     doc = { ...doc, pages, assets };
-    const file = { doc, assets: new Map<string, Uint8Array>() };
+    const file = { doc, assets: tpl ? await loadTemplateAssets(tpl) : new Map<string, Uint8Array>() };
     const { missingFonts } = await ctx.save(file);
     return json({
       id: file.doc.id, title: file.doc.title, size: `${round(file.doc.width)}×${round(file.doc.height)} px${size ? ` · ${size.label}` : ''}`,

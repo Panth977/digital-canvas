@@ -41,6 +41,8 @@ export interface SourceBoard {
   credit: Credit;
   /** The source's own rendering of this design, when it ships one. */
   preview?: Uint8Array;
+  /** Names of the pictures in the source design, so a person can check their rights. */
+  images: string[];
   /** What didn't convert exactly (shown in the build report). */
   lossy: string[];
   /** Fixed-size text boxes whose text is centred or bottom-aligned: fitted after measuring. */

@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { strFromU8, unzipSync } from 'fflate';
 import { createDoc, type AssetMeta, type Doc } from '@digital-canvas/scene';
 import { assetId } from '@digital-canvas/storage';
-import { ROOT, convertBoard, type ConvertContext, type PShape } from './convert.ts';
+import { DROP, ROOT, convertBoard, type ConvertContext, type PShape } from './convert.ts';
 import type { Credit, SourceBoard, TemplateSource } from './source.ts';
 import type { CatalogFile } from './catalog.ts';
 
@@ -38,13 +38,11 @@ async function download(file: string): Promise<Uint8Array> {
   }
 }
 
-const MIME_EXT: Record<string, string[]> = { 'image/png': ['png'], 'image/jpeg': ['jpg', 'jpeg'], 'image/webp': ['webp'], 'image/gif': ['gif'] };
-
 export interface PenpotFile {
   name: string;
   pages: { id: string; name: string; shapes: Map<string, PShape> }[];
   /** Penpot media id → storage object id. */
-  media: Map<string, { mediaId: string; mtype: string; width: number; height: number }>;
+  media: Map<string, { mediaId: string; mtype: string; width: number; height: number; name: string }>;
   /** Board id → storage object id of its rendered thumbnail. */
   thumbs: Map<string, string>;
   objects: Map<string, Uint8Array>;
@@ -66,7 +64,7 @@ export function readPenpot(bytes: Uint8Array): PenpotFile {
       out.pages.push(page);
     } else if (/^files\/[^/]+\/media\/[^/]+\.json$/.test(n)) {
       const j = json(n);
-      out.media.set(j.id, { mediaId: j.mediaId, mtype: j.mtype, width: j.width, height: j.height });
+      out.media.set(j.id, { mediaId: j.mediaId, mtype: j.mtype, width: j.width, height: j.height, name: String(j.name ?? '') });
     } else if (/^files\/[^/]+\/thumbnails\/frame\//.test(n) && n.endsWith('.json')) {
       const j = json(n);
       out.thumbs.set(j.frameId, j.mediaId);
@@ -105,6 +103,7 @@ async function toBoard(pf: PenpotFile, shapes: Map<string, PShape>, board: PShap
   const assets = new Map<string, Uint8Array>();
   const docAssets: Record<string, AssetMeta> = {};
   const seen = new Map<string, string>();
+  const images = new Set<string>();
   const lossy = new Map<string, number>();
   const valign = new Map<string, 'center' | 'bottom'>();
   const id = `${pick.id}${n ? `-${n}` : ''}`;
@@ -119,14 +118,17 @@ async function toBoard(pf: PenpotFile, shapes: Map<string, PShape>, board: PShap
   for (const p of pending) hashed.set(p.media, { asset: await assetId(p.bytes, p.mime), bytes: p.bytes, meta: { mime: p.mime, width: p.width, height: p.height, name: `${f.title} by ${f.author} (${f.licence})` } });
   const ctx: ConvertContext = {
     shapes,
-    image(mid) {
+    image(mid, box) {
       const h = hashed.get(mid);
       if (!h) return null;
+      images.add(pf.media.get(mid)?.name ?? mid);
+      if (pick.stripImages) return (box?.w ?? 0) >= 100 && (box?.h ?? 0) >= 100 ? '' : DROP;
       if (!seen.has(mid)) { seen.set(mid, h.asset); assets.set(h.asset, h.bytes); docAssets[h.asset] = h.meta; }
       return h.asset;
     },
     font(fontId, family) {
-      const key = (family ?? fontId ?? '').toLowerCase();
+      // text with no font set uses Penpot's default
+      const key = (family ?? fontId ?? 'sourcesanspro').toLowerCase();
       if (FONT_ALIAS[key]) return FONT_ALIAS[key]!;
       if (family && (fontId?.startsWith('gfont-') || fontId?.startsWith('custom-'))) return family;
       return null;
@@ -136,7 +138,7 @@ async function toBoard(pf: PenpotFile, shapes: Map<string, PShape>, board: PShap
     nextId: () => `${id}_e${++seq}`,
   };
   const { background, elements } = convertBoard(board, ctx);
-  const title = n ? `${pick.title} ${n}` : pick.title;
+  const title = (n && pick.titles?.[n - 1]) || (n ? `${pick.title} ${n}` : pick.title);
   const blank = createDoc({ title, width: Math.round(board.width), height: Math.round(board.height) });
   const stamp = '2026-10-30T00:00:00.000Z';
   const doc: Doc = { ...blank, id: `tpl_${id}`, title, assets: docAssets, createdAt: stamp, updatedAt: stamp, pages: [{ id: `${id}_p1`, name: pageName.slice(0, 60), background, elements }] };
@@ -146,6 +148,5 @@ async function toBoard(pf: PenpotFile, shapes: Map<string, PShape>, board: PShap
   };
   const thumb = pf.thumbs.get(board.id);
   const preview = thumb ? pf.objects.get(thumb) : undefined;
-  return { id, title, category: pick.category, tags: pick.tags, doc, assets, credit, ...(preview ? { preview } : {}), lossy: [...lossy].map(([k, v]) => `${k} ×${v}`), valign };
+  return { id, title, category: pick.category, tags: pick.tags, doc, assets, credit, ...(preview ? { preview } : {}), lossy: [...lossy].map(([k, v]) => `${k} ×${v}`), valign, images: [...images] };
 }
-void MIME_EXT;

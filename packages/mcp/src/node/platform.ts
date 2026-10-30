@@ -10,7 +10,7 @@ import { lookup } from 'node:dns/promises';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import type { CanvasKit } from 'canvaskit-wasm';
-import { canvasKitWasm, fontsDir, mockupsDir, templatesDir } from '../paths.ts';
+import { canvasKitWasm, fontsDir, mockupsDir, templateAssetsDir, templatesDir } from '../paths.ts';
 import { MOCKUPS_URL, fetchMockupFile } from '../mockupfetch.ts';
 import type { Platform, TemplateEntry } from '../platform.ts';
 import { ffmpeg, videoFrame } from './ffmpeg.ts';
@@ -66,5 +66,12 @@ export const nodePlatform: Platform = {
   videoProblem: () => (ffmpeg() ? null : 'video export needs ffmpeg on this machine: install it (macOS: brew install ffmpeg; Debian/Ubuntu: apt install ffmpeg) or run `npm i -g ffmpeg-static`, or set DC_FFMPEG=/path/to/ffmpeg'),
   exportMp4: (file, opts) => exportMp4Ffmpeg(file, opts),
   mockupFile,
+  templateAsset: async (id) => {
+    const dir = templateAssetsDir();
+    if (dir) return new Uint8Array(await readFile(join(dir, id)));
+    const r = await fetch(`${process.env.DC_TEMPLATE_ASSETS_URL ?? new URL('/templates/assets/', MOCKUPS_URL).href}${id}`);
+    if (!r.ok) throw new Error(`template picture ${id}: HTTP ${r.status}`);
+    return new Uint8Array(await r.arrayBuffer());
+  },
   lookup: async (host) => (await lookup(host, { all: true })).map((a) => a.address),
 };

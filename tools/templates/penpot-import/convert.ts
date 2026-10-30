@@ -8,6 +8,7 @@
  * no general clip, so clipping is done by geometry: boxes and pictures are cut
  * to the clip, and anything entirely outside it is left out.
  */
+import { parseSvg } from '@digital-canvas/scene';
 import { parsePathBounds } from './pathbounds.ts';
 import type {
   Color, Element, Fill, GradientStop, ImageElement, LineElement, LineMarker, PathElement, ShapeElement, Stroke, TextElement, TextRun, TextStyle,
@@ -15,11 +16,13 @@ import type {
 
 export interface PShape { [k: string]: any }
 export const ROOT = '00000000-0000-0000-0000-000000000000';
+/** `ConvertContext.image` answers: leave this picture out altogether. An empty string keeps it as an empty frame. */
+export const DROP = '\0drop';
 
 export interface ConvertContext {
   shapes: Map<string, PShape>;
-  /** Scene asset id of a Penpot media id; registers it on first use. Null when the file doesn't have it. */
-  image(mediaId: string): string | null;
+  /** Scene asset id of a Penpot media id; registers it on first use. Null when the file doesn't have it, '' = empty frame, DROP = leave out. */
+  image(mediaId: string, box?: { w: number; h: number }): string | null;
   /** Scene family of a Penpot font, or null when no free equivalent is known. */
   font(fontId: string | undefined, family: string | undefined): string | null;
   lossy(what: string): void;
@@ -142,7 +145,7 @@ function convertShape(s: PShape | undefined, ctx: ConvertContext, env: Env): Ele
     case 'image': return image(s, ctx, here);
     case 'path': case 'bool': return vector(s, ctx, here);
     case 'text': return textOf(s, ctx, here);
-    case 'svg-raw': ctx.lossy('svg-raw shape skipped'); return [];
+    case 'svg-raw': return rawSvg(s, ctx, here, null);
     default: ctx.lossy(`shape type ${s.type} skipped`); return [];
   }
 }
@@ -245,8 +248,9 @@ function paintImages(s: PShape, ctx: ConvertContext, env: Env): Element[] {
   const out: Element[] = [];
   for (const f of [...(s.fills ?? [])].reverse()) {
     if (!f.fillImage) continue;
-    const asset = ctx.image(f.fillImage.id);
-    if (!asset) { ctx.lossy('image fill missing'); continue; }
+    const asset = ctx.image(f.fillImage.id, { w: s.width, h: s.height });
+    if (asset === null) { ctx.lossy('image fill missing'); continue; }
+    if (asset === DROP) continue;
     const mask = s.type === 'circle' ? ellipsePath(s.x, s.y, s.width, s.height) : s.type === 'path' || s.type === 'bool' ? pathString(s.content) : undefined;
     const box = s.type === 'path' || s.type === 'bool' ? pointsBox(s) : boxOf(s);
     out.push(...imageElement(s, ctx, env, asset, box, f.fillImage.width, f.fillImage.height, f.fillImage.keepAspectRatio !== false, (f.fillOpacity ?? 1), mask));
@@ -257,8 +261,9 @@ function paintImages(s: PShape, ctx: ConvertContext, env: Env): Element[] {
 function image(s: PShape, ctx: ConvertContext, env: Env): Element[] {
   shadowsNote(s, ctx);
   const m = s.metadata ?? {};
-  const asset = ctx.image(m.id);
-  if (!asset) { ctx.lossy('image missing'); return []; }
+  const asset = ctx.image(m.id, { w: s.width, h: s.height });
+  if (asset === null) { ctx.lossy('image missing'); return []; }
+  if (asset === DROP) return [];
   return imageElement(s, ctx, env, asset, boxOf(s), m.width, m.height, s.keepAspectRatio !== false, 1);
 }
 
@@ -337,6 +342,37 @@ function vector(s: PShape, ctx: ConvertContext, env: Env): Element[] {
   return out;
 }
 
+// ---------------------------------------------------------------- raw SVG
+
+const kebab = (k: string) => k.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+const attrsOf = (a: PShape = {}) => Object.entries(a).filter(([k, v]) => k !== 'style' && (typeof v === 'string' || typeof v === 'number')).map(([k, v]) => `${kebab(k)}="${String(v).replace(/"/g, '&quot;')}"`).join(' ');
+const styleAttrs = (a: PShape = {}) => Object.entries((a.style ?? {}) as PShape).map(([k, v]) => `${kebab(k)}="${String(v).replace(/"/g, '&quot;')}"`).join(' ');
+
+/**
+ * Shapes Penpot kept as raw SVG: an `svg`/`g` holds child shapes, each child a
+ * drawing tag. The viewBox of the enclosing `svg` maps them onto its box.
+ */
+function rawSvg(s: PShape, ctx: ConvertContext, env: Env, parent: { vb: { x: number; y: number; width: number; height: number }; box: { x: number; y: number; w: number; h: number }; paint: string } | null): Element[] {
+  const c = s.content as PShape | undefined;
+  const tag = String(c?.tag ?? '');
+  if (tag === 'defs' || !c) return [];
+  if (c.attrs?.transform) ctx.lossy('raw SVG transform');
+  if (tag === 'svg' || tag === 'g') {
+    const nums = String(c.attrs?.viewBox ?? '').split(/[\s,]+/).map(Number);
+    const vb = s.svgViewbox ?? (nums.length === 4 && nums.every(Number.isFinite) ? { x: nums[0]!, y: nums[1]!, width: nums[2]!, height: nums[3]! } : { x: 0, y: 0, width: s.width, height: s.height });
+    const here = tag === 'svg' ? { vb, box: boxOf(s), paint: `${parent?.paint ?? ''} ${attrsOf(c.attrs)} ${styleAttrs(c.attrs)}` } : parent && { ...parent, paint: `${parent.paint} ${attrsOf(c.attrs)} ${styleAttrs(c.attrs)}` };
+    if (!here) { ctx.lossy('raw SVG without viewBox'); return []; }
+    return (s.shapes ?? []).flatMap((id: string) => { const k = ctx.shapes.get(id); return k?.type === 'svg-raw' ? rawSvg(k, ctx, env, here) : convertShape(k, ctx, env); });
+  }
+  if (!parent) { ctx.lossy(`raw SVG ${tag} on its own`); return []; }
+  const { vb, box, paint } = parent;
+  const clean = (t: string) => [...new Map(t.split(/\s+(?=[\w-]+=)/).filter((x) => /^(fill|stroke|stroke-width|opacity|fill-opacity|stroke-opacity|fill-rule)=/.test(x)).map((x) => [x.split('=')[0], x])).values()].join(' ');
+  const parsed = parseSvg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vb.x} ${vb.y} ${vb.width} ${vb.height}"><g ${clean(paint)}><${tag} ${attrsOf(c.attrs)} ${styleAttrs(c.attrs)}/></g></svg>`, '#000000');
+  if (!parsed || !parsed.paths.length) { ctx.lossy(`raw SVG ${tag} unread`); return []; }
+  if (outside(box, env.clip)) return [];
+  return [{ ...base(ctx, { ...s, rotation: 0, flipX: false, flipY: false }, env), type: 'path', x: box.x - env.ox, y: box.y - env.oy, w: box.w, h: box.h, viewBox: parsed.viewBox, paths: parsed.paths } as PathElement];
+}
+
 // ---------------------------------------------------------------- text
 
 interface Leaf { text: string; style: Partial<TextStyle>; gradient?: PShape; paragraph: number }
@@ -375,7 +411,7 @@ function textOf(s: PShape, ctx: ConvertContext, env: Env): Element[] {
   const leaves: Leaf[] = [];
   paragraphs.forEach((p, i) => {
     for (const n of p.children ?? []) {
-      const { style, gradient } = leafStyle({ ...p, ...n }, ctx);
+      const { style, gradient } = leafStyle({ ...root, ...p, ...n }, ctx);
       const text = caseOf(String(n.text ?? ''), n.textTransform ?? p.textTransform);
       if (text) leaves.push({ text, style: { ...style, align: (p.textAlign ?? n.textAlign ?? 'left') as TextStyle['align'] }, ...(gradient ? { gradient } : {}), paragraph: i });
     }

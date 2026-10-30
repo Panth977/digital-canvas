@@ -1,650 +1,814 @@
 [
  {
-  "id": "ig-sale-bold",
-  "title": "Big Sale",
-  "category": "Instagram post",
-  "tags": "sale discount offer shop fashion promo",
-  "width": 1080,
-  "height": 1080,
+  "id": "community-post-1",
+  "title": "Community post 1",
+  "category": "Social post",
+  "tags": "social linkedin post announcement community",
+  "width": 1200,
+  "height": 627,
   "pages": 1,
   "fonts": [
-   "Anton",
-   "Montserrat"
-  ]
+   "Source Sans 3"
+  ],
+  "assets": [],
+  "credit": {
+   "author": "Systxema",
+   "catalog": "Penpot Hub",
+   "sourceUrl": "https://penpot.app/penpothub/libraries-templates/community-posters",
+   "fileUrl": "https://penpot.github.io/penpot-files/community-covers.penpot",
+   "licence": "CC-BY-4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  }
  },
  {
-  "id": "ig-quote-serif",
-  "title": "Quote of the day",
-  "category": "Instagram post",
-  "tags": "quote motivation inspiration words minimal",
-  "width": 1080,
-  "height": 1080,
+  "id": "community-post-2",
+  "title": "Community post 2",
+  "category": "Social post",
+  "tags": "social linkedin post announcement community",
+  "width": 1200,
+  "height": 627,
   "pages": 1,
   "fonts": [
-   "Montserrat",
+   "Source Sans 3"
+  ],
+  "assets": [],
+  "credit": {
+   "author": "Systxema",
+   "catalog": "Penpot Hub",
+   "sourceUrl": "https://penpot.app/penpothub/libraries-templates/community-posters",
+   "fileUrl": "https://penpot.github.io/penpot-files/community-covers.penpot",
+   "licence": "CC-BY-4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  }
+ },
+ {
+  "id": "community-post-3",
+  "title": "Community post 3",
+  "category": "Social post",
+  "tags": "social linkedin post announcement community",
+  "width": 1200,
+  "height": 627,
+  "pages": 1,
+  "fonts": [
+   "Source Sans 3"
+  ],
+  "assets": [],
+  "credit": {
+   "author": "Systxema",
+   "catalog": "Penpot Hub",
+   "sourceUrl": "https://penpot.app/penpothub/libraries-templates/community-posters",
+   "fileUrl": "https://penpot.github.io/penpot-files/community-covers.penpot",
+   "licence": "CC-BY-4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  }
+ },
+ {
+  "id": "community-post-4",
+  "title": "Community post 4",
+  "category": "Social post",
+  "tags": "social linkedin post announcement community",
+  "width": 1200,
+  "height": 627,
+  "pages": 1,
+  "fonts": [
+   "Source Sans 3"
+  ],
+  "assets": [],
+  "credit": {
+   "author": "Systxema",
+   "catalog": "Penpot Hub",
+   "sourceUrl": "https://penpot.app/penpothub/libraries-templates/community-posters",
+   "fileUrl": "https://penpot.github.io/penpot-files/community-covers.penpot",
+   "licence": "CC-BY-4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  }
+ },
+ {
+  "id": "cv-enieber-1",
+  "title": "One-column CV, colour",
+  "category": "Resume",
+  "tags": "resume cv job",
+  "width": 365,
+  "height": 1331,
+  "pages": 1,
+  "fonts": [
+   "Source Sans 3"
+  ],
+  "assets": [],
+  "credit": {
+   "author": "Enieber Cunha",
+   "catalog": "Penpot Hub",
+   "sourceUrl": "https://penpot.app/penpothub/libraries-templates/curriculum",
+   "fileUrl": "https://penpot.github.io/penpot-files/curriculum.penpot",
+   "licence": "CC-BY-4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  }
+ },
+ {
+  "id": "cv-enieber-2",
+  "title": "One-column CV, print",
+  "category": "Resume",
+  "tags": "resume cv job",
+  "width": 365,
+  "height": 1331,
+  "pages": 1,
+  "fonts": [
+   "Source Sans 3"
+  ],
+  "assets": [],
+  "credit": {
+   "author": "Enieber Cunha",
+   "catalog": "Penpot Hub",
+   "sourceUrl": "https://penpot.app/penpothub/libraries-templates/curriculum",
+   "fileUrl": "https://penpot.github.io/penpot-files/curriculum.penpot",
+   "licence": "CC-BY-4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  }
+ },
+ {
+  "id": "cv-enieber-dark-1",
+  "title": "One-column CV, dark",
+  "category": "Resume",
+  "tags": "resume cv job dark",
+  "width": 365,
+  "height": 1331,
+  "pages": 1,
+  "fonts": [
+   "Source Sans 3"
+  ],
+  "assets": [],
+  "credit": {
+   "author": "Enieber Cunha",
+   "catalog": "Penpot Hub",
+   "sourceUrl": "https://penpot.app/penpothub/libraries-templates/curriculum",
+   "fileUrl": "https://penpot.github.io/penpot-files/curriculum.penpot",
+   "licence": "CC-BY-4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  }
+ },
+ {
+  "id": "cv-enieber-dark-2",
+  "title": "One-column CV, dark print",
+  "category": "Resume",
+  "tags": "resume cv job dark",
+  "width": 365,
+  "height": 1331,
+  "pages": 1,
+  "fonts": [
+   "Source Sans 3"
+  ],
+  "assets": [],
+  "credit": {
+   "author": "Enieber Cunha",
+   "catalog": "Penpot Hub",
+   "sourceUrl": "https://penpot.app/penpothub/libraries-templates/curriculum",
+   "fileUrl": "https://penpot.github.io/penpot-files/curriculum.penpot",
+   "licence": "CC-BY-4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  }
+ },
+ {
+  "id": "resume-just-another-1",
+  "title": "Just another resume, light",
+  "category": "Resume",
+  "tags": "resume cv job",
+  "width": 1400,
+  "height": 1800,
+  "pages": 1,
+  "fonts": [
+   "Inter",
    "Playfair Display"
-  ]
+  ],
+  "assets": [],
+  "credit": {
+   "author": "Maximo Gomez",
+   "catalog": "Penpot Hub",
+   "sourceUrl": "https://penpot.app/penpothub/libraries-templates/just-another-resume-template",
+   "fileUrl": "https://penpot.github.io/penpot-files/Just%20Another%20Resume%20Template.penpot",
+   "licence": "CC-BY-4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  }
  },
  {
-  "id": "ig-cafe-new",
-  "title": "New on the menu",
-  "category": "Instagram post",
-  "tags": "cafe coffee food restaurant drink menu launch",
-  "width": 1080,
-  "height": 1080,
+  "id": "resume-just-another-2",
+  "title": "Just another resume, dark",
+  "category": "Resume",
+  "tags": "resume cv job",
+  "width": 1400,
+  "height": 1800,
   "pages": 1,
-  "fonts": [
-   "Bebas Neue",
-   "DM Serif Display",
-   "Montserrat"
-  ]
- },
- {
-  "id": "ig-tips-list",
-  "title": "5 Productivity tips",
-  "category": "Instagram post",
-  "tags": "tips list education carousel productivity work",
-  "width": 1080,
-  "height": 1080,
-  "pages": 1,
-  "fonts": [
-   "Poppins"
-  ]
- },
- {
-  "id": "ig-birthday",
-  "title": "Happy Birthday",
-  "category": "Instagram post",
-  "tags": "birthday party celebration wishes friend",
-  "width": 1080,
-  "height": 1080,
-  "pages": 1,
-  "fonts": [
-   "Montserrat",
-   "Pacifico"
-  ]
- },
- {
-  "id": "ig-realestate",
-  "title": "Just listed",
-  "category": "Instagram post",
-  "tags": "real estate house property home listing",
-  "width": 1080,
-  "height": 1080,
-  "pages": 1,
-  "fonts": [
-   "Lato",
-   "Oswald"
-  ]
- },
- {
-  "id": "ig-fitness",
-  "title": "Fitness challenge",
-  "category": "Instagram post",
-  "tags": "gym fitness workout sport health challenge",
-  "width": 1080,
-  "height": 1080,
-  "pages": 1,
-  "fonts": [
-   "Anton",
-   "Space Grotesk"
-  ]
- },
- {
-  "id": "ig-gradient-announce",
-  "title": "Big announcement",
-  "category": "Instagram post",
-  "tags": "announcement news gradient modern launch",
-  "width": 1080,
-  "height": 1080,
-  "pages": 1,
-  "fonts": [
-   "Syne"
-  ]
- },
- {
-  "id": "ig-thank-you",
-  "title": "Thank you followers",
-  "category": "Instagram post",
-  "tags": "thank you followers milestone celebration 10k",
-  "width": 1080,
-  "height": 1080,
-  "pages": 1,
-  "fonts": [
-   "Abril Fatface",
-   "Caveat"
-  ]
- },
- {
-  "id": "story-travel",
-  "title": "Travel diary",
-  "category": "Story",
-  "tags": "travel vacation holiday beach summer trip",
-  "width": 1080,
-  "height": 1920,
-  "pages": 1,
-  "fonts": [
-   "Montserrat",
-   "Pacifico"
-  ]
- },
- {
-  "id": "story-poll",
-  "title": "This or that",
-  "category": "Story",
-  "tags": "poll question engagement fun social",
-  "width": 1080,
-  "height": 1920,
-  "pages": 1,
-  "fonts": [
-   "Bebas Neue",
-   "Pacifico",
-   "Poppins"
-  ]
- },
- {
-  "id": "story-launch",
-  "title": "Product launch",
-  "category": "Story",
-  "tags": "launch product startup app tech announcement",
-  "width": 1080,
-  "height": 1920,
-  "pages": 1,
-  "fonts": [
-   "Syne"
-  ]
- },
- {
-  "id": "story-minimal-quote",
-  "title": "Morning note",
-  "category": "Story",
-  "tags": "quote minimal journal morning mindfulness",
-  "width": 1080,
-  "height": 1920,
-  "pages": 1,
-  "fonts": [
-   "Cormorant Garamond",
-   "Montserrat"
-  ]
- },
- {
-  "id": "story-sale-countdown",
-  "title": "Sale countdown",
-  "category": "Story",
-  "tags": "sale countdown flash offer story",
-  "width": 1080,
-  "height": 1920,
-  "pages": 1,
-  "fonts": [
-   "Anton",
-   "Montserrat"
-  ]
- },
- {
-  "id": "poster-concert",
-  "title": "Live concert",
-  "category": "Poster",
-  "tags": "music concert event gig band festival night",
-  "width": 1122.52,
-  "height": 1587.4,
-  "pages": 1,
-  "fonts": [
-   "Bungee",
-   "Space Grotesk"
-  ]
- },
- {
-  "id": "poster-exhibition",
-  "title": "Art exhibition",
-  "category": "Poster",
-  "tags": "art exhibition gallery museum modern swiss",
-  "width": 1122.52,
-  "height": 1587.4,
-  "pages": 1,
-  "fonts": [
-   "Archivo Black",
-   "Space Grotesk"
-  ]
- },
- {
-  "id": "poster-lost-cat",
-  "title": "Missing pet",
-  "category": "Poster",
-  "tags": "lost missing pet cat dog notice community",
-  "width": 1122.52,
-  "height": 1587.4,
-  "pages": 1,
-  "fonts": [
-   "Anton",
-   "Poppins"
-  ]
- },
- {
-  "id": "poster-workshop",
-  "title": "Design workshop",
-  "category": "Poster",
-  "tags": "workshop class event education design learning",
-  "width": 1122.52,
-  "height": 1587.4,
-  "pages": 1,
-  "fonts": [
-   "Fraunces",
-   "Inter"
-  ]
- },
- {
-  "id": "flyer-yoga",
-  "title": "Yoga classes",
-  "category": "Flyer",
-  "tags": "yoga wellness health class studio calm",
-  "width": 793.7,
-  "height": 1122.52,
-  "pages": 1,
-  "fonts": [
-   "Cormorant Garamond",
-   "Montserrat"
-  ]
- },
- {
-  "id": "flyer-business",
-  "title": "Business services",
-  "category": "Flyer",
-  "tags": "business corporate company services marketing agency",
-  "width": 793.7,
-  "height": 1122.52,
-  "pages": 1,
-  "fonts": [
-   "Montserrat"
-  ]
- },
- {
-  "id": "flyer-bake-sale",
-  "title": "Bake sale",
-  "category": "Flyer",
-  "tags": "bake sale school charity cakes cookies community",
-  "width": 793.7,
-  "height": 1122.52,
-  "pages": 1,
-  "fonts": [
-   "Lobster",
-   "Montserrat"
-  ]
- },
- {
-  "id": "flyer-tech-meetup",
-  "title": "Tech meetup",
-  "category": "Flyer",
-  "tags": "tech meetup developer code event conference talk",
-  "width": 793.7,
-  "height": 1122.52,
-  "pages": 1,
-  "fonts": [
-   "Space Grotesk",
-   "Space Mono"
-  ]
- },
- {
-  "id": "menu-cafe",
-  "title": "Café menu",
-  "category": "Menu",
-  "tags": "cafe coffee menu restaurant drinks food breakfast",
-  "width": 793.7,
-  "height": 1122.52,
-  "pages": 1,
-  "fonts": [
-   "DM Serif Display",
-   "Lato",
-   "Montserrat"
-  ]
- },
- {
-  "id": "menu-pizza",
-  "title": "Pizzeria menu",
-  "category": "Menu",
-  "tags": "pizza italian restaurant menu food dinner",
-  "width": 793.7,
-  "height": 1122.52,
-  "pages": 1,
-  "fonts": [
-   "Lato",
-   "Lobster",
-   "Oswald"
-  ]
- },
- {
-  "id": "menu-indian",
-  "title": "Sweets & lassi menu",
-  "category": "Menu",
-  "tags": "indian sweets lassi dairy menu shop beverages",
-  "width": 793.7,
-  "height": 1122.52,
-  "pages": 1,
-  "fonts": [
-   "Bungee",
-   "Kalam",
-   "Lilita One",
-   "Montserrat"
-  ]
- },
- {
-  "id": "deck-pitch",
-  "title": "Startup pitch deck",
-  "category": "Presentation",
-  "tags": "pitch deck startup business investor slides",
-  "width": 1920,
-  "height": 1080,
-  "pages": 4,
-  "fonts": [
-   "Poppins"
-  ]
- },
- {
-  "id": "deck-lesson",
-  "title": "Science lesson",
-  "category": "Presentation",
-  "tags": "education lesson class school science teacher slides",
-  "width": 1920,
-  "height": 1080,
-  "pages": 3,
-  "fonts": [
-   "Fredoka"
-  ]
- },
- {
-  "id": "deck-report",
-  "title": "Quarterly report",
-  "category": "Presentation",
-  "tags": "report business quarterly results corporate data chart",
-  "width": 1920,
-  "height": 1080,
-  "pages": 3,
   "fonts": [
    "Inter",
-   "Libre Baskerville"
-  ]
+   "Playfair Display"
+  ],
+  "assets": [],
+  "credit": {
+   "author": "Maximo Gomez",
+   "catalog": "Penpot Hub",
+   "sourceUrl": "https://penpot.app/penpothub/libraries-templates/just-another-resume-template",
+   "fileUrl": "https://penpot.github.io/penpot-files/Just%20Another%20Resume%20Template.penpot",
+   "licence": "CC-BY-4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  }
  },
  {
-  "id": "deck-minimal",
-  "title": "Minimal portfolio",
+  "id": "bingo-reading",
+  "title": "Reading challenge bingo",
+  "category": "Game",
+  "tags": "bingo reading book club game",
+  "width": 1059,
+  "height": 2153,
+  "pages": 1,
+  "fonts": [
+   "Abhaya Libre",
+   "Ms Madi"
+  ],
+  "assets": [
+   "69b842ad746b8fae957c.png"
+  ],
+  "credit": {
+   "author": "Marina Lopez",
+   "catalog": "Penpot Hub",
+   "sourceUrl": "https://penpot.app/penpothub/libraries-templates/bingo-reading-challenge",
+   "fileUrl": "https://penpot.github.io/penpot-files/Bingo.penpot",
+   "licence": "CC-BY-4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  }
+ },
+ {
+  "id": "persona",
+  "title": "User persona",
+  "category": "Planning",
+  "tags": "persona ux research",
+  "width": 1440,
+  "height": 960,
+  "pages": 1,
+  "fonts": [
+   "Plus Jakarta Sans"
+  ],
+  "assets": [],
+  "credit": {
+   "author": "Mohamed Youssef",
+   "catalog": "Penpot Hub",
+   "sourceUrl": "https://penpot.app/penpothub/libraries-templates/user-persona-template",
+   "fileUrl": "https://penpot.github.io/penpot-files/Persona%20template.penpot",
+   "licence": "CC-BY-4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  }
+ },
+ {
+  "id": "eisenhower",
+  "title": "Eisenhower matrix",
+  "category": "Planning",
+  "tags": "priorities planning matrix",
+  "width": 1394,
+  "height": 1401,
+  "pages": 1,
+  "fonts": [
+   "DM Sans"
+  ],
+  "assets": [],
+  "credit": {
+   "author": "Elhombretecla",
+   "catalog": "Penpot Hub",
+   "sourceUrl": "https://penpot.app/penpothub/libraries-templates/eisenhower-matrix",
+   "fileUrl": "https://penpot.github.io/penpot-files/Eisenhower%20Matrix.penpot",
+   "licence": "CC-BY-4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  }
+ },
+ {
+  "id": "community-cards",
+  "title": "Community cards",
   "category": "Presentation",
-  "tags": "portfolio minimal design creative showcase",
-  "width": 1920,
-  "height": 1080,
-  "pages": 2,
-  "fonts": [
-   "Inter",
-   "Syne"
-  ]
- },
- {
-  "id": "card-modern",
-  "title": "Modern business card",
-  "category": "Business card",
-  "tags": "business card contact corporate modern",
-  "width": 321.26,
-  "height": 207.87,
-  "pages": 2,
-  "fonts": [
-   "Poppins"
-  ]
- },
- {
-  "id": "card-elegant",
-  "title": "Elegant business card",
-  "category": "Business card",
-  "tags": "business card elegant gold luxury law",
-  "width": 321.26,
-  "height": 207.87,
+  "tags": "cards grid slide",
+  "width": 1368,
+  "height": 768,
   "pages": 1,
   "fonts": [
-   "Cormorant Garamond",
-   "Lato"
-  ]
- },
- {
-  "id": "card-bold",
-  "title": "Bold color card",
-  "category": "Business card",
-  "tags": "business card bold colourful creative photographer",
-  "width": 321.26,
-  "height": 207.87,
-  "pages": 1,
-  "fonts": [
-   "Archivo Black",
-   "Montserrat"
-  ]
- },
- {
-  "id": "invite-wedding",
-  "title": "Floral wedding invitation",
-  "category": "Invitation",
-  "tags": "wedding invitation marriage floral save the date",
-  "width": 480,
-  "height": 672,
-  "pages": 1,
-  "fonts": [
-   "Cormorant Garamond",
-   "Great Vibes"
-  ]
- },
- {
-  "id": "invite-kids-party",
-  "title": "Kids birthday party",
-  "category": "Invitation",
-  "tags": "birthday party kids invitation fun celebration",
-  "width": 480,
-  "height": 672,
-  "pages": 1,
-  "fonts": [
-   "Fredoka"
-  ]
- },
- {
-  "id": "invite-diwali",
-  "title": "Diwali celebration",
-  "category": "Invitation",
-  "tags": "diwali festival india celebration party lights",
-  "width": 480,
-  "height": 672,
-  "pages": 1,
-  "fonts": [
-   "Cinzel",
-   "Great Vibes"
-  ]
- },
- {
-  "id": "resume-sidebar",
-  "title": "Sidebar resume",
-  "category": "Resume",
-  "tags": "resume cv job career professional two column",
-  "width": 793.7,
-  "height": 1122.52,
-  "pages": 1,
-  "fonts": [
-   "Lato",
-   "Montserrat"
-  ]
- },
- {
-  "id": "resume-classic",
-  "title": "Classic resume",
-  "category": "Resume",
-  "tags": "resume cv classic simple serif professional",
-  "width": 793.7,
-  "height": 1122.52,
-  "pages": 1,
-  "fonts": [
-   "Lato",
-   "Libre Baskerville"
-  ]
- },
- {
-  "id": "logo-coffee",
-  "title": "Coffee shop logo",
-  "category": "Logo",
-  "tags": "logo coffee cafe badge brand",
-  "width": 500,
-  "height": 500,
-  "pages": 1,
-  "fonts": [
-   "Bebas Neue",
-   "Montserrat"
-  ]
- },
- {
-  "id": "logo-tech",
-  "title": "Tech startup logo",
-  "category": "Logo",
-  "tags": "logo tech startup modern geometric brand",
-  "width": 500,
-  "height": 500,
-  "pages": 1,
-  "fonts": [
-   "Poppins"
-  ]
- },
- {
-  "id": "logo-bakery",
-  "title": "Bakery logo",
-  "category": "Logo",
-  "tags": "logo bakery food handmade script brand",
-  "width": 500,
-  "height": 500,
-  "pages": 1,
-  "fonts": [
-   "Montserrat",
-   "Pacifico"
-  ]
- },
- {
-  "id": "logo-fitness",
-  "title": "Fitness club logo",
-  "category": "Logo",
-  "tags": "logo gym fitness sport strong bold",
-  "width": 500,
-  "height": 500,
-  "pages": 1,
-  "fonts": [
-   "Anton",
-   "Oswald"
-  ]
- },
- {
-  "id": "yt-howto",
-  "title": "How-to thumbnail",
-  "category": "YouTube thumbnail",
-  "tags": "youtube thumbnail tutorial how to video bold",
-  "width": 1280,
-  "height": 720,
-  "pages": 1,
-  "fonts": [
-   "Anton",
-   "Montserrat"
-  ]
- },
- {
-  "id": "yt-vlog",
-  "title": "Travel vlog thumbnail",
-  "category": "YouTube thumbnail",
-  "tags": "youtube thumbnail vlog travel adventure",
-  "width": 1280,
-  "height": 720,
-  "pages": 1,
-  "fonts": [
-   "Bebas Neue"
-  ]
- },
- {
-  "id": "yt-podcast",
-  "title": "Podcast episode",
-  "category": "YouTube thumbnail",
-  "tags": "youtube podcast episode interview talk show",
-  "width": 1280,
-  "height": 720,
-  "pages": 1,
-  "fonts": [
-   "Space Grotesk"
-  ]
- },
- {
-  "id": "yt-recipe",
-  "title": "Recipe thumbnail",
-  "category": "YouTube thumbnail",
-  "tags": "youtube recipe cooking food kitchen",
-  "width": 1280,
-  "height": 720,
-  "pages": 1,
-  "fonts": [
-   "Lilita One",
-   "Montserrat"
-  ]
- },
- {
-  "id": "video-promo",
-  "title": "Promo video",
-  "category": "Video",
-  "tags": "video promo ad intro animation sale",
-  "width": 1920,
-  "height": 1080,
-  "pages": 3,
-  "fonts": [
-   "Montserrat",
-   "Pacifico"
+   "Source Sans 3"
   ],
-  "video": true
- },
- {
-  "id": "video-intro",
-  "title": "Channel intro",
-  "category": "Video",
-  "tags": "video intro channel youtube opener",
-  "width": 1920,
-  "height": 1080,
-  "pages": 2,
-  "fonts": [
-   "Bungee",
-   "Poppins"
+  "assets": [
+   "b2a00d9a4c224c081bac.png",
+   "78d5dfc57982cc9c12dd.png",
+   "5e8820292ffc3439ecab.png",
+   "a05b559eb06965fbdbf3.png",
+   "5bed2ba89ce20a46057b.png",
+   "a5a6b836faf274062d99.png",
+   "c6112843d22e46eefeaf.png",
+   "0280a0ebc0c5c4ce1ab6.png"
   ],
-  "video": true
+  "credit": {
+   "author": "Systxema",
+   "catalog": "Penpot Hub",
+   "sourceUrl": "https://penpot.app/penpothub/libraries-templates/community-cards",
+   "fileUrl": "https://penpot.github.io/penpot-files/Community-Cards-grid-theme.penpot",
+   "licence": "CC-BY-4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  }
  },
  {
-  "id": "fb-event",
-  "title": "Community event",
-  "category": "Facebook post",
-  "tags": "facebook event community market weekend",
-  "width": 940,
-  "height": 788,
+  "id": "mobile-news-1",
+  "title": "News app",
+  "category": "App screen",
+  "tags": "mobile app ui news black white",
+  "width": 414,
+  "height": 736,
   "pages": 1,
   "fonts": [
-   "Lato",
-   "Oswald"
-  ]
- },
- {
-  "id": "fb-hiring",
-  "title": "We are hiring",
-  "category": "Facebook post",
-  "tags": "hiring job recruitment career team",
-  "width": 940,
-  "height": 788,
-  "pages": 1,
-  "fonts": [
-   "Archivo Black",
    "Inter"
-  ]
+  ],
+  "assets": [],
+  "credit": {
+   "author": "ApeWTF",
+   "catalog": "Penpot Hub",
+   "sourceUrl": "https://penpot.app/penpothub/libraries-templates/mobile-ui-starter-kit",
+   "fileUrl": "https://penpot.github.io/penpot-files/Black-%26-White-Mobile-Templates.penpot",
+   "licence": "CC-BY-4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  }
  },
  {
-  "id": "cert-achievement",
-  "title": "Certificate of achievement",
-  "category": "Certificate",
-  "tags": "certificate award achievement diploma recognition",
-  "width": 1122.52,
-  "height": 793.7,
+  "id": "mobile-news-2",
+  "title": "News app 2",
+  "category": "App screen",
+  "tags": "mobile app ui news black white",
+  "width": 414,
+  "height": 736,
   "pages": 1,
   "fonts": [
-   "Cinzel",
-   "Cormorant Garamond",
-   "Great Vibes"
-  ]
+   "Inter"
+  ],
+  "assets": [],
+  "credit": {
+   "author": "ApeWTF",
+   "catalog": "Penpot Hub",
+   "sourceUrl": "https://penpot.app/penpothub/libraries-templates/mobile-ui-starter-kit",
+   "fileUrl": "https://penpot.github.io/penpot-files/Black-%26-White-Mobile-Templates.penpot",
+   "licence": "CC-BY-4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  }
+ },
+ {
+  "id": "mobile-music",
+  "title": "Music app",
+  "category": "App screen",
+  "tags": "mobile app ui music",
+  "width": 414,
+  "height": 736,
+  "pages": 1,
+  "fonts": [
+   "Inter"
+  ],
+  "assets": [],
+  "credit": {
+   "author": "ApeWTF",
+   "catalog": "Penpot Hub",
+   "sourceUrl": "https://penpot.app/penpothub/libraries-templates/mobile-ui-starter-kit",
+   "fileUrl": "https://penpot.github.io/penpot-files/Black-%26-White-Mobile-Templates.penpot",
+   "licence": "CC-BY-4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  }
+ },
+ {
+  "id": "mobile-inbox",
+  "title": "Inbox",
+  "category": "App screen",
+  "tags": "mobile app ui inbox mail",
+  "width": 414,
+  "height": 736,
+  "pages": 1,
+  "fonts": [
+   "Inter"
+  ],
+  "assets": [],
+  "credit": {
+   "author": "ApeWTF",
+   "catalog": "Penpot Hub",
+   "sourceUrl": "https://penpot.app/penpothub/libraries-templates/mobile-ui-starter-kit",
+   "fileUrl": "https://penpot.github.io/penpot-files/Black-%26-White-Mobile-Templates.penpot",
+   "licence": "CC-BY-4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  }
+ },
+ {
+  "id": "mobile-register",
+  "title": "Register",
+  "category": "App screen",
+  "tags": "mobile app ui login form",
+  "width": 414,
+  "height": 736,
+  "pages": 1,
+  "fonts": [
+   "Inter"
+  ],
+  "assets": [],
+  "credit": {
+   "author": "ApeWTF",
+   "catalog": "Penpot Hub",
+   "sourceUrl": "https://penpot.app/penpothub/libraries-templates/mobile-ui-starter-kit",
+   "fileUrl": "https://penpot.github.io/penpot-files/Black-%26-White-Mobile-Templates.penpot",
+   "licence": "CC-BY-4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  }
+ },
+ {
+  "id": "mobile-settings",
+  "title": "Settings",
+  "category": "App screen",
+  "tags": "mobile app ui settings",
+  "width": 414,
+  "height": 736,
+  "pages": 1,
+  "fonts": [
+   "Inter"
+  ],
+  "assets": [],
+  "credit": {
+   "author": "ApeWTF",
+   "catalog": "Penpot Hub",
+   "sourceUrl": "https://penpot.app/penpothub/libraries-templates/mobile-ui-starter-kit",
+   "fileUrl": "https://penpot.github.io/penpot-files/Black-%26-White-Mobile-Templates.penpot",
+   "licence": "CC-BY-4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  }
+ },
+ {
+  "id": "mobile-email",
+  "title": "Email",
+  "category": "App screen",
+  "tags": "mobile app ui mail",
+  "width": 414,
+  "height": 736,
+  "pages": 1,
+  "fonts": [
+   "Inter"
+  ],
+  "assets": [],
+  "credit": {
+   "author": "ApeWTF",
+   "catalog": "Penpot Hub",
+   "sourceUrl": "https://penpot.app/penpothub/libraries-templates/mobile-ui-starter-kit",
+   "fileUrl": "https://penpot.github.io/penpot-files/Black-%26-White-Mobile-Templates.penpot",
+   "licence": "CC-BY-4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  }
+ },
+ {
+  "id": "mobile-video",
+  "title": "Video player",
+  "category": "App screen",
+  "tags": "mobile app ui video",
+  "width": 414,
+  "height": 736,
+  "pages": 1,
+  "fonts": [
+   "Inter"
+  ],
+  "assets": [],
+  "credit": {
+   "author": "ApeWTF",
+   "catalog": "Penpot Hub",
+   "sourceUrl": "https://penpot.app/penpothub/libraries-templates/mobile-ui-starter-kit",
+   "fileUrl": "https://penpot.github.io/penpot-files/Black-%26-White-Mobile-Templates.penpot",
+   "licence": "CC-BY-4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  }
+ },
+ {
+  "id": "mobile-blog",
+  "title": "Blog",
+  "category": "App screen",
+  "tags": "mobile app ui blog",
+  "width": 414,
+  "height": 736,
+  "pages": 1,
+  "fonts": [
+   "Inter"
+  ],
+  "assets": [],
+  "credit": {
+   "author": "ApeWTF",
+   "catalog": "Penpot Hub",
+   "sourceUrl": "https://penpot.app/penpothub/libraries-templates/mobile-ui-starter-kit",
+   "fileUrl": "https://penpot.github.io/penpot-files/Black-%26-White-Mobile-Templates.penpot",
+   "licence": "CC-BY-4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  }
+ },
+ {
+  "id": "mobile-tags",
+  "title": "Tags",
+  "category": "App screen",
+  "tags": "mobile app ui tags",
+  "width": 414,
+  "height": 736,
+  "pages": 1,
+  "fonts": [
+   "Inter"
+  ],
+  "assets": [],
+  "credit": {
+   "author": "ApeWTF",
+   "catalog": "Penpot Hub",
+   "sourceUrl": "https://penpot.app/penpothub/libraries-templates/mobile-ui-starter-kit",
+   "fileUrl": "https://penpot.github.io/penpot-files/Black-%26-White-Mobile-Templates.penpot",
+   "licence": "CC-BY-4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  }
+ },
+ {
+  "id": "mobile-form",
+  "title": "Form",
+  "category": "App screen",
+  "tags": "mobile app ui form",
+  "width": 414,
+  "height": 736,
+  "pages": 1,
+  "fonts": [
+   "Inter"
+  ],
+  "assets": [],
+  "credit": {
+   "author": "ApeWTF",
+   "catalog": "Penpot Hub",
+   "sourceUrl": "https://penpot.app/penpothub/libraries-templates/mobile-ui-starter-kit",
+   "fileUrl": "https://penpot.github.io/penpot-files/Black-%26-White-Mobile-Templates.penpot",
+   "licence": "CC-BY-4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  }
+ },
+ {
+  "id": "wb-assumption-matrix",
+  "title": "Assumption matrix",
+  "category": "Planning",
+  "tags": "whiteboard workshop matrix",
+  "width": 2224,
+  "height": 1440,
+  "pages": 1,
+  "fonts": [
+   "Source Sans 3"
+  ],
+  "assets": [],
+  "credit": {
+   "author": "Renan Mayrinck",
+   "catalog": "Penpot Hub",
+   "sourceUrl": "https://penpot.app/penpothub/libraries-templates/ultimate-whiteboarding-kit",
+   "fileUrl": "https://penpot.github.io/penpot-files/ultimate-whiteboard-kit-templates.penpot",
+   "licence": "CC-BY-4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  }
+ },
+ {
+  "id": "wb-benchmark",
+  "title": "Benchmark analysis",
+  "category": "Planning",
+  "tags": "whiteboard research benchmark",
+  "width": 3000,
+  "height": 2000,
+  "pages": 1,
+  "fonts": [
+   "Source Sans 3"
+  ],
+  "assets": [],
+  "credit": {
+   "author": "Renan Mayrinck",
+   "catalog": "Penpot Hub",
+   "sourceUrl": "https://penpot.app/penpothub/libraries-templates/ultimate-whiteboarding-kit",
+   "fileUrl": "https://penpot.github.io/penpot-files/ultimate-whiteboard-kit-templates.penpot",
+   "licence": "CC-BY-4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  }
+ },
+ {
+  "id": "wb-business-model",
+  "title": "Business model canvas",
+  "category": "Planning",
+  "tags": "whiteboard business canvas",
+  "width": 4000,
+  "height": 2427,
+  "pages": 1,
+  "fonts": [
+   "Source Sans 3"
+  ],
+  "assets": [],
+  "credit": {
+   "author": "Renan Mayrinck",
+   "catalog": "Penpot Hub",
+   "sourceUrl": "https://penpot.app/penpothub/libraries-templates/ultimate-whiteboarding-kit",
+   "fileUrl": "https://penpot.github.io/penpot-files/ultimate-whiteboard-kit-templates.penpot",
+   "licence": "CC-BY-4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  }
+ },
+ {
+  "id": "wb-consumer-behaviour",
+  "title": "Consumer behaviour matrix",
+  "category": "Planning",
+  "tags": "whiteboard research matrix",
+  "width": 2048,
+  "height": 2048,
+  "pages": 1,
+  "fonts": [
+   "Source Sans 3"
+  ],
+  "assets": [],
+  "credit": {
+   "author": "Renan Mayrinck",
+   "catalog": "Penpot Hub",
+   "sourceUrl": "https://penpot.app/penpothub/libraries-templates/ultimate-whiteboarding-kit",
+   "fileUrl": "https://penpot.github.io/penpot-files/ultimate-whiteboard-kit-templates.penpot",
+   "licence": "CC-BY-4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  }
+ },
+ {
+  "id": "wb-csd",
+  "title": "CSD matrix",
+  "category": "Planning",
+  "tags": "whiteboard certainties suppositions doubts",
+  "width": 1920,
+  "height": 1080,
+  "pages": 1,
+  "fonts": [
+   "Source Sans 3"
+  ],
+  "assets": [],
+  "credit": {
+   "author": "Renan Mayrinck",
+   "catalog": "Penpot Hub",
+   "sourceUrl": "https://penpot.app/penpothub/libraries-templates/ultimate-whiteboarding-kit",
+   "fileUrl": "https://penpot.github.io/penpot-files/ultimate-whiteboard-kit-templates.penpot",
+   "licence": "CC-BY-4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  }
+ },
+ {
+  "id": "wb-discovery",
+  "title": "Discovery test chart",
+  "category": "Planning",
+  "tags": "whiteboard discovery test",
+  "width": 1080,
+  "height": 1780,
+  "pages": 1,
+  "fonts": [
+   "Source Sans 3"
+  ],
+  "assets": [],
+  "credit": {
+   "author": "Renan Mayrinck",
+   "catalog": "Penpot Hub",
+   "sourceUrl": "https://penpot.app/penpothub/libraries-templates/ultimate-whiteboarding-kit",
+   "fileUrl": "https://penpot.github.io/penpot-files/ultimate-whiteboard-kit-templates.penpot",
+   "licence": "CC-BY-4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  }
+ },
+ {
+  "id": "wb-gantt-12",
+  "title": "Gantt chart, 12 months",
+  "category": "Planning",
+  "tags": "gantt schedule project",
+  "width": 3280,
+  "height": 928,
+  "pages": 1,
+  "fonts": [
+   "Source Sans 3"
+  ],
+  "assets": [],
+  "credit": {
+   "author": "Renan Mayrinck",
+   "catalog": "Penpot Hub",
+   "sourceUrl": "https://penpot.app/penpothub/libraries-templates/ultimate-whiteboarding-kit",
+   "fileUrl": "https://penpot.github.io/penpot-files/ultimate-whiteboard-kit-templates.penpot",
+   "licence": "CC-BY-4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  }
+ },
+ {
+  "id": "wb-gantt-6",
+  "title": "Gantt chart, 6 months",
+  "category": "Planning",
+  "tags": "gantt schedule project",
+  "width": 1840,
+  "height": 928,
+  "pages": 1,
+  "fonts": [
+   "Source Sans 3"
+  ],
+  "assets": [],
+  "credit": {
+   "author": "Renan Mayrinck",
+   "catalog": "Penpot Hub",
+   "sourceUrl": "https://penpot.app/penpothub/libraries-templates/ultimate-whiteboarding-kit",
+   "fileUrl": "https://penpot.github.io/penpot-files/ultimate-whiteboard-kit-templates.penpot",
+   "licence": "CC-BY-4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  }
+ },
+ {
+  "id": "wb-persona-a",
+  "title": "Persona chart A",
+  "category": "Planning",
+  "tags": "persona whiteboard",
+  "width": 2867,
+  "height": 1080,
+  "pages": 1,
+  "fonts": [
+   "Source Sans 3"
+  ],
+  "assets": [],
+  "credit": {
+   "author": "Renan Mayrinck",
+   "catalog": "Penpot Hub",
+   "sourceUrl": "https://penpot.app/penpothub/libraries-templates/ultimate-whiteboarding-kit",
+   "fileUrl": "https://penpot.github.io/penpot-files/ultimate-whiteboard-kit-templates.penpot",
+   "licence": "CC-BY-4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  }
+ },
+ {
+  "id": "wb-persona-b",
+  "title": "Persona chart B",
+  "category": "Planning",
+  "tags": "persona whiteboard",
+  "width": 2586,
+  "height": 1301,
+  "pages": 1,
+  "fonts": [
+   "Source Sans 3"
+  ],
+  "assets": [],
+  "credit": {
+   "author": "Renan Mayrinck",
+   "catalog": "Penpot Hub",
+   "sourceUrl": "https://penpot.app/penpothub/libraries-templates/ultimate-whiteboarding-kit",
+   "fileUrl": "https://penpot.github.io/penpot-files/ultimate-whiteboard-kit-templates.penpot",
+   "licence": "CC-BY-4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  }
+ },
+ {
+  "id": "wb-swot",
+  "title": "SWOT analysis",
+  "category": "Planning",
+  "tags": "swot strategy whiteboard",
+  "width": 3062,
+  "height": 3062,
+  "pages": 1,
+  "fonts": [
+   "Source Sans 3"
+  ],
+  "assets": [],
+  "credit": {
+   "author": "Renan Mayrinck",
+   "catalog": "Penpot Hub",
+   "sourceUrl": "https://penpot.app/penpothub/libraries-templates/ultimate-whiteboarding-kit",
+   "fileUrl": "https://penpot.github.io/penpot-files/ultimate-whiteboard-kit-templates.penpot",
+   "licence": "CC-BY-4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  }
+ },
+ {
+  "id": "wb-journey-a",
+  "title": "User journey map A",
+  "category": "Planning",
+  "tags": "journey map ux",
+  "width": 4690,
+  "height": 4081,
+  "pages": 1,
+  "fonts": [
+   "Source Sans 3"
+  ],
+  "assets": [],
+  "credit": {
+   "author": "Renan Mayrinck",
+   "catalog": "Penpot Hub",
+   "sourceUrl": "https://penpot.app/penpothub/libraries-templates/ultimate-whiteboarding-kit",
+   "fileUrl": "https://penpot.github.io/penpot-files/ultimate-whiteboard-kit-templates.penpot",
+   "licence": "CC-BY-4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  }
+ },
+ {
+  "id": "wb-journey-b",
+  "title": "User journey map B",
+  "category": "Planning",
+  "tags": "journey map ux",
+  "width": 4690,
+  "height": 3247,
+  "pages": 1,
+  "fonts": [
+   "Source Sans 3"
+  ],
+  "assets": [],
+  "credit": {
+   "author": "Renan Mayrinck",
+   "catalog": "Penpot Hub",
+   "sourceUrl": "https://penpot.app/penpothub/libraries-templates/ultimate-whiteboarding-kit",
+   "fileUrl": "https://penpot.github.io/penpot-files/ultimate-whiteboard-kit-templates.penpot",
+   "licence": "CC-BY-4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  }
  }
 ]

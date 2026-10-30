@@ -8,7 +8,7 @@ import {
 import { ToolError, round, type Context } from '../context.ts';
 import { buildElements, fitTexts, patchElement } from '../build.ts';
 import { embedFonts } from '../fonts.ts';
-import { applyBrand, fitPages, loadTemplate, mergeAssets, replaceTexts, searchTemplates, templateThumb } from '../library.ts';
+import { applyBrand, fitPages, loadTemplate, loadTemplateAssets, mergeAssets, replaceTexts, searchTemplates, templateThumb } from '../library.ts';
 import { elementOutline, pageOutline } from '../outline.ts';
 import { animation, elementPatch, elementSpec, fill as fillSchema, pageRef } from '../schemas.ts';
 import { json, pageOf, safe } from './util.ts';
@@ -315,7 +315,7 @@ export function registerEditTools(server: McpServer, ctx: Context): void {
 
   server.registerTool('list_templates', {
     title: 'Find templates',
-    description: 'Search the built-in template library (Instagram posts & stories, YouTube thumbnails, flyers, posters, invitations, menus, resumes, presentations, logos, video intros…). Each result has an id, size and a preview image URL. Pass `design_id` to rank templates that fit its size first.',
+    description: 'Search the built-in template library: real designs by people in the Penpot community, under open licences (social posts, resumes, planning canvases and whiteboards, app screens, games). Each result has an id, size, author, licence and a preview image URL. Pass `design_id` to rank templates that fit its size first.',
     inputSchema: { query: z.string().optional(), category: z.string().optional(), design_id: z.string().optional() },
     annotations: { readOnlyHint: true },
   }, safe(async ({ query, category, design_id }) => {
@@ -323,7 +323,7 @@ export function registerEditTools(server: McpServer, ctx: Context): void {
     const list = searchTemplates(query, category, size);
     return json({
       total: list.length,
-      templates: list.slice(0, 30).map((t) => ({ id: t.id, title: t.title, category: t.category, size: `${t.width}×${t.height}`, pages: t.pages, fonts: t.fonts, ...(t.video ? { video: true } : {}), preview: templateThumb(t.id, ctx.editorUrl) })),
+      templates: list.slice(0, 30).map((t) => ({ id: t.id, title: t.title, category: t.category, size: `${t.width}×${t.height}`, pages: t.pages, fonts: t.fonts, author: t.credit.author, licence: t.credit.licence, source: t.credit.sourceUrl, ...(t.video ? { video: true } : {}), preview: templateThumb(t.id, ctx.editorUrl) })),
       tip: 'Read resource dcanvas://template/<id> for a template\'s element ids and texts (to fill replace_text).',
     });
   }));
@@ -341,13 +341,14 @@ export function registerEditTools(server: McpServer, ctx: Context): void {
     const warnings: string[] = [];
     let tpl: Doc;
     try { tpl = await loadTemplate(template_id); } catch { throw new ToolError(`no template "${template_id}"`, 'call list_templates for ids'); }
+    const tplAssets = await loadTemplateAssets(tpl);
     const r = await ctx.edit(design_id, async (file) => {
       const { page: target, index } = pageOf(file.doc, page);
       const how = mode ?? (target.elements.length ? 'add' : 'replace');
       const fitted = fitPages(tpl, file.doc.width, file.doc.height);
       let pages = fitted.pages;
       if (replace_text?.length) pages = replaceTexts(pages, fitted.ids, replace_text, warnings);
-      mergeAssets(file, tpl);
+      mergeAssets(file, tpl, tplAssets);
       const list = [...file.doc.pages];
       if (how === 'replace') list.splice(index, 1, { ...pages[0]!, id: target.id, ...(target.duration ? { duration: target.duration } : {}), ...(target.notes ? { notes: target.notes } : {}) }, ...pages.slice(1));
       else list.splice(index + 1, 0, ...pages);

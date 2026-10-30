@@ -142,6 +142,7 @@ for (const src of SOURCES) for await (const b of src.boards()) {
   const dropped = DROPPED[b.id];
   const verdict = dropped ? `dropped: ${dropped}` : missing.length ? `dropped: font ${missing.join(', ')} unavailable` : score !== null && score > MAX_MAE ? `dropped: differs from preview (${score.toFixed(1)})` : 'kept';
   report.push({ id: b.id, title: b.title, author: b.credit.author, mae: score, verdict, lossy: b.lossy, assets: b.assets.size, bytes: [...b.assets.values()].reduce((n, x) => n + x.length, 0) });
+  if (b.images.length) console.log(`   images: ${b.images.join(' | ').slice(0, 300)}`);
   console.log(`${b.id.padEnd(30)} ${doc.width}×${doc.height} mae=${score?.toFixed(1) ?? '  - '} imgs=${b.assets.size} ${verdict}${b.lossy.length ? `  [${b.lossy.join('; ')}]` : ''}`);
   if (verdict === 'kept') kept.push({ b, doc, fonts: [...fams].sort() });
 }
