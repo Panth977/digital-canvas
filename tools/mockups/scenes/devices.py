@@ -181,3 +181,33 @@ def tv():
     B.area_light((1.5, -4, 1.6), (0, 0, 1), size=3, power=25)
     B.point_light((-0.9, -0.25, 0.75), power=8, radius=0.05)
     B.camera((0.7, -3.0, 1.2), (0.0, 0.0, 1.05), lens=32)
+
+
+@mockup('phone-hand', 'Phone in a hand', 'Devices', aspect=0.462, res=(1280, 1600), albedo=1.0, pct=50)
+def phone_hand():
+    from scenes.printed import street_backdrop, m_nail
+    street_backdrop()
+    skin = B.m_skin('Skin')
+    root = B.bpy.data.objects.new('Held', None)
+    B.link(root)
+    ph = phone()
+    ph.parent = root
+    ph.location = (0, 0, 0)
+    # phone local: screen +Z, top +Y. Hand: palm behind (-Z), thumb on left side, fingers wrap the right edge.
+    T = 0.0078
+    palm = B.metaball_obj('Palm', B.capsule_chain([(-0.005, -0.045, -0.028), (0.0, -0.085, -0.03), (0.0, -0.17, -0.03)],
+                                                  [0.05, 0.05, 0.045]), skin, res=0.002)
+    palm.parent = root
+    th = B.metaball_obj('Thumb', B.capsule_chain(
+        [(-0.03, -0.08, -0.02), (-0.044, -0.055, -0.004), (-0.047, -0.03, 0.004), (-0.044, -0.008, 0.008)],
+        [0.024, 0.018, 0.015, 0.012]), skin, res=0.0015)
+    th.parent = root
+    for k, y in enumerate((-0.002, -0.022, -0.042, -0.06)):
+        r = (0.0115, 0.012, 0.0115, 0.0105)[k]
+        f = B.metaball_obj('F%d' % k, B.capsule_chain(
+            [(0.0, y - 0.03, -0.025), (0.028, y - 0.006, -0.016), (0.043, y, -0.004), (0.043, y + 0.004, 0.0075)],
+            [r * 1.5, r * 1.25, r * 1.1, r]), skin, res=0.0015)
+        f.parent = root
+    root.rotation_euler = (math.radians(90 - 8), 0, math.radians(-6))
+    root.location = (2.0, 2.0, 1.4)
+    B.camera((2.0 + 0.01, 2.0 - 0.36, 1.43), (2.0, 2.0, 1.39), lens=50, fstop=2.0)

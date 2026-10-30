@@ -255,3 +255,64 @@ def poster_room():
     B.window_gobo((-2.4, -2.0, 2.8), (-1.0, -0.8, 0.6), w=1.4, h=2.2, panes=(2, 3), bar=0.07)
     B.area_light((0.5, -4.5, 1.8), (0, 0, 1.2), size=4, power=700, color=(1, 0.97, 0.93))
     B.camera((0.6, -3.6, 1.3), (0.0, 0.0, 1.2), lens=30)
+
+
+def m_nail(name='Nail'):
+    return B.m_simple(name, (0.78, 0.55, 0.5), rough=0.25, coat=0.6)
+
+
+def finger(pts, radii, skin, nail=True, nail_mat=None):
+    """Finger as a smooth metaball chain; a nail on the last segment (dorsal side = `up` vector)."""
+    els = B.capsule_chain(pts, radii)
+    o = B.metaball_obj('Finger', els, skin, res=0.0016, thresh=0.6)
+    return o
+
+
+def street_backdrop():
+    from scenes.outdoor import sky, street, buildings
+    sky((-0.4, -1.0, 1.2), cover=0.5)
+    street(width=10, sidewalk=5)
+    buildings(1, 10.0, [(-40, -6), (-6, 8), (8, 30), (30, 60)], seed=21)
+    buildings(-1, -10.0, [(-40, -10), (-10, 12), (12, 40), (40, 70)], seed=22)
+    from scenes.outdoor import tree
+    for k, y in enumerate((14, 26, 38)):
+        tree((7.5, y, 0.15), h=7, r=2.6, seed=40 + k)
+
+
+@mockup('flyer-hand', 'Flyer in a hand', 'Print', aspect=0.705, res=(1280, 1600), albedo=0.85, target=0.92)
+def flyer_hand():
+    street_backdrop()
+    skin = B.m_skin('Skin')
+    W, H = 0.148, 0.21
+    paper = B.m_paper('Flyer', color=(0.86, 0.86, 0.85), rough=0.6, fiber=0.06)
+
+    def warp(x, y, s, t):
+        # slight bend: paper flexes back at the top, a dent where the thumb presses
+        z = 0.012 * t * t - 0.004 * math.exp(-(((x + 0.055) / 0.02) ** 2 + ((y + 0.08) / 0.02) ** 2))
+        return x, y, -z
+    root = B.bpy.data.objects.new('Held', None)
+    B.link(root)
+    fl = B.sheet(W, H, 0.00015, (0, 0, 0), rot=(90, 0, 0), front=paper, back=B.m_paper('FB', printable=False),
+                 nx=30, ny=40, warp=warp)
+    fl.parent = root
+    # thumb: from the palm behind, round the left edge, tip on the front
+    th = B.metaball_obj('Thumb', B.capsule_chain(
+        [(-0.088, 0.035, -0.14), (-0.095, 0.006, -0.12), (-0.084, -0.011, -0.098), (-0.066, -0.012, -0.08),
+         (-0.056, -0.0085, -0.071)],
+        [0.024, 0.02, 0.016, 0.0145, 0.012]), skin, res=0.0015)
+    th.parent = root
+    nail = B.sphere(0.0085, (-0.0585, -0.0165, -0.0745), mat=m_nail(), scale=(0.95, 0.35, 1.2))
+    nail.rotation_euler = (math.radians(10), math.radians(-35), 0)
+    nail.parent = root
+    # palm + fingers behind the sheet, lower-left; wrist leaves the frame
+    palm = B.metaball_obj('Palm', B.capsule_chain([(-0.07, 0.045, -0.13), (-0.05, 0.05, -0.17), (-0.045, 0.06, -0.26)],
+                                                  [0.036, 0.036, 0.033]), skin, res=0.002)
+    palm.parent = root
+    for k, (x, z) in enumerate(((-0.035, -0.06), (-0.02, -0.075), (-0.008, -0.09))):
+        f = B.metaball_obj('F', B.capsule_chain([(x - 0.03, 0.045, z - 0.06), (x - 0.01, 0.03, z), (x - 0.006, 0.024, z + 0.025)],
+                                                [0.017, 0.014, 0.012]), skin, res=0.0016)
+        f.parent = root
+    root.rotation_euler = (math.radians(-4), 0, math.radians(-8))
+    root.location = (2.0, 2.0, 1.45)
+    B.camera((2.0 - 0.02, 2.0 - 0.52, 1.47), (2.0, 2.0, 1.44), lens=50, fstop=2.0)
+    B.area_light((1.6, 1.2, 1.8), (2.0, 2.0, 1.45), size=0.8, power=20)
