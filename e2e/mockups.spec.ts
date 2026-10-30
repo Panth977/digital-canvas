@@ -114,7 +114,7 @@ test('preview dialog: full size, colours, prev/next, download PNG/JPG, add as a 
   expect(await full.evaluate((c: HTMLCanvasElement) => [c.width, c.height])).toEqual([1000, 800]);
   await expect(page.getByTestId('mockup-credit')).toHaveText('Synthetic test mockup (CC0)');
   // colours: the list + a custom one; the first is the default
-  await expect(dlg.locator('[role=radio]')).toHaveCount(4);
+  await expect(dlg.getByRole('radiogroup', { name: 'Product colour' }).locator('[role=radio]')).toHaveCount(4);
   await expect(full).toHaveAttribute('data-color', '#ffffff');
   const body = async () => full.evaluate((c: HTMLCanvasElement) => Array.from(c.getContext('2d')!.getImageData(470, 615, 1, 1).data));
   const white = await body();
@@ -144,7 +144,7 @@ test('preview dialog: full size, colours, prev/next, download PNG/JPG, add as a 
   // prev / next (and the keyboard)
   await page.getByTestId('mockup-next').click();
   await expect(full).toHaveAttribute('data-mockup', 'fx-billboard');
-  await expect(dlg.locator('[role=radio]')).toHaveCount(0);
+  await expect(dlg.getByRole('radiogroup', { name: 'Product colour' }).locator('[role=radio]')).toHaveCount(0);
   await page.keyboard.press('ArrowLeft');
   await expect(full).toHaveAttribute('data-mockup', 'fx-mug');
   await expect(full).toHaveAttribute('data-color', '#00aa00'); // remembered per mockup
