@@ -25,6 +25,7 @@ export const SETS: Record<'graphic' | 'sticker' | 'icon', IconSet[]> = {
     set('noto', 'Noto Emoji', 'Apache 2.0', 'Google'),
     set('twemoji', 'Twemoji', 'CC BY 4.0', 'Twitter'),
     set('fluent-emoji', 'Fluent Emoji', 'MIT', 'Microsoft'),
+    set('openmoji', 'OpenMoji', 'CC BY-SA 4.0', 'HfG Schwäbisch Gmünd'),
   ],
   graphic: [
     set('fluent-color', 'Fluent UI System Color Icons', 'MIT', 'Microsoft'),

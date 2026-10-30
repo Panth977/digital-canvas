@@ -131,7 +131,6 @@
     if (el.scrollTop + el.clientHeight > el.scrollHeight - 300) shown = Math.min(matches.length, shown + 60);
   }
 
-  const INK = '#1f2328';
 </script>
 
 {#snippet fontRow(f: CatalogFont)}
@@ -148,10 +147,10 @@
   </button>
 {/snippet}
 {#snippet comboCard(c: Combo)}
-  <button class="combo" data-testid="combo-{c.id}" aria-label="Add font combination {c.name}" title={c.name} draggable="true"
+  <button class="combo" data-testid="combo-{c.id}" aria-label="Add font combination {c.name}" title="{c.name}. {c.description}" draggable="true"
     ondragstart={(e) => drag(e, { kind: 'combo', id: c.id })} onclick={() => addCombo(c)} disabled={busyCombo === c.id}>
     {#each c.lines as l}
-      <span style="font-family:'{previewFace(l.family, l.bold ? 700 : 400, !!l.italic, byFamily.get(l.family)?.weights)}', Inter; font-size:{Math.max(7, l.size * 0.2)}px; font-weight:{l.bold ? 700 : 400}; font-style:{l.italic ? 'italic' : 'normal'}; letter-spacing:{(l.spacing ?? 0) * 0.2}px; text-transform:{l.upper ? 'uppercase' : 'none'}; color:{l.color === INK ? 'var(--ink)' : l.color}">{l.text}</span>
+      <span style="font-family:'{previewFace(l.family, l.bold ? 700 : 400, !!l.italic, byFamily.get(l.family)?.weights)}', Inter; font-size:{Math.max(7, l.size * 0.2)}px; font-weight:{l.bold ? 700 : 400}; font-style:{l.italic ? 'italic' : 'normal'}; letter-spacing:{(l.spacing ?? 0) * 0.2}px; text-transform:{l.upper ? 'uppercase' : 'none'}; color:{l.color ?? 'var(--ink)'}">{l.text}</span>
     {/each}
     {#if busyCombo === c.id}<span class="cover"><span class="spin"></span></span>{/if}
   </button>
@@ -205,6 +204,7 @@
       <button class="btn wide" data-testid="browse-fonts-all" onclick={() => openFonts()}><Icon name="text" size={15} /> Browse all {fonts.length ? fonts.length.toLocaleString() : ''} fonts</button>
       <div class="sechead"><h3>Font combinations</h3><button class="see" data-testid="see-combos" onclick={() => { view = 'combos'; scroller?.scrollTo({ top: 0 }); }}>See all</button></div>
       <div class="combos" data-testid="combos">{#each COMBOS.slice(0, 12) as c (c.id)}{@render comboCard(c)}{/each}</div>
+      <p class="hint">Pairings from <a href="https://www.fonttrio.xyz" target="_blank" rel="noreferrer">Fonttrio</a> (MIT). <a href="/credits.html" target="_blank" rel="noreferrer">Credits and licences</a></p>
       <p class="hint">Double-click text to edit it. Select some words to style just those. Effects, curve and lists are in the toolbar above the page.</p>
     {:else if view === 'combos'}
       <div class="combos">{#each COMBOS as c (c.id)}{@render comboCard(c)}{/each}</div>

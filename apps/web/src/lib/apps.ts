@@ -1,9 +1,12 @@
 /**
  * Keyless integrations for the Apps panel: Wikimedia Commons, OpenStreetMap
  * maps (Nominatim search + tiles), DiceBear avatars, Iconify icon sets and
- * Noto emoji; plus pure generators (patterns, gradients, colour palettes).
+ * Noto emoji; plus the open colour, gradient and pattern catalogues (data
+ * built by tools/catalogs/build.ts).
  */
-import { newId, walk as walkEls, type Element as SceneElement, type Fill, type Page as ScenePage, type PathElement } from '@digital-canvas/scene';
+import { walk as walkEls, type Element as SceneElement, type Fill, type Page as ScenePage } from '@digital-canvas/scene';
+import GRADIENT_DATA from './content/data/gradients.json';
+import PALETTE_DATA from './content/data/palettes.json';
 
 // ---- Iconify (any set) and Noto emoji ----
 
@@ -24,6 +27,7 @@ export const ICON_SETS: { prefix: string; label: string; licence: string }[] = [
   { prefix: 'tabler', label: 'Tabler', licence: 'MIT' },
   { prefix: 'lucide', label: 'Lucide', licence: 'ISC' },
   { prefix: 'twemoji', label: 'Twemoji', licence: 'CC BY 4.0' },
+  { prefix: 'openmoji', label: 'OpenMoji', licence: 'CC BY-SA 4.0' },
 ];
 
 // ---- Wikimedia Commons ----
@@ -142,17 +146,16 @@ export async function staticMap(p: { lat: number; lon: number }, zoom: number, w
 
 // ---- DiceBear avatars ----
 
+/** Open-licensed styles only, per https://www.dicebear.com/licenses (checked 2026-10-30). */
 export const AVATAR_STYLES: { id: string; label: string; licence: string }[] = [
-  { id: 'adventurer', label: 'Adventurer', licence: 'CC BY 4.0, Lisa Wischofsky' },
-  { id: 'avataaars', label: 'Avataaars', licence: 'free for personal and commercial use, Pablo Stanley' },
-  { id: 'lorelei', label: 'Lorelei', licence: 'CC0, Lisa Wischofsky' },
   { id: 'notionists', label: 'Notionists', licence: 'CC0, Zoish' },
   { id: 'open-peeps', label: 'Open Peeps', licence: 'CC0, Pablo Stanley' },
+  { id: 'lorelei', label: 'Lorelei', licence: 'CC0, Lisa Wischofsky' },
+  { id: 'adventurer', label: 'Adventurer', licence: 'CC BY 4.0, Lisa Wischofsky' },
   { id: 'micah', label: 'Micah', licence: 'CC BY 4.0, Micah Lanier' },
   { id: 'personas', label: 'Personas', licence: 'CC BY 4.0, Draftbit' },
   { id: 'big-smile', label: 'Big Smile', licence: 'CC BY 4.0, Ashley Seo' },
   { id: 'fun-emoji', label: 'Fun Emoji', licence: 'CC BY 4.0, Davis Uche' },
-  { id: 'bottts', label: 'Bottts', licence: 'free for personal and commercial use, Pablo Stanley' },
   { id: 'pixel-art', label: 'Pixel Art', licence: 'CC0, DiceBear' },
   { id: 'thumbs', label: 'Thumbs', licence: 'CC0, DiceBear' },
 ];
@@ -162,72 +165,20 @@ export const avatarUrl = (style: string, seed: string, format: 'svg' | 'png' = '
 
 // ---- colour maths ----
 
-export function hexToHsl(hex: string): [number, number, number] {
-  const n = parseInt(hex.slice(1, 7), 16);
-  const r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
-  const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2;
-  if (max === min) return [0, 0, l * 100];
-  const d = max - min;
-  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-  const h = max === r ? (g - b) / d + (g < b ? 6 : 0) : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
-  return [h * 60, s * 100, l * 100];
-}
-
-export function hslToHex(h: number, s: number, l: number): string {
-  h = ((h % 360) + 360) % 360; s = Math.max(0, Math.min(100, s)) / 100; l = Math.max(0, Math.min(100, l)) / 100;
-  const k = (n: number) => (n + h / 30) % 12;
-  const a = s * Math.min(l, 1 - l);
-  const f = (n: number) => Math.round((l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)))) * 255);
-  return `#${[f(0), f(8), f(4)].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
-}
-
 export const luminance = (hex: string) => {
   const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
   return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
 };
 
-export type Harmony = 'analogous' | 'complementary' | 'triadic' | 'split' | 'monochrome' | 'tetradic';
-export const HARMONIES: { id: Harmony; label: string }[] = [
-  { id: 'analogous', label: 'Analogous' }, { id: 'complementary', label: 'Complementary' }, { id: 'triadic', label: 'Triadic' },
-  { id: 'split', label: 'Split complementary' }, { id: 'tetradic', label: 'Tetradic' }, { id: 'monochrome', label: 'Monochrome' },
-];
+// ---- catalogues ----
 
-/** Five colours in a colour-wheel harmony around `base`. */
-export function harmony(base: string, kind: Harmony): string[] {
-  const [h, s, l] = hexToHsl(base);
-  const at = (dh: number, ds = 0, dl = 0) => hslToHex(h + dh, s + ds, l + dl);
-  switch (kind) {
-    case 'analogous': return [at(-40, -5, 10), at(-20), base, at(20), at(40, -5, -10)];
-    case 'complementary': return [at(0, 0, 25), base, at(0, -10, -25), at(180), at(180, -10, 20)];
-    case 'triadic': return [base, at(0, -20, 30), at(120), at(240), at(240, -10, -25)];
-    case 'split': return [base, at(0, 0, -25), at(150), at(210), at(210, -15, 25)];
-    case 'tetradic': return [base, at(90), at(180), at(270), at(0, -30, 35)];
-    case 'monochrome': return [-36, -18, 0, 18, 32].map((d) => at(0, d > 0 ? -d / 3 : 0, d));
-  }
-}
+export interface Palette { id: string; name: string; catalog: string; colors: string[] }
+/** Open Color and Tailwind CSS, both MIT. */
+export const PALETTES = PALETTE_DATA as Palette[];
+export const PALETTE_CATALOGS = [...new Set(PALETTES.map((p) => p.catalog))];
 
-/** A pleasant random palette (random hue, a random harmony). */
-export function randomPalette(rand = Math.random): string[] {
-  const base = hslToHex(rand() * 360, 45 + rand() * 40, 40 + rand() * 25);
-  return harmony(base, HARMONIES[Math.floor(rand() * HARMONIES.length)]!.id);
-}
-
-// ---- gradients ----
-
-export const GRADIENTS: { name: string; angle: number; colors: string[] }[] = [
-  { name: 'Sunset', angle: 135, colors: ['#ff512f', '#dd2476'] },
-  { name: 'Ocean', angle: 135, colors: ['#2193b0', '#6dd5ed'] },
-  { name: 'Purple haze', angle: 135, colors: ['#7f00ff', '#e100ff'] },
-  { name: 'Peach', angle: 135, colors: ['#ff9a9e', '#fad0c4'] },
-  { name: 'Mint', angle: 135, colors: ['#11998e', '#38ef7d'] },
-  { name: 'Night', angle: 160, colors: ['#0f0c29', '#302b63', '#24243e'] },
-  { name: 'Citrus', angle: 120, colors: ['#f7971e', '#ffd200'] },
-  { name: 'Berry', angle: 135, colors: ['#8e2de2', '#4a00e0'] },
-  { name: 'Sky', angle: 180, colors: ['#7dd3fc', '#fef3c7'] },
-  { name: 'Rose gold', angle: 135, colors: ['#f4c4f3', '#fc67fa'] },
-  { name: 'Forest', angle: 160, colors: ['#134e5e', '#71b280'] },
-  { name: 'Candy', angle: 90, colors: ['#ff6a00', '#ee0979'] },
-];
+/** uiGradients (MIT). Angle 90 is how uiGradients shows them, left to right. */
+export const GRADIENTS: { name: string; angle: number; colors: string[] }[] = (GRADIENT_DATA as { name: string; colors: string[] }[]).map((g) => ({ ...g, angle: 90 }));
 
 export function gradientFill(angle: number, colors: string[]): Fill {
   return colors.length < 2 ? { type: 'solid', color: colors[0] ?? '#ffffff' } : { type: 'linear', angle, stops: colors.map((color, i) => ({ offset: i / (colors.length - 1), color })) };
@@ -235,68 +186,29 @@ export function gradientFill(angle: number, colors: string[]): Fill {
 
 export const gradientCss = (angle: number, colors: string[]) => `linear-gradient(${angle}deg, ${colors.join(', ')})`;
 
-// ---- patterns (vector) ----
+// ---- patterns: Hero Patterns ----
 
-export type PatternKind = 'dots' | 'grid' | 'stripes' | 'checker' | 'waves' | 'zigzag' | 'triangles' | 'circles' | 'plus' | 'diamonds';
-export const PATTERNS: PatternKind[] = ['dots', 'grid', 'stripes', 'checker', 'waves', 'zigzag', 'triangles', 'circles', 'plus', 'diamonds'];
+export interface HeroPattern { id: string; name: string; width: number; height: number; svg: string }
+export const PATTERN_CREDIT = 'Hero Patterns by Steve Schoger (CC BY 4.0) https://heropatterns.com';
 
-const f2 = (v: number) => Math.round(v * 100) / 100;
+/** The tiles load with the app (they are a few hundred KB). */
+export const loadPatterns = async (): Promise<HeroPattern[]> => (await import('./content/data/patterns.json')).default as HeroPattern[];
 
-/** One path covering w×h with the pattern at `size` px per tile. Stroke-drawn kinds return `stroke: true`. */
-export function patternPath(kind: PatternKind, w: number, h: number, size: number): { d: string; stroke: boolean; width: number } {
-  const s = Math.max(4, size);
-  const cols = Math.ceil(w / s) + 1, rows = Math.ceil(h / s) + 1;
-  let d = '';
-  const circle = (cx: number, cy: number, r: number) => `M${f2(cx - r)} ${f2(cy)}a${f2(r)} ${f2(r)} 0 1 0 ${f2(2 * r)} 0a${f2(r)} ${f2(r)} 0 1 0 ${f2(-2 * r)} 0z`;
-  switch (kind) {
-    case 'dots':
-      for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) d += circle(i * s + s / 2, j * s + s / 2, s * 0.14);
-      return { d, stroke: false, width: 0 };
-    case 'circles':
-      for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) d += circle(i * s + s / 2, j * s + s / 2, s * 0.32);
-      return { d, stroke: true, width: s * 0.06 };
-    case 'grid':
-      for (let i = 0; i <= cols; i++) d += `M${f2(i * s)} 0V${f2(h)}`;
-      for (let j = 0; j <= rows; j++) d += `M0 ${f2(j * s)}H${f2(w)}`;
-      return { d, stroke: true, width: Math.max(1, s * 0.04) };
-    case 'stripes':
-      for (let k = -rows; k < cols + rows; k++) d += `M${f2(k * s)} 0L${f2(k * s + h)} ${f2(h)}`;
-      return { d, stroke: true, width: s * 0.25 };
-    case 'checker':
-      for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) if ((i + j) % 2 === 0) d += `M${f2(i * s)} ${f2(j * s)}h${f2(s)}v${f2(s)}h${f2(-s)}z`;
-      return { d, stroke: false, width: 0 };
-    case 'waves':
-      for (let j = 0; j < rows; j++) {
-        const y = j * s + s / 2;
-        d += `M0 ${f2(y)}`;
-        for (let i = 0; i < cols; i++) d += `q${f2(s / 4)} ${f2(-s / 4)} ${f2(s / 2)} 0t${f2(s / 2)} 0`;
-      }
-      return { d, stroke: true, width: s * 0.07 };
-    case 'zigzag':
-      for (let j = 0; j < rows; j++) {
-        d += `M0 ${f2(j * s + s / 2)}`;
-        for (let i = 0; i < cols * 2; i++) d += `l${f2(s / 2)} ${f2(i % 2 ? s / 3 : -s / 3)}`;
-      }
-      return { d, stroke: true, width: s * 0.08 };
-    case 'triangles':
-      for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) d += `M${f2(i * s + s / 2)} ${f2(j * s + s * 0.2)}l${f2(s * 0.3)} ${f2(s * 0.55)}h${f2(-s * 0.6)}z`;
-      return { d, stroke: false, width: 0 };
-    case 'plus':
-      for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) { const cx = i * s + s / 2, cy = j * s + s / 2, a = s * 0.18; d += `M${f2(cx - a)} ${f2(cy)}h${f2(2 * a)}M${f2(cx)} ${f2(cy - a)}v${f2(2 * a)}`; }
-      return { d, stroke: true, width: s * 0.07 };
-    case 'diamonds':
-      for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) { const cx = i * s + s / 2, cy = j * s + s / 2, a = s * 0.3; d += `M${f2(cx)} ${f2(cy - a)}l${f2(a)} ${f2(a)}l${f2(-a)} ${f2(a)}l${f2(-a)} ${f2(-a)}z`; }
-      return { d, stroke: false, width: 0 };
-  }
-}
+export const patternTile = (p: HeroPattern, color: string) => p.svg.replace(/\{\{color\}\}/g, color);
+export const svgDataUrl = (svg: string) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 
-/** A pattern as a page-sized vector element. */
-export function patternElement(kind: PatternKind, w: number, h: number, size: number, color: string, bg: string | null): PathElement {
-  const p = patternPath(kind, w, h, size);
-  const paths: PathElement['paths'] = [];
-  if (bg) paths.push({ d: `M0 0H${f2(w)}V${f2(h)}H0z`, fill: { type: 'solid', color: bg }, stroke: null });
-  paths.push({ d: p.d, fill: p.stroke ? null : { type: 'solid', color }, stroke: p.stroke ? { color, width: f2(p.width) } : null });
-  return { id: newId('e_'), type: 'path', name: `Pattern: ${kind}`, x: 0, y: 0, w, h, rotation: 0, opacity: 1, viewBox: { x: 0, y: 0, w, h }, paths };
+/** The pattern repeated over w×h, `scale` times its natural tile size, as a PNG. A page-sized vector of hundreds of tiles would be far heavier. */
+export async function patternPng(p: HeroPattern, w: number, h: number, scale: number, color: string, bg: string | null): Promise<Uint8Array> {
+  const img = new Image();
+  img.src = svgDataUrl(patternTile(p, color));
+  await img.decode();
+  const k = Math.min(2, 2400 / Math.max(w, h)); // sharp at twice the page size, within reason
+  const c = new OffscreenCanvas(Math.round(w * k), Math.round(h * k));
+  const g = c.getContext('2d')!;
+  if (bg) { g.fillStyle = bg; g.fillRect(0, 0, c.width, c.height); }
+  const tw = Math.max(1, Math.round(p.width * scale * k)), th = Math.max(1, Math.round(p.height * scale * k));
+  for (let x = 0; x < c.width; x += tw) for (let y = 0; y < c.height; y += th) g.drawImage(img, x, y, tw, th);
+  return new Uint8Array(await (await c.convertToBlob({ type: 'image/png' })).arrayBuffer());
 }
 
 // ---- recolour a page with a palette ----

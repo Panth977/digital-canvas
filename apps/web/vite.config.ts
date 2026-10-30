@@ -30,7 +30,7 @@ function serviceWorker(): Plugin {
       // Template thumbnails are fetched on demand (stale-while-revalidate); source maps and the worker itself never.
       // The mockup library (large photos and maps) is fetched on demand too.
       // The AI device worker (2.5 MB) is fetched only when "Let AI use this device" is on (it needs the network anyway).
-      const precache = files.filter((f) => !f.startsWith('templates/') && !f.startsWith('mockups/') && !f.endsWith('.map') && f !== 'sw.js' && !f.endsWith('OFL.txt') && !/^assets\/worker-/.test(f)).sort();
+      const precache = files.filter((f) => !f.startsWith('templates/') && !f.startsWith('mockups/') && !f.startsWith('illustrations/') && !f.endsWith('.map') && f !== 'sw.js' && !f.endsWith('OFL.txt') && !/^assets\/worker-/.test(f)).sort();
       const hash = createHash('sha256');
       for (const f of precache) hash.update(f).update(readFileSync(join(outDir, f)));
       const src = readFileSync(new URL('./src/lib/pwa-sw.js', import.meta.url), 'utf8');

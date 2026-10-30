@@ -46,7 +46,7 @@ self.addEventListener('fetch', (event) => {
 
   if (url.origin === self.location.origin) {
     if (req.mode === 'navigate') return event.respondWith(page(req));
-    if (url.pathname.startsWith('/templates/')) return event.respondWith(staleWhileRevalidate(req, RUNTIME));
+    if (url.pathname.startsWith('/templates/') || url.pathname.startsWith('/illustrations/')) return event.respondWith(staleWhileRevalidate(req, RUNTIME));
     // mockup thumbnails are small and shown first; the big maps go to the network (HTTP cache)
     if (url.pathname.startsWith('/mockups/')) return url.pathname.endsWith('/thumb.jpg') ? event.respondWith(staleWhileRevalidate(req, RUNTIME)) : undefined;
     if (url.pathname === '/sw.js') return;
