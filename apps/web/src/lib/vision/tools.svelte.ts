@@ -189,8 +189,9 @@ export const tesseractOcr: Ocr = async (bytes, mime, onProgress) => {
       const text = l.text.trim();
       if (!text || l.confidence < 55) continue;
       const { x0, y0, x1, y1 } = l.bbox;
-      const px = g.getImageData(x0, y0, Math.max(1, x1 - x0), Math.max(1, y1 - y0)).data;
-      out.push({ text, x: x0 / bmp.width, y: y0 / bmp.height, w: (x1 - x0) / bmp.width, h: (y1 - y0) / bmp.height, color: inkColor(px) });
+      const bw = Math.max(1, x1 - x0);
+      const px = g.getImageData(x0, y0, bw, Math.max(1, y1 - y0)).data;
+      out.push({ text, x: x0 / bmp.width, y: y0 / bmp.height, w: (x1 - x0) / bmp.width, h: (y1 - y0) / bmp.height, color: inkColor(px, bw) });
     }
     bmp.close();
     return out;

@@ -28,6 +28,7 @@ test('image panel screenshots', async ({ page }) => {
   await page.getByTestId('shadow-none').click();
   await page.getByTestId('imgtab-tools').click();
   await page.getByTestId('tool-erase').click();
+  await page.locator('[data-testid="brush-canvas"][data-ready]').waitFor();
   const b = (await page.getByTestId('brush-canvas').boundingBox())!;
   await page.mouse.move(b.x + b.width * 0.3, b.y + b.height / 2);
   await page.mouse.down();

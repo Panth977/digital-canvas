@@ -74,6 +74,7 @@ async function stubs(page: Page): Promise<void> {
 
 /** Paint across the middle of the brush canvas. */
 async function paint(page: Page, from = 0.3, to = 0.7): Promise<void> {
+  await page.locator('[data-testid="brush-canvas"][data-ready]').waitFor();
   const b = (await page.getByTestId('brush-canvas').boundingBox())!;
   const y = b.y + b.height / 2;
   await page.mouse.move(b.x + b.width * from, y);

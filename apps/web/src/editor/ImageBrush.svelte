@@ -214,7 +214,7 @@
 {#if el}
   {@const w = el.w * zoom}
   {@const h = el.h * zoom}
-  <canvas bind:this={view} class="paint" data-testid="brush-canvas" width={Math.round(w * dpr)} height={Math.round(h * dpr)}
+  <canvas bind:this={view} class="paint" data-testid="brush-canvas" data-ready={ready || undefined} width={Math.round(w * dpr)} height={Math.round(h * dpr)}
     style:left="{left}px" style:top="{top}px" style:width="{w}px" style:height="{h}px"
     style:transform="rotate({el.rotation}deg) scale({el.flipX ? -1 : 1}, {el.flipY ? -1 : 1})"
     onpointerdown={down} onpointermove={move} onpointerup={up} onpointercancel={up} onpointerleave={() => (cursor = null)}></canvas>

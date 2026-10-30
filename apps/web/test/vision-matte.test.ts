@@ -47,10 +47,17 @@ describe('mask maths', () => {
     expect(wide.x).toBeLessThanOrEqual(40);
     expect(wide.x + wide.w).toBeGreaterThanOrEqual(1140);
   });
-  it('inkColor finds the text on either kind of background', () => {
-    const line = (bg: number[], ink: number[], n: number) => [...Array(60).fill(bg).flat(), ...Array(n).fill(ink).flat()];
-    expect(inkColor(line([255, 255, 255, 255], [18, 52, 86, 255], 30))).toBe('#123456');
-    expect(inkColor(line([10, 10, 10, 255], [250, 240, 0, 255], 30))).toBe('#faf000');
+  it('inkColor finds the text, even when bold ink fills most of a tight box', () => {
+    const box = (paper: number[], ink: number[], w = 20, h = 10) => {
+      const out: number[] = [];
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        const edge = x === 0 || x === w - 1 || y === 0 || y === h - 1;
+        out.push(...(edge ? paper : x % 3 === 2 ? [(paper[0]! + ink[0]!) >> 1, (paper[1]! + ink[1]!) >> 1, (paper[2]! + ink[2]!) >> 1, 255] : ink));
+      }
+      return out;
+    };
+    expect(inkColor(box([255, 255, 255, 255], [18, 52, 86, 255]), 20)).toBe('#123456');
+    expect(inkColor(box([10, 10, 10, 255], [250, 240, 0, 255]), 20)).toBe('#faf000');
   });
   it('expandLayout widens or heightens around the old image', () => {
     expect(expandLayout(100, 100, 2)).toEqual({ w: 200, h: 100, x: 50, y: 0 });

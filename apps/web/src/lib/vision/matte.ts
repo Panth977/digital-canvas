@@ -116,15 +116,25 @@ export function expandLayout(iw: number, ih: number, aspect: number): { w: numbe
   return { w: iw, h, x: 0, y: Math.round((h - ih) / 2) };
 }
 
-/** A text line's colour: the mean of the pixels furthest from its background (the median tone). */
-export function inkColor(px: ArrayLike<number>): string {
-  const tones: number[] = [];
-  for (let i = 0; i + 2 < px.length; i += 4) tones.push(0.2126 * px[i]! + 0.7152 * px[i + 1]! + 0.0722 * px[i + 2]!);
-  const median = [...tones].sort((a, b) => a - b)[tones.length >> 1] ?? 0;
+/**
+ * A text line's colour. The background is read from the box's edge (the median
+ * tone there), since bold text can fill half of a tight box; the ink is what
+ * lies furthest from it.
+ */
+export function inkColor(px: ArrayLike<number>, w: number): string {
+  const n = Math.floor(px.length / 4), h = Math.max(1, Math.floor(n / Math.max(1, w)));
+  const tone = (j: number) => 0.2126 * px[j * 4]! + 0.7152 * px[j * 4 + 1]! + 0.0722 * px[j * 4 + 2]!;
+  const edge: number[] = [];
+  for (let j = 0; j < n; j++) {
+    const x = j % w, y = Math.floor(j / w);
+    if (x === 0 || x === w - 1 || y === 0 || y === h - 1) edge.push(tone(j));
+  }
+  edge.sort((a, b) => a - b);
+  const paper = edge[edge.length >> 1] ?? 0;
   let far = 0;
-  for (const t of tones) far = Math.max(far, Math.abs(t - median));
+  for (let j = 0; j < n; j++) far = Math.max(far, Math.abs(tone(j) - paper));
   let r = 0, g = 0, b = 0, k = 0;
-  tones.forEach((t, j) => { if (Math.abs(t - median) > far * 0.7) { r += px[j * 4]!; g += px[j * 4 + 1]!; b += px[j * 4 + 2]!; k++; } });
+  for (let j = 0; j < n; j++) if (Math.abs(tone(j) - paper) > far * 0.7) { r += px[j * 4]!; g += px[j * 4 + 1]!; b += px[j * 4 + 2]!; k++; }
   const hex = (v: number) => Math.round(v / Math.max(1, k)).toString(16).padStart(2, '0');
   return `#${hex(r)}${hex(g)}${hex(b)}`;
 }

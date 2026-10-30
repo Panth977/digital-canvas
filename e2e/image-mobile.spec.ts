@@ -56,6 +56,7 @@ test('the brush takes a finger, with the sheet out of the way', async ({ page })
   const bar = (await page.getByTestId('brush-bar').boundingBox())!;
   expect(bar.x).toBeGreaterThanOrEqual(0);
   expect(bar.x + bar.width).toBeLessThanOrEqual(page.viewportSize()!.width + 1);
+  await page.locator('[data-testid="brush-canvas"][data-ready]').waitFor();
   const b = (await canvas.boundingBox())!;
   const c = await page.context().newCDPSession(page);
   await swipe(c, { x: b.x + b.width * 0.3, y: b.y + b.height / 2 }, { x: b.x + b.width * 0.7, y: b.y + b.height / 2 });
