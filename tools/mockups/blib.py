@@ -426,8 +426,8 @@ def m_wood(name='Wood', tone=(0.42, 0.26, 0.15), scale=1.0, rough=0.45, plank=0.
     big = nb.noise(co, scale=1.5 * scale, detail=3)
     f = nb.math('ADD', nb.math('MULTIPLY', rings.outputs[1], 0.55),
                 nb.math('ADD', nb.math('MULTIPLY', pores.outputs[0], 0.3), nb.math('MULTIPLY', big.outputs[0], 0.3)))
-    dark = tuple(c * 0.62 * light for c in tone)
-    lite = tuple(min(1, c * 1.25 * light) for c in tone)
+    dark = tuple(c * 0.75 * light for c in tone)
+    lite = tuple(min(1, c * 1.15 * light) for c in tone)
     col = nb.ramp(f, [(0.3, dark), (0.72, lite)])
     if plank:
         br = nb.node('ShaderNodeTexBrick', inputs={'Scale': plank, 'Mortar Size': 0.006, 'Bias': 0.0,
