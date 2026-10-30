@@ -6,7 +6,7 @@
  * /mockups/), decoded with CanvasKit so Node and the device worker match.
  */
 import type { CanvasKit } from 'canvaskit-wasm';
-import { compositeMockup, designSizeFor, mockupFiles, parseMockupIndex, parseHex, prepareMockup, type MockupEntry, type PreparedMockup, type Rgba } from '@digital-canvas/render';
+import { compositeMockup, defaultFit, designSizeFor, mockupFiles, parseMockupIndex, parseHex, prepareMockup, type MockupEntry, type PreparedMockup, type Rgba } from '@digital-canvas/render';
 import type { Page } from '@digital-canvas/scene';
 import type { ProjectFile } from '@digital-canvas/storage';
 import { ToolError } from './context.ts';
@@ -104,7 +104,7 @@ export interface MockupRender {
 }
 
 /** A page of a design composited onto a mockup, encoded. */
-export async function renderPageMockup(file: ProjectFile, page: Page, mockupId: string, opts: { color?: string; format?: 'png' | 'jpeg'; maxSide?: number } = {}): Promise<MockupRender> {
+export async function renderPageMockup(file: ProjectFile, page: Page, mockupId: string, opts: { color?: string; format?: 'png' | 'jpeg'; maxSide?: number; fit?: 'cover' | 'contain' } = {}): Promise<MockupRender> {
   const e = await findMockup(mockupId);
   if (opts.color && !parseHex(opts.color)) throw new ToolError(`"${opts.color}" is not a colour`, 'pass #rrggbb');
   const color = e.tint ? opts.color ?? e.colors?.[0] ?? null : null;
@@ -112,7 +112,7 @@ export async function renderPageMockup(file: ProjectFile, page: Page, mockupId: 
   const doc = file.doc;
   const size = designSizeFor(m, doc.width, doc.height);
   const design = await withRenderer(file, (r) => r.renderPageRgba(doc, page, size.width, size.height), [page]);
-  const px = compositeMockup(m, design, { aspect: e.aspect, color });
+  const px = compositeMockup(m, design, { aspect: e.aspect, color, fit: opts.fit ?? defaultFit(e) });
   const { ck } = await engine();
   const img = ck.MakeImage({ width: m.width, height: m.height, colorType: ck.ColorType.RGBA_8888, alphaType: ck.AlphaType.Unpremul, colorSpace: ck.ColorSpace.SRGB }, px, m.width * 4);
   if (!img) throw new Error('could not make the mockup image');

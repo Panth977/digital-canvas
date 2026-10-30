@@ -5,7 +5,7 @@
  * design. Decoding uses createImageBitmap + OffscreenCanvas with no colour
  * conversion: the UV maps are data, not pictures.
  */
-import { compositeMockup, mockupFiles, prepareMockup, MOCKUP_SMALL, type MockupEntry, type PreparedMockup, type Rgba } from '@digital-canvas/render/mockup';
+import { compositeMockup, defaultFit, mockupFiles, prepareMockup, MOCKUP_SMALL, type MockupEntry, type MockupFit, type PreparedMockup, type Rgba } from '@digital-canvas/render/mockup';
 
 export type MockupSize = 'small' | 'full';
 
@@ -15,6 +15,8 @@ export interface RenderRequest {
   /** Which design buffer (set with `setDesign`). */
   design: string;
   color?: string | null;
+  /** Default: whole design on products, filled on screens and signs (defaultFit). */
+  fit?: MockupFit | null;
 }
 
 async function decode(url: string): Promise<Rgba> {
@@ -72,7 +74,7 @@ export class MockupEngine {
     const m = await this.prepare(r.entry, r.size);
     const design = this.designs.get(r.design);
     if (!design) throw new Error(`no design ${r.design}`);
-    const data = compositeMockup(m, design, { aspect: r.entry.aspect, color: r.entry.tint ? r.color : null });
+    const data = compositeMockup(m, design, { aspect: r.entry.aspect, color: r.entry.tint ? r.color : null, fit: r.fit ?? defaultFit(r.entry) });
     return { width: m.width, height: m.height, data, ms: performance.now() - t0 };
   }
 }

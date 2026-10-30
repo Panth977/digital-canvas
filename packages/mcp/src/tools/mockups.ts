@@ -31,17 +31,18 @@ export function registerMockupTools(server: McpServer, ctx: Context): void {
       design_id: z.string(), page: pageRef.optional().describe('Default page 1.'),
       mockup_id: z.string(),
       color: z.string().optional().describe('Product colour, #rrggbb.'),
+      fit: z.enum(['contain', 'cover']).optional().describe('contain = whole design visible (default on apparel, packaging, home); cover = fill the print area, cropping edges (default on screens, signs, prints).'),
       format: z.enum(['png', 'jpg']).optional().describe('Default png.'),
       size: z.number().int().min(200).max(4096).optional().describe('Longest side in px (default 1024; never more than the mockup itself, often 1600). Use a big size with save for a deliverable.'),
       save: z.boolean().optional(),
     },
     annotations: { readOnlyHint: false },
-  }, safe(async ({ design_id, page, mockup_id, color, format, size, save }) => {
+  }, safe(async ({ design_id, page, mockup_id, color, fit, format, size, save }) => {
     const file = await ctx.open(design_id);
     const { page: pg, index } = pageOf(file.doc, page);
     const fmt = format ?? 'png';
     const mime = fmt === 'jpg' ? 'image/jpeg' : 'image/png';
-    const r = await renderPageMockup(file, pg, mockup_id, { color, format: fmt === 'jpg' ? 'jpeg' : 'png', maxSide: size ?? 1024 });
+    const r = await renderPageMockup(file, pg, mockup_id, { color, ...(fit ? { fit } : {}), format: fmt === 'jpg' ? 'jpeg' : 'png', maxSide: size ?? 1024 });
     const info: Record<string, unknown> = { page: index + 1, mockup: r.mockup.id, label: r.mockup.label, imagePx: [r.width, r.height], ...(r.color ? { color: r.color } : {}), ...(r.mockup.credit ? { credit: r.mockup.credit } : {}) };
     if (save) {
       const res = await ctx.ws.saveExport(`${safeName(file.doc.title)} - ${safeName(r.mockup.label)}.${fmt}`, r.bytes, mime);

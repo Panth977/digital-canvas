@@ -88,6 +88,16 @@ export interface CompositeOptions {
   aspect: number;
   /** Product colour (#rgb / #rrggbb); only where the tint mask is set. */
   color?: string | null;
+  /** 'cover' fills the print area (edges of a different-shaped design are cut off); 'contain' shows the whole design. */
+  fit?: MockupFit;
+}
+
+export type MockupFit = 'cover' | 'contain';
+
+/** Garments, packaging and home goods show the whole design; screens, signs and prints are filled edge to edge. */
+export function defaultFit(entry: { category?: string; fit?: string }): MockupFit {
+  if (entry.fit === 'cover' || entry.fit === 'contain') return entry.fit;
+  return entry.category === 'Apparel' || entry.category === 'Packaging' || entry.category === 'Home' ? 'contain' : 'cover';
 }
 
 /** The categories the panel filters by (index.json may use others; they show under All). */
@@ -231,13 +241,25 @@ export function compositeMockup(m: PreparedMockup, design: Rgba, opts: Composite
   // 2. the design through the UV map
   const dw = design.width, dh = design.height, d = design.data;
   if (dw < 1 || dh < 1) return dst;
-  const crop = mockupCrop(dw, dh, opts.aspect);
+  const crop = opts.fit === 'contain' ? { x: 0, y: 0, w: dw, h: dh } : mockupCrop(dw, dh, opts.aspect);
   const sx = Math.max(0, crop.w - 1), sy = Math.max(0, crop.h - 1);
+  // contain: the design is a centred box inside the print area (fu × fv of it); outside it the product shows
+  let fu = 1, fv = 1;
+  if (opts.fit === 'contain' && opts.aspect > 0) {
+    const da = dw / dh;
+    if (da > opts.aspect) fv = opts.aspect / da; else fu = da / opts.aspect;
+  }
+  const ou = (1 - fu) / 2, ov = (1 - fv) / 2;
   const maxX = dw - 1, maxY = dh - 1;
   const { u, v, cover, light, inside } = m;
   for (let k = 0; k < inside.length; k++) {
     const i = inside[k]!;
-    let x = crop.x + u[k]! * sx, y = crop.y + v[k]! * sy;
+    let uu = u[k]!, vv = v[k]!;
+    if (fu < 1 || fv < 1) {
+      uu = (uu - ou) / fu; vv = (vv - ov) / fv;
+      if (uu < 0 || uu > 1 || vv < 0 || vv > 1) continue;
+    }
+    let x = crop.x + uu * sx, y = crop.y + vv * sy;
     if (x < 0) x = 0; else if (x > maxX) x = maxX;
     if (y < 0) y = 0; else if (y > maxY) y = maxY;
     const x0 = x | 0, y0 = y | 0;

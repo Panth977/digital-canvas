@@ -12,12 +12,15 @@
   import { mobile } from '../../lib/mobile.svelte.ts';
   import { toast } from '../../lib/toast.svelte.ts';
   import { designPx, mockupClient, paint, sendPage, thumbUrl, type MockupEntry } from '../../lib/mockups/mockups.svelte.ts';
+  import { defaultFit, type MockupFit } from '@digital-canvas/render/mockup';
 
   let { ed, list, index = $bindable(), pageId, onclose }: { ed: EditorState; list: MockupEntry[]; index: number; pageId: string; onclose: () => void } = $props();
 
   const entry = $derived(list[index]!);
   /** Product colour per mockup (null = as photographed). */
   let colors = $state<Record<string, string | null>>({});
+  let fits = $state<Record<string, MockupFit>>({});
+  const fit = $derived<MockupFit>(entry.id in fits ? fits[entry.id]! : defaultFit(entry));
   const color = $derived(entry.tint ? (entry.id in colors ? colors[entry.id]! : entry.colors?.[0] ?? null) : null);
 
   let canvas = $state<HTMLCanvasElement>();
@@ -32,7 +35,7 @@
   let sent = { page: null as unknown, w: 0, h: 0 };
   let run = 0;
   $effect(() => {
-    const e = entry, c = color, el = canvas;
+    const e = entry, c = color, f = fit, el = canvas;
     const page = ed.doc.pages.find((p) => p.id === pageId) ?? ed.page;
     if (!el) return;
     const px = designPx(ed, 'full', e);
@@ -43,7 +46,7 @@
       }
       const mine = ++run;
       error = '';
-      mockupClient.render({ entry: e, size: 'full', design: 'full', color: c }).then((r) => {
+      mockupClient.render({ entry: e, size: 'full', design: 'full', color: c, fit: f }).then((r) => {
         if (mine !== run || !canvas) return;
         paint(canvas, r);
         ms = Math.round(r.ms);
@@ -163,6 +166,10 @@
           </label>
         </div>
       {/if}
+      <div class="mkp-fit" role="radiogroup" aria-label="How the design fits">
+        <button class="dp-chip" role="radio" aria-checked={fit === 'contain'} class:on={fit === 'contain'} data-testid="mockup-fit-contain" onclick={() => (fits = { ...fits, [entry.id]: 'contain' })}>Whole design</button>
+        <button class="dp-chip" role="radio" aria-checked={fit === 'cover'} class:on={fit === 'cover'} data-testid="mockup-fit-cover" onclick={() => (fits = { ...fits, [entry.id]: 'cover' })}>Fill</button>
+      </div>
       <div class="mkp-acts">
         <button class="btn primary" disabled={!ready || !!busy} data-testid="mockup-download-png" onclick={() => save('png')}><Icon name="download" size={16} /> PNG</button>
         <button class="btn" disabled={!ready || !!busy} data-testid="mockup-download-jpg" onclick={() => save('jpg')}><Icon name="download" size={16} /> JPG</button>
@@ -194,6 +201,7 @@
   .mkp-nav.prev { left: 0; }
   .mkp-nav.next { right: 0; }
   footer { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-top: 12px; }
+  .mkp-fit { display: flex; gap: 6px; align-items: center; }
   .mkp-colors { display: flex; gap: 6px; align-items: center; }
   .mkp-colors .dp-sw.on { box-shadow: 0 0 0 2px var(--pop), 0 0 0 4px var(--accent); }
   .mkp-colors label.dp-sw { position: relative; cursor: pointer; }

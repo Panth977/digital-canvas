@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compositeMockup, mockupCrop, parseHex, parseMockupIndex, prepareMockup, renderMockup, type MockupBuffers, type Rgba } from '../src/mockup.ts';
+import { compositeMockup, defaultFit, mockupCrop, parseHex, parseMockupIndex, prepareMockup, renderMockup, type MockupBuffers, type Rgba } from '../src/mockup.ts';
 
 /** RGBA buffer from a per-pixel function. */
 function img(w: number, h: number, f: (x: number, y: number) => [number, number, number, number?]): Rgba {
@@ -186,5 +186,38 @@ describe('mockup compositor', () => {
     // suite runs files in parallel (video encoders, renders), so the guard here only catches gross regressions.
     expect(tPrep + tComp).toBeLessThan(500);
     expect(tCompS).toBeLessThan(60);
+  });
+});
+
+describe('mockup fit', () => {
+  // identity UV over a 4×2 print area (aspect 2), full coverage, neutral light
+  const W = 4, H = 2;
+  const rgb = (f: (x: number, y: number) => [number, number, number]) => {
+    const d = new Uint8ClampedArray(W * H * 4);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const [r, g, b] = f(x, y); d.set([r, g, b, 255], (y * W + x) * 4); }
+    return { width: W, height: H, data: d };
+  };
+  const u16 = (t: number) => Math.round(t * 65535);
+  const m = prepareMockup({
+    base: rgb(() => [10, 10, 10]),
+    uvHi: rgb((x, y) => [u16(x / (W - 1)) >> 8, u16(y / (H - 1)) >> 8, 255]),
+    uvLo: rgb((x, y) => [u16(x / (W - 1)) & 255, u16(y / (H - 1)) & 255, 0]),
+    shade: rgb(() => [128, 128, 128]),
+  });
+  // a square white design
+  const design = { width: 2, height: 2, data: new Uint8ClampedArray(16).fill(255) };
+  it('contain leaves the sides of a wide area to the product', () => {
+    const out = compositeMockup(m, design, { aspect: 2, fit: 'contain' });
+    expect(out[0]).toBe(10); // left edge: outside the centred square
+    expect(out[(1 * 4)]).toBe(255); // inside
+  });
+  it('cover fills the whole area', () => {
+    const out = compositeMockup(m, design, { aspect: 2, fit: 'cover' });
+    expect(out[0]).toBe(255);
+  });
+  it('defaultFit by category', () => {
+    expect(defaultFit({ category: 'Apparel' })).toBe('contain');
+    expect(defaultFit({ category: 'Devices' })).toBe('cover');
+    expect(defaultFit({ category: 'Devices', fit: 'contain' })).toBe('contain');
   });
 });
