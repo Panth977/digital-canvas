@@ -95,16 +95,16 @@ export function feather(alpha: Uint8Array | Uint8ClampedArray, w: number, h: num
 }
 
 /**
- * The square window (in image pixels) to send to a 512 px inpainter: the mask's
- * box with room around it for context, never smaller than the model's input
- * when the image allows it, so small repairs keep their full sharpness.
+ * The window (in image pixels) to send to a 512 px inpainter: the mask's box
+ * with room around it for context, never smaller than the model's input when
+ * the image allows it, so small repairs keep their full sharpness. Square
+ * unless the image is too narrow for that: the mask must always fit inside.
  */
 export function inpaintWindow(mask: Box, iw: number, ih: number, size = 512): Box {
-  const side = Math.min(iw, ih, Math.max(size, Math.ceil(Math.max(mask.w, mask.h) * 1.8)));
+  const side = Math.max(size, Math.ceil(Math.max(mask.w, mask.h) * 1.8));
+  const w = Math.min(iw, side), h = Math.min(ih, side);
   const clamp = (v: number, hi: number) => Math.max(0, Math.min(hi, v));
-  const x = clamp(Math.round(mask.x + mask.w / 2 - side / 2), iw - side);
-  const y = clamp(Math.round(mask.y + mask.h / 2 - side / 2), ih - side);
-  return { x, y, w: side, h: side };
+  return { x: clamp(Math.round(mask.x + mask.w / 2 - w / 2), iw - w), y: clamp(Math.round(mask.y + mask.h / 2 - h / 2), ih - h), w, h };
 }
 
 /** The canvas box for extending an image to a new shape, and where the old image sits in it. */

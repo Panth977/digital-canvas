@@ -42,7 +42,10 @@ describe('mask maths', () => {
     const big = inpaintWindow({ x: 100, y: 100, w: 800, h: 300 }, 2000, 1500);
     expect(big.w).toBe(1440);
     expect(big.x + big.w).toBeLessThanOrEqual(2000);
-    expect(inpaintWindow({ x: 0, y: 0, w: 50, h: 50 }, 300, 200).w).toBe(200);
+    expect(inpaintWindow({ x: 0, y: 0, w: 50, h: 50 }, 300, 200)).toEqual({ x: 0, y: 0, w: 300, h: 200 });
+    const wide = inpaintWindow({ x: 40, y: 100, w: 1100, h: 300 }, 1280, 700); // wider than the picture is tall
+    expect(wide.x).toBeLessThanOrEqual(40);
+    expect(wide.x + wide.w).toBeGreaterThanOrEqual(1140);
   });
   it('inkColor finds the text on either kind of background', () => {
     const line = (bg: number[], ink: number[], n: number) => [...Array(60).fill(bg).flat(), ...Array(n).fill(ink).flat()];

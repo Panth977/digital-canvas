@@ -63,6 +63,15 @@ Wikimedia Commons by many authors. per item. https://commons.wikimedia.org (cred
 NASA Image and Video Library by NASA. per item. https://images.nasa.gov (generally public domain)
 OpenStreetMap by OpenStreetMap contributors. ODbL 1.0. https://www.openstreetmap.org/copyright
 
+Image models and libraries
+--------------------------
+Downloaded to your device on first use and run there.
+BiRefNet-lite by Peng Zheng and co-authors. MIT. https://github.com/ZhengPeng7/BiRefNet (background remover and subject finder; 512 px export by studioludens)
+MODNet by Zhanghan Ke and co-authors. Apache-2.0. https://github.com/ZHKKKe/MODNet (fallback background remover)
+LaMa by Roman Suvorov and co-authors. Apache-2.0. https://github.com/advimman/lama (Magic Eraser, Magic Grab, Grab Text; ONNX export by Carve)
+Tesseract.js by Project Naptha and contributors. Apache-2.0. https://github.com/naptha/tesseract.js (Grab Text)
+ONNX Runtime Web by Microsoft. MIT. https://github.com/microsoft/onnxruntime (runs the models)
+
 Device mockups
 --------------
 Digital Canvas mockups by rendered with Blender for this project. CC0 1.0.  (see public/mockups/LICENSES.md)

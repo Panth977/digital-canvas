@@ -9,7 +9,7 @@
   import { untrack } from 'svelte';
   import type { EditorState } from '../lib/editor.svelte.ts';
   import { brush } from '../lib/vision/brush.svelte.ts';
-  import { eraseMasked, magicEdit, editProvider } from '../lib/vision/tools.svelte.ts';
+  import { busy, ensureMatte, eraseMasked, magicEdit, editProvider } from '../lib/vision/tools.svelte.ts';
   import Icon from '../lib/Icon.svelte';
 
   let { ed, left, top, zoom }: { ed: EditorState; left: number; top: number; zoom: number } = $props();
@@ -176,6 +176,20 @@
     redraw();
   }
 
+  /** Magic Eraser's Foreground: the mask becomes the whole subject. */
+  async function selectSubject(): Promise<void> {
+    const e = el;
+    if (!e || !mask) return;
+    const id = await busy(ed, 'Finding the subject…', () => ensureMatte(ed, e));
+    if (!id || !mask) return;
+    const b = await createImageBitmap(blobOf(id));
+    const g = mask.getContext('2d')!;
+    g.drawImage(b, 0, 0, mask.width, mask.height);
+    b.close();
+    painted = true;
+    redraw();
+  }
+
   function clearAll(): void {
     if (!mask) return;
     mask.getContext('2d')!.clearRect(0, 0, mask.width, mask.height);
@@ -220,9 +234,12 @@
     {#if brush.tool === 'bg'}
       <label class="check"><input type="checkbox" bind:checked={brush.showOriginal} data-testid="brush-original" /> Show original</label>
     {/if}
+    {#if ed.bgStatus}<span class="st" data-testid="brush-status">{ed.bgStatus.msg}</span>{/if}
+    {#if ed.bgError}<span class="st err">{ed.bgError}</span>{/if}
     {#if brush.tool === 'edit'}
       <input class="prompt" placeholder={needKey ? 'Needs an OpenAI or Google key' : 'Describe what goes here'} bind:value={brush.prompt} disabled={needKey} data-testid="brush-prompt" />
     {/if}
+    {#if brush.tool === 'erase'}<button class="ghost" data-testid="brush-subject" disabled={!!ed.bgStatus} onclick={() => void selectSubject()}>Foreground</button>{/if}
     {#if brush.tool !== 'bg'}<button class="ghost" onclick={clearAll} disabled={!painted}>Clear</button>{/if}
     <button class="ghost" data-testid="brush-cancel" onclick={() => brush.close()}>Cancel</button>
     <button class="go" data-testid="brush-done" disabled={!canApply} onclick={() => void done()}><Icon name="check" size={16} /> {brush.tool === 'erase' ? 'Erase' : brush.tool === 'edit' ? 'Generate' : 'Done'}</button>
@@ -240,6 +257,8 @@
   .s input { width: 96px; }
   .check { display: flex; align-items: center; gap: 4px; }
   .prompt { min-width: 200px; height: 32px; padding: 0 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--field); color: var(--ink); }
+  .st { color: var(--muted); font-size: 12px; }
+  .st.err { color: var(--danger); }
   .ghost { border: 0; background: none; color: var(--ink-2); padding: 6px 8px; border-radius: 6px; }
   .ghost:hover:not(:disabled) { background: var(--hover); }
   .go { display: flex; align-items: center; gap: 4px; border: 0; background: var(--accent); color: #fff; padding: 7px 12px; border-radius: 8px; font-weight: 600; }
