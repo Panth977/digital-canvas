@@ -3,17 +3,41 @@
  * bundle), Inter and the templates from disk (src/paths.ts), ffmpeg for video
  * frames and MP4, DNS for URL-import checks.
  */
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { lookup } from 'node:dns/promises';
 import { createRequire } from 'node:module';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { CanvasKit } from 'canvaskit-wasm';
-import { canvasKitWasm, fontsDir, templatesDir } from '../paths.ts';
+import { canvasKitWasm, fontsDir, mockupsDir, templatesDir } from '../paths.ts';
+import { MOCKUPS_URL, fetchMockupFile } from '../mockupfetch.ts';
 import type { Platform, TemplateEntry } from '../platform.ts';
 import { ffmpeg, videoFrame } from './ffmpeg.ts';
 import { exportMp4Ffmpeg } from './mp4.ts';
 
 let index: TemplateEntry[] | null = null;
+
+/**
+ * Mockup files: a local library (DC_MOCKUPS_DIR or the web app's
+ * public/mockups) when there is one, else the deployed site
+ * (DC_MOCKUPS_URL) cached on disk (the index for an hour, the maps a day).
+ */
+async function mockupFile(path: string): Promise<Uint8Array> {
+  const dir = mockupsDir();
+  if (dir) return new Uint8Array(await readFile(join(dir, path)));
+  const cache = join(process.env.DC_MOCKUPS_CACHE ?? join(tmpdir(), 'digital-canvas-mockups'), path);
+  try {
+    const st = statSync(cache);
+    if (Date.now() - st.mtimeMs < (path === 'index.json' ? 3600_000 : 86_400_000)) return new Uint8Array(readFileSync(cache));
+  } catch { /* not cached */ }
+  const bytes = await fetchMockupFile(process.env.DC_MOCKUPS_URL ?? MOCKUPS_URL, path);
+  try {
+    mkdirSync(dirname(cache), { recursive: true });
+    writeFileSync(cache, bytes);
+  } catch { /* read-only disk: fine */ }
+  return bytes;
+}
 
 export const nodePlatform: Platform = {
   name: 'node',
@@ -41,5 +65,6 @@ export const nodePlatform: Platform = {
   videoFrame: (bytes, at) => videoFrame(bytes, at),
   videoProblem: () => (ffmpeg() ? null : 'video export needs ffmpeg on this machine: install it (macOS: brew install ffmpeg; Debian/Ubuntu: apt install ffmpeg) or run `npm i -g ffmpeg-static`, or set DC_FFMPEG=/path/to/ffmpeg'),
   exportMp4: (file, opts) => exportMp4Ffmpeg(file, opts),
+  mockupFile,
   lookup: async (host) => (await lookup(host, { all: true })).map((a) => a.address),
 };

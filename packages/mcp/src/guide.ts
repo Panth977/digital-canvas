@@ -51,6 +51,9 @@ shadow, lift, hollow, splice, outline, echo, glitch, neon, background (highlight
 - Reels safe zone: keep text between 11% and 80% of the height.
 - Preview moments with render_page { at: seconds }.
 
+## Mockups
+See a page on a product before it is printed: list_mockups (id, label, category Apparel/Outdoor/Print/Packaging/Devices/Home, aspect), then render_mockup { design_id, page, mockup_id, color?, format? }. The page is cover-fitted to the print area, so pick a mockup whose aspect is close to the page's (or keep important content away from the edges). Products marked with colours can be recoloured (#rrggbb). save: true puts the mockup image in Exports too.
+
 ## Exports
 PNG/JPG per page, vector PDF (print), GIF (animated), MP4 (H.264/AAC). Files land in Google Drive "Digital Canvas/Exports" with a link.
 `;

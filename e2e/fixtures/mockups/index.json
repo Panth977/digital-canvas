@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "mockups": [
+    {
+      "id": "fx-poster",
+      "label": "Framed poster",
+      "category": "Print",
+      "width": 800,
+      "height": 1000,
+      "aspect": 0.7,
+      "tint": false,
+      "colors": [],
+      "credit": "Synthetic test mockup (CC0)"
+    },
+    {
+      "id": "fx-mug",
+      "label": "Mug",
+      "category": "Home",
+      "width": 1000,
+      "height": 800,
+      "aspect": 1.273,
+      "tint": true,
+      "colors": [
+        "#ffffff",
+        "#1f3a93",
+        "#c0392b",
+        "#111111"
+      ],
+      "credit": "Synthetic test mockup (CC0)"
+    },
+    {
+      "id": "fx-billboard",
+      "label": "Billboard",
+      "category": "Outdoor",
+      "width": 1200,
+      "height": 800,
+      "aspect": 2.4,
+      "tint": false,
+      "colors": [],
+      "credit": "Synthetic test mockup (CC0)"
+    }
+  ]
+}
