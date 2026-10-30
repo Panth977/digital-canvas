@@ -507,6 +507,6 @@ def cap():
     B.link(root)
     for o in (cr, br, btn):
         o.parent = root
-    root.rotation_euler = (math.radians(-4), 0, math.radians(-18))
+    root.rotation_euler = (math.radians(-4), 0, math.radians(-10))
     root.location = (0, 0, 0.012)
     B.camera((0.0, -0.7, 0.2), (0.0, 0.0, 0.05), lens=70, fstop=8)
