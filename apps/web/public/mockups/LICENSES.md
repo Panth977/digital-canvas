@@ -35,9 +35,7 @@ permission needed. It does not allow selling photos unaltered or compiling them 
 | hardcover-book | Kelly Sikkema | Unsplash License | https://unsplash.com/photos/a-book-sitting-on-top-of-a-wooden-table-FxGfjHNrsnI |
 | notebook-black | Kelly Sikkema | Unsplash License | https://unsplash.com/photos/white-spiral-notebook-beside-orange-pen-iiaUVel-cJE |
 | notebook-dark-wood | Kelly Sikkema | Unsplash License | https://unsplash.com/photos/white-spiral-notebook-on-brown-wooden-table-dgVSuJu58C0 |
-| paper-hands-wood | Megan Watson | Unsplash License | https://unsplash.com/photos/person-holding-white-printer-paper-LqKUW9dMV10 |
 | paper-held-table | Kelly Sikkema | Unsplash License | https://unsplash.com/photos/a-woman-holding-a-piece-of-paper-on-top-of-a-wooden-table-UXyXvVbOV8w |
-| paper-parquet | Kelly Sikkema | Unsplash License | https://unsplash.com/photos/person-holding-white-paper-over-brown-wooden-floor--o050Ap2PX0 |
 | paper-taped | Elena Joland | Unsplash License | https://unsplash.com/photos/white-printer-paper-on-brown-wooden-table-oCdG2sTjDDQ |
 | poster-folded-leaves | Asep Rendi | Unsplash License | https://unsplash.com/photos/a-piece-of-paper-laying-on-top-of-a-lush-green-field-G2bIZ10J1HA |
 | poster-held-couple | Mediamodifier | Unsplash License | https://unsplash.com/photos/woman-in-gray-long-sleeve-shirt-holding-white-textile-ErHxp3-TP0Y |

@@ -206,7 +206,7 @@
    "tint": false,
    "colors": [],
    "credit": "Photo by Kate Trysh on Unsplash: https://unsplash.com/photos/rectangular-blank-billboard-Dnkr_lmdKi8",
-   "printWidth": 508
+   "printWidth": 507
   },
   {
    "id": "billboard-parking",
@@ -242,7 +242,7 @@
    "tint": false,
    "colors": [],
    "credit": "Photo by Dmytro Bayer on Unsplash: https://unsplash.com/photos/a-billboard-with-a-blue-sky-in-the-background-R2owP2PUVhk",
-   "printWidth": 775
+   "printWidth": 774
   },
   {
    "id": "screen-mall",
@@ -317,18 +317,6 @@
    "printWidth": 552
   },
   {
-   "id": "paper-hands-wood",
-   "label": "Sheet held in two hands",
-   "category": "Print",
-   "width": 1600,
-   "height": 1259,
-   "aspect": 0.712,
-   "tint": false,
-   "colors": [],
-   "credit": "Photo by Megan Watson on Unsplash: https://unsplash.com/photos/person-holding-white-printer-paper-LqKUW9dMV10",
-   "printWidth": 490
-  },
-  {
    "id": "paper-held-table",
    "label": "Sheet held at a table",
    "category": "Print",
@@ -339,18 +327,6 @@
    "colors": [],
    "credit": "Photo by Kelly Sikkema on Unsplash: https://unsplash.com/photos/a-woman-holding-a-piece-of-paper-on-top-of-a-wooden-table-UXyXvVbOV8w",
    "printWidth": 680
-  },
-  {
-   "id": "paper-parquet",
-   "label": "Square card in hand",
-   "category": "Print",
-   "width": 1600,
-   "height": 1060,
-   "aspect": 1.044,
-   "tint": false,
-   "colors": [],
-   "credit": "Photo by Kelly Sikkema on Unsplash: https://unsplash.com/photos/person-holding-white-paper-over-brown-wooden-floor--o050Ap2PX0",
-   "printWidth": 634
   },
   {
    "id": "paper-taped",
@@ -686,7 +662,8 @@
    "tint": false,
    "colors": [],
    "credit": "Photo by Dmitry Mashkin on Unsplash: https://unsplash.com/photos/picture-frame-with-hourglass-and-horse-hyGXlmNeK-I",
-   "printWidth": 756
+   "printWidth": 756,
+   "fit": "cover"
   },
   {
    "id": "frame-copper-wide",
@@ -698,7 +675,8 @@
    "tint": false,
    "colors": [],
    "credit": "Photo by Dmitry Mashkin on Unsplash: https://unsplash.com/photos/brown-wooden-frame-on-white-wall-xjZWnoy0lkU",
-   "printWidth": 1037
+   "printWidth": 1037,
+   "fit": "cover"
   },
   {
    "id": "frame-plant",
@@ -710,7 +688,8 @@
    "tint": false,
    "colors": [],
    "credit": "Photo by Rado Rafidinjatovo on Unsplash: https://unsplash.com/photos/a-plant-in-a-vase-next-to-a-picture-frame-h_BlgQTu_F8",
-   "printWidth": 399
+   "printWidth": 399,
+   "fit": "cover"
   },
   {
    "id": "frame-white-shadow",
@@ -722,7 +701,8 @@
    "tint": false,
    "colors": [],
    "credit": "Photo by Ang\u00e8le Kamp on Unsplash: https://unsplash.com/photos/green-leafed-beside-white-photo-frame-bDuh4oK_MCU",
-   "printWidth": 381
+   "printWidth": 381,
+   "fit": "cover"
   },
   {
    "id": "frame-pink-wall",
@@ -734,7 +714,8 @@
    "tint": false,
    "colors": [],
    "credit": "Photo by Elena Joland on Unsplash: https://unsplash.com/photos/white-wooden-framed-glass-window-Mthynno7LOA",
-   "printWidth": 309
+   "printWidth": 309,
+   "fit": "cover"
   },
   {
    "id": "canvas-easel",
@@ -746,7 +727,8 @@
    "tint": false,
    "colors": [],
    "credit": "Photo by Justyn Warner on Unsplash: https://unsplash.com/photos/brown-wooden-table-with-white-wall-VH8w75u3LE0",
-   "printWidth": 627
+   "printWidth": 627,
+   "fit": "cover"
   },
   {
    "id": "mug-window",

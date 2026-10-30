@@ -238,8 +238,24 @@ def build(spec, path):
     if spec.get('poly'):
         cov = cov * poly_mask(spec['poly'], w, h)
     if seg is not None and not spec.get('noseg'):
-        soft = cv2.GaussianBlur((seg > 0).astype(np.float32), (0, 0), feather)
-        cov = cov * np.clip((soft - 0.5) * 2 + 0.5 if spec.get('tight') else soft * 1.0, 0, 1)
+        # what the surface's flood did not reach, inside the quad, is an object in front. The flood stops
+        # short of it on the anti-aliased rim, so shrink it: the design then meets the object's real edge
+        # with no halo of bare surface between them.
+        inq = cov > 0.5
+        occ = (inq & (seg == 0)).astype(np.uint8)
+        occ = cv2.morphologyEx(occ, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+        if spec.get('occ_keep'):
+            n, lab, st, _ = cv2.connectedComponentsWithStats(occ, 8)
+            top = 1 + np.argsort(st[1:, cv2.CC_STAT_AREA])[::-1][:spec['occ_keep']]
+            occ = np.isin(lab, top).astype(np.uint8)
+        g = 2 * spec.get('bite', 1) + 1
+        # outside the quad counts as solid, so eroding never pulls away from the sheet's own edge
+        occ = cv2.erode(occ | (~inq).astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (g, g))) & inq.astype(np.uint8)
+        if spec.get('noocc'):
+            occ = occ & (poly_mask(spec['noocc'], w, h) < 0.5).astype(np.uint8)
+        # blur as if the object runs past the quad, or the edge would show as a line across it
+        near = cv2.dilate(occ, np.ones((9, 9), np.uint8)).astype(np.float32)
+        cov = cov * (1 - cv2.GaussianBlur((occ | (~inq).astype(np.uint8)).astype(np.float32), (0, 0), feather) * near)
     if spec.get('exclude'):
         ex = cv2.GaussianBlur(poly_mask(spec['exclude'], w, h), (0, 0), feather)
         cov = cov * (1 - ex)
