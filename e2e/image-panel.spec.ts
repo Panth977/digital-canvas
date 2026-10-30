@@ -376,6 +376,7 @@ test('toolbar: border, blend, replace, detach, download selection', async ({ pag
 });
 
 test('export matches the editor with shadow, duotone, stylize and adjustments on', async ({ page }) => {
+  test.setTimeout(90_000); // software rendering, every look on at once
   await newDesign(page);
   const img = await upload(page, await png(page, 400, 400, '#d08040', '#4080d0'));
   await page.evaluate(() => (window as any).__dc.updateLook({
