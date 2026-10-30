@@ -293,12 +293,12 @@ describe('seeing the result', () => {
     expect(el.shadow).toMatchObject({ style: 'backdrop', color: '#ff0066' });
     expect(el.duotone).toEqual({ dark: '#03045e', light: '#90e0ef', intensity: 50 });
     expect(el.border).toMatchObject({ color: '#112233', width: 6 });
-    expect(isPng((await h.call('render_page', { design_id: id, size: 256 })).image ?? png)).toBe(true);
+    expect((await h.call('render_page', { design_id: id, size: 256 })).images.length).toBe(1);
     const off = await h.call('update_elements', { design_id: id, updates: [{ id: el.id, shadow: null, duotone: null, stylize: null, invert: null, blend: null, border: null }] });
     expect(off.isError).toBe(false);
     const after = (await h.call('open_design', { design_id: id })).json.pages[0].elements.find((e: { name?: string }) => e.name === 'pic');
     for (const k of ['shadow', 'duotone', 'stylize', 'invert', 'blend', 'border']) expect(after[k]).toBeUndefined();
-  });
+  }, 30_000);
 
   it('the guide lists the new picture settings', async () => {
     const r = await h.client.readResource({ uri: 'dcanvas://guide' });

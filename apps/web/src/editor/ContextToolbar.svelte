@@ -473,15 +473,15 @@
       <div class="pw">
         <button class="ib" class:on={ui.pop === 'iborder'} title="Border" aria-label="Border" data-testid="border-btn" onclick={() => togglePop('iborder')}><Icon name="border" /></button>
         {#if ui.pop === 'iborder'}
-          <div class="pop" data-testid="border-pop">
+          <div class="pop right" data-testid="border-pop">
             <div class="row">
               {#each [{ id: '', label: 'None' }, { id: 'solid', label: 'Solid' }, { id: 'dashed', label: 'Dashed' }, { id: 'dotted', label: 'Dotted' }] as d (d.id)}
-                <button class="tb" class:on={(pic.border ? pic.border.dash ?? 'solid' : '') === d.id} data-testid="border-{d.id || 'none'}" onclick={() => { ed.updateLook({ border: d.id ? { color: pic!.border?.color ?? '#000000', width: pic!.border?.width ?? 8, dash: d.id as 'solid' } : undefined }); end(); }}>{d.label}</button>
+                <button class="bopt" class:on={(pic.border ? pic.border.dash ?? 'solid' : '') === d.id} data-testid="border-{d.id || 'none'}" onclick={() => { ed.updateLook({ border: d.id ? { color: pic!.border?.color ?? '#000000', width: pic!.border?.width ?? 8, dash: d.id as 'solid' } : undefined }); end(); }}>{d.label}</button>
               {/each}
             </div>
             {#if pic.border}
               <NumField label="Border weight" value={pic.border.width} min={1} max={200} testid="border-width" onchange={(v) => ed.updateLook({ border: { ...pic!.border!, width: v } }, key('ibw'))} onend={end} />
-              <button class="tb" data-testid="border-color" onclick={() => color({ title: 'Border colour', testid: 'border-col', value: () => pic?.border?.color ?? '#000000', onchange: (hex) => ed.updateLook({ border: { ...pic!.border!, color: hex } }, key('ibc')) })}><i class="swatch" style="background:{pic.border.color}"></i> Colour</button>
+              <button class="bopt" data-testid="border-color" onclick={() => color({ title: 'Border colour', testid: 'border-col', value: () => pic?.border?.color ?? '#000000', onchange: (hex) => ed.updateLook({ border: { ...pic!.border!, color: hex } }, key('ibc')) })}><i class="swatch" style="background:{pic.border.color}"></i> Colour</button>
             {/if}
           </div>
         {/if}
@@ -618,6 +618,8 @@
   .slider .n { height: 30px; text-align: center; }
   .slider b { text-align: center; }
   .row { display: flex; gap: 2px; }
+  .bopt { display: flex; align-items: center; border: 0; background: none; color: var(--ink); border-radius: 6px; padding: 6px 8px; font-size: 13px; white-space: nowrap; }
+  .bopt:hover, .bopt.on { background: var(--hover); }
   .swatch { display: inline-block; width: 16px; height: 16px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(127,127,127,.4); margin-right: 4px; }
   .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: end; }
   .btns { display: flex; gap: 6px; }

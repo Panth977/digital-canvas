@@ -14,9 +14,8 @@ async function addPhoto(page: Page): Promise<void> {
   await page.evaluate(async () => {
     const c = new OffscreenCanvas(300, 300), g = c.getContext('2d')!;
     g.fillStyle = '#ff2020'; g.fillRect(0, 0, 300, 300);
-    const bytes = new Uint8Array(await (await c.convertToBlob({ type: 'image/png' })).arrayBuffer());
-    const ed = (window as any).__dc;
-    await ed.addImage(bytes, 'image/png', 'photo.png');
+    const blob = await c.convertToBlob({ type: 'image/png' });
+    await (window as any).__dc.addImageFile(new File([blob], 'photo.png', { type: 'image/png' }));
   });
   await expect.poll(async () => (await elements(page)).length).toBe(1);
 }

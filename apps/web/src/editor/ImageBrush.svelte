@@ -194,7 +194,7 @@
   const removeLabel = $derived(brush.tool === 'bg' ? 'Erase' : 'Undo brush');
 </script>
 
-<svelte:window onkeydown={keys} />
+<svelte:window onkeydowncapture={keys} />
 
 {#if el}
   {@const w = el.w * zoom}
@@ -206,7 +206,7 @@
   {#if cursor && !el.rotation}
     <i class="ring" style:left="{left + cursor.x}px" style:top="{top + cursor.y}px" style:width="{brush.size}px" style:height="{brush.size}px"></i>
   {/if}
-  <div class="bar" data-testid="brush-bar" role="toolbar" aria-label="{TITLE[brush.tool]} brush">
+  <div class="bar" data-testid="brush-bar" role="toolbar" aria-label="{TITLE[brush.tool]} brush" tabindex="-1" onpointerdown={(e) => e.stopPropagation()}>
     <b>{TITLE[brush.tool]}</b>
     <div class="seg" role="group">
       <button class:on={brush.mode === 'add'} data-testid="brush-add" onclick={() => (brush.mode = 'add')}>{addLabel}</button>

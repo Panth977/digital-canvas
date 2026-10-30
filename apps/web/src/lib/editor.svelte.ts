@@ -71,7 +71,7 @@ export class EditorState {
   /** Fills part of a picture on the device; tests use a stub. */
   inpainter: Inpainter = inpaintLocal;
   /** Stands in for the user's AI provider in tests. */
-  imageEditor: ((image: Media, mask: Media, prompt: string) => Promise<Media>) | null = null;
+  imageEditor = $state<((image: Media, mask: Media, prompt: string) => Promise<Media>) | null>(null);
   /** Reads text in a picture; tests use a stub. */
   ocr: Ocr = tesseractOcr;
 

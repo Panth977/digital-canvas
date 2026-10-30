@@ -89,7 +89,7 @@ test('the panel has Canva\'s sections, every slider and the filter families', as
   for (const t of ['tools', 'filters', 'adjust', 'shadows', 'duotone', 'effects']) await expect(page.getByTestId(`imgtab-${t}`)).toBeVisible();
   for (const t of ['remove-bg', 'tool-erase', 'tool-grab', 'tool-text', 'tool-edit', 'tool-expand', 'tool-crop', 'tool-blur', 'tool-focus', 'tool-pop', 'retouch']) await expect(page.getByTestId(t)).toBeVisible();
   await page.getByTestId('imgtab-adjust').click();
-  for (const g of ['White balance', 'Light', 'Colour', 'Texture', 'Colour edit']) await expect(page.getByText(g, { exact: true })).toBeVisible();
+  for (const g of ['White balance', 'Light', 'Colour', 'Texture', 'Colour edit']) await expect(page.locator('summary', { hasText: new RegExp(`^${g}$`) })).toBeVisible();
   for (const k of ['temperature', 'tint', 'brightness', 'contrast', 'highlights', 'shadows', 'whites', 'blacks', 'vibrance', 'saturation', 'texture', 'clarity', 'sharpen', 'fade', 'grain', 'vignette', 'blur']) await expect(page.getByTestId(`adj-${k}`)).toHaveCount(1);
   await expect(page.locator('[data-testid^="band-"][aria-label]')).toHaveCount(8);
   await page.getByTestId('imgtab-shadows').click();
@@ -224,10 +224,25 @@ test('Magic Grab: subject on top, background filled; Grab Text; Magic Crop', asy
   await newDesign(page);
   const img = await upload(page, await png(page, 200, 200, '#ff2020', '#2020ff'));
   await stubs(page);
+  // Magic Crop: a subject in the top-right quarter
+  const realRemover = await page.evaluateHandle(() => (window as any).__dc.bgRemover);
+  await page.evaluate(() => {
+    const ed = (window as any).__dc, keep = ed.bgRemover;
+    ed.bgRemover = async (b: Uint8Array, m: string) => {
+      const bmp = await createImageBitmap(new Blob([(await keep(b, m)) as BlobPart], { type: 'image/png' }));
+      const c = new OffscreenCanvas(bmp.width, bmp.height), g = c.getContext('2d')!;
+      g.drawImage(bmp, 0, 0);
+      g.clearRect(0, bmp.height / 2, bmp.width, bmp.height / 2);
+      return new Uint8Array(await (await c.convertToBlob({ type: 'image/png' })).arrayBuffer());
+    };
+  });
   await page.getByTestId('edit-image').click();
   await page.getByTestId('tool-crop').click();
-  await expect.poll(async () => (await el0(page)).crop?.x).toBeGreaterThan(0.3);
+  await expect.poll(async () => (await el0(page)).crop?.w).toBeLessThan(0.8);
+  expect((await el0(page)).crop.x).toBeGreaterThan(0.3);
   await page.getByTestId('undo').click();
+  await page.getByTestId('undo').click(); // and the mask it made
+  await page.evaluate((f) => { (window as any).__dc.bgRemover = f; }, realRemover);
   await page.getByTestId('tool-grab').click();
   await expect.poll(async () => (await elements(page)).filter((e) => e.type === 'image').length).toBe(2);
   const [base, top] = (await elements(page)) as any[];
@@ -236,7 +251,6 @@ test('Magic Grab: subject on top, background filled; Grab Text; Magic Crop', asy
   expect(base.original).toBe(img.asset);
   expect(await page.evaluate(() => (window as any).__dc.selection)).toEqual([top.id]);
   await page.evaluate((id) => (window as any).__dc.select([id]), base.id);
-  await page.getByTestId('edit-image').click();
   await page.getByTestId('tool-text').click();
   await expect.poll(async () => (await elements(page)).some((e) => e.type === 'text')).toBe(true);
   const t = (await elements(page)).find((e) => e.type === 'text')!;
@@ -360,7 +374,7 @@ test('export matches the editor with shadow, duotone, stylize and adjustments on
   const view = await page.evaluate(() => (window as any).__dcView.get());
   const at = (px: number, py: number) => ({ x: stage.x + view.panX + px * view.zoom, y: stage.y + view.panY + py * view.zoom });
   const shot = await page.screenshot();
-  const pts = [[0.3, 0.5], [0.7, 0.5], [0.5, 0.2], [0.5, 0.8]].map(([u, v]) => ({ x: img.x + u! * img.w, y: img.y + v! * img.h }));
+  const pts = [[0.3, 0.5], [0.7, 0.5], [0.25, 0.2], [0.75, 0.8]].map(([u, v]) => ({ x: img.x + u! * img.w, y: img.y + v! * img.h }));
   const seen = await page.evaluate(async ([b64, ps]) => {
     const bmp = await createImageBitmap(await (await fetch(`data:image/png;base64,${b64}`)).blob());
     const c = new OffscreenCanvas(bmp.width, bmp.height), g = c.getContext('2d')!;
