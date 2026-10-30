@@ -115,3 +115,16 @@ export function expandLayout(iw: number, ih: number, aspect: number): { w: numbe
   const h = Math.round(iw / aspect);
   return { w: iw, h, x: 0, y: Math.round((h - ih) / 2) };
 }
+
+/** A text line's colour: the mean of the pixels furthest from its background (the median tone). */
+export function inkColor(px: ArrayLike<number>): string {
+  const tones: number[] = [];
+  for (let i = 0; i + 2 < px.length; i += 4) tones.push(0.2126 * px[i]! + 0.7152 * px[i + 1]! + 0.0722 * px[i + 2]!);
+  const median = [...tones].sort((a, b) => a - b)[tones.length >> 1] ?? 0;
+  let far = 0;
+  for (const t of tones) far = Math.max(far, Math.abs(t - median));
+  let r = 0, g = 0, b = 0, k = 0;
+  tones.forEach((t, j) => { if (Math.abs(t - median) > far * 0.7) { r += px[j * 4]!; g += px[j * 4 + 1]!; b += px[j * 4 + 2]!; k++; } });
+  const hex = (v: number) => Math.round(v / Math.max(1, k)).toString(16).padStart(2, '0');
+  return `#${hex(r)}${hex(g)}${hex(b)}`;
+}

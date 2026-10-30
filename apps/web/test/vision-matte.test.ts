@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { boxBlur, coverage, dilate, expandLayout, feather, guidedFilter, inpaintWindow, subjectBox } from '../src/lib/vision/matte.ts';
+import { boxBlur, coverage, dilate, expandLayout, feather, guidedFilter, inkColor, inpaintWindow, subjectBox } from '../src/lib/vision/matte.ts';
 
 describe('mask maths', () => {
   it('coverage and subjectBox read the subject', () => {
@@ -43,6 +43,11 @@ describe('mask maths', () => {
     expect(big.w).toBe(1440);
     expect(big.x + big.w).toBeLessThanOrEqual(2000);
     expect(inpaintWindow({ x: 0, y: 0, w: 50, h: 50 }, 300, 200).w).toBe(200);
+  });
+  it('inkColor finds the text on either kind of background', () => {
+    const line = (bg: number[], ink: number[], n: number) => [...Array(60).fill(bg).flat(), ...Array(n).fill(ink).flat()];
+    expect(inkColor(line([255, 255, 255, 255], [18, 52, 86, 255], 30))).toBe('#123456');
+    expect(inkColor(line([10, 10, 10, 255], [250, 240, 0, 255], 30))).toBe('#faf000');
   });
   it('expandLayout widens or heightens around the old image', () => {
     expect(expandLayout(100, 100, 2)).toEqual({ w: 200, h: 100, x: 50, y: 0 });

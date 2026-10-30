@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import fs from 'node:fs';
 import { doc, elements, newDesign } from './helpers.ts';
 
-/** The Edit image panel, its tools and the mask brush. Models and AI keys are stubbed; the last test runs the real ones when DC_MODEL_DIR is set. */
+/** The Edit image panel, its tools and the mask brush. Models and AI keys are stubbed; the last tests run the real ones when DC_REAL_MODELS is set. */
 
 async function png(page: Page, w: number, h: number, a: string, b = a): Promise<Buffer> {
   const b64 = await page.evaluate(async ([w, h, a, b]) => {
@@ -392,13 +392,12 @@ test('export matches the editor with shadow, duotone, stylize and adjustments on
   }
 });
 
-const MODELS = process.env.DC_MODEL_DIR;
+/** Downloads the real models from Hugging Face, so only on request. */
 test.describe('real models', () => {
-  test.skip(!MODELS, 'set DC_MODEL_DIR to the folder with the downloaded models');
+  test.skip(!process.env.DC_REAL_MODELS, 'set DC_REAL_MODELS=1 to download and run the real models');
   test.setTimeout(240_000);
 
   test('BiRefNet cuts out a real mug photo, in the worker, with progress', async ({ page }) => {
-    await page.route(/huggingface\.co\/studioludens/, (r) => r.fulfill({ path: `${MODELS}/birefnet-lite-512-fp16/model.onnx`, contentType: 'application/octet-stream' }));
     await newDesign(page);
     await page.getByTestId('tab-uploads').click();
     const chooser = page.waitForEvent('filechooser');
@@ -409,7 +408,10 @@ test.describe('real models', () => {
     const t0 = Date.now();
     await page.getByTestId('remove-bg').click();
     await expect(page.getByTestId('bg-progress')).toBeVisible();
-    await expect.poll(async () => !!(await el0(page)).original, { timeout: 200_000 }).toBe(true);
+    await expect.poll(async () => {
+      if (process.env.DC_MODEL_LOG) console.log(await page.getByTestId('bg-progress').textContent().catch(() => '-'), await page.getByTestId('tool-error').textContent({ timeout: 100 }).catch(() => ''));
+      return !!(await el0(page)).original || (await page.getByTestId('tool-error').count()) > 0;
+    }, { timeout: 200_000, intervals: [3000] }).toBe(true);
     console.log(`cut-out in ${Date.now() - t0} ms`);
     const img = await el0(page);
     expect((await pixel(page, img.x + 8, img.y + 8))).toEqual([255, 255, 255, 255]); // backdrop gone
@@ -418,8 +420,21 @@ test.describe('real models', () => {
     await page.getByTestId('canvas').screenshot({ path: '/tmp/orch27-rw/r15-bg-mug-in-editor.png' });
   });
 
+  test('Tesseract reads real text', async ({ page }) => {
+    await newDesign(page);
+    const lines = await page.evaluate(async () => {
+      const c = new OffscreenCanvas(640, 200), g = c.getContext('2d')!;
+      g.fillStyle = '#fff'; g.fillRect(0, 0, 640, 200);
+      g.fillStyle = '#123456'; g.font = 'bold 64px sans-serif'; g.fillText('SUMMER SALE', 40, 120);
+      const bytes = new Uint8Array(await (await c.convertToBlob({ type: 'image/png' })).arrayBuffer());
+      return (window as any).__dc.ocr(bytes, 'image/png', () => {});
+    });
+    expect(lines[0].text).toContain('SALE');
+    expect(lines[0].w).toBeGreaterThan(0.5);
+    expect(lines[0].color).toMatch(/^#[0-3]/);
+  });
+
   test('LaMa erases in the worker and keeps pixels outside the mask', async ({ page }) => {
-    await page.route(/huggingface\.co\/Carve/, (r) => r.fulfill({ path: `${MODELS}/lama/model.onnx`, contentType: 'application/octet-stream' }));
     await newDesign(page);
     await page.getByTestId('tab-uploads').click();
     const chooser = page.waitForEvent('filechooser');

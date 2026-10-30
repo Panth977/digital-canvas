@@ -7,7 +7,7 @@
 import { autoAdjust, coverCrop, pictureStats, subjectCrop, updateElements, type ImageElement, type ImageLook } from '@digital-canvas/scene';
 import type { EditorState } from '../editor.svelte.ts';
 import { download } from '../files.ts';
-import { expandLayout, subjectBox } from './matte.ts';
+import { expandLayout, inkColor, subjectBox } from './matte.ts';
 import { aiSettings, type Choice } from '../ai/settings.svelte.ts';
 import type { Media, Provider } from '../ai/types.ts';
 
@@ -198,20 +198,6 @@ export const tesseractOcr: Ocr = async (bytes, mime, onProgress) => {
     await w.terminate();
   }
 };
-
-/** The text's colour: the mean of the pixels furthest from the box's mean tone. */
-export function inkColor(px: ArrayLike<number>): string {
-  let n = 0, sum = 0;
-  const tone = (i: number) => 0.2126 * px[i]! + 0.7152 * px[i + 1]! + 0.0722 * px[i + 2]!;
-  for (let i = 0; i < px.length; i += 4) { sum += tone(i); n++; }
-  const mean = sum / Math.max(1, n);
-  let far = 0;
-  for (let i = 0; i < px.length; i += 4) far = Math.max(far, Math.abs(tone(i) - mean));
-  let r = 0, g = 0, b = 0, k = 0;
-  for (let i = 0; i < px.length; i += 4) if (Math.abs(tone(i) - mean) > far * 0.7) { r += px[i]!; g += px[i + 1]!; b += px[i + 2]!; k++; }
-  const hex = (v: number) => Math.round(v / Math.max(1, k)).toString(16).padStart(2, '0');
-  return `#${hex(r)}${hex(g)}${hex(b)}`;
-}
 
 export async function grabText(ed: EditorState): Promise<void> {
   const el = selectedImage(ed);
