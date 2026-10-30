@@ -27,6 +27,8 @@ export interface Credit {
   /** SPDX id, e.g. CC-BY-4.0. */
   licence: string;
   licenceUrl: string;
+  /** What we changed (CC BY asks for this). */
+  note?: string;
 }
 
 export interface SourceBoard {

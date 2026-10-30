@@ -145,6 +145,7 @@ async function toBoard(pf: PenpotFile, shapes: Map<string, PShape>, board: PShap
   const credit: Credit = {
     author: f.author, ...(f.authorUrl ? { authorUrl: f.authorUrl } : {}), catalog: 'Penpot Hub', sourceUrl: `https://penpot.app/penpothub/libraries-templates/${f.slug}`,
     fileUrl: f.file.startsWith('http') ? f.file : FILES + encodeURIComponent(f.file), licence: f.licence, licenceUrl: f.licenceUrl,
+    note: pick.stripImages ? 'Converted to our format. Photos and logos the licence does not cover were removed.' : 'Converted to our format.',
   };
   const thumb = pf.thumbs.get(board.id);
   const preview = thumb ? pf.objects.get(thumb) : undefined;
