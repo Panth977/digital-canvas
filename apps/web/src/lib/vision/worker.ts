@@ -31,7 +31,7 @@ const BIREFNET: Model = {
 /** MODNet (Apache-2.0): people only, but small; the fallback when BiRefNet can't run on a device. */
 const MODNET: Model = {
   name: 'MODNet',
-  url: 'https://huggingface.co/Xenova/modnet/resolve/main/onnx/model.onnx',
+  url: 'https://huggingface.co/Xenova/modnet/resolve/fa2fa546052fba4c08921230a26cc69a333fca12/onnx/model.onnx',
   mb: 25,
   size: (w, h) => {
     const s = 512 / Math.min(w, h);
