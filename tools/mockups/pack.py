@@ -14,7 +14,7 @@ from scipy import ndimage
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
 CATS = ['Apparel', 'Outdoor', 'Print', 'Packaging', 'Devices', 'Home']
-KEYS = ['id', 'label', 'category', 'width', 'height', 'aspect', 'tint', 'colors', 'credit']
+KEYS = ['id', 'label', 'category', 'width', 'height', 'aspect', 'tint', 'colors', 'credit', 'printWidth']
 
 
 def srgb(x):
@@ -30,9 +30,23 @@ def soft(x, knee=0.7):
 
 
 def png_bytes(img, **kw):
+    """Plain PNG: no gAMA/iCCP/sRGB/cHRM chunks (browsers would colour-convert the data)."""
+    img.info = {}
     b = io.BytesIO()
     img.save(b, 'PNG', optimize=True, **kw)
-    return b.getvalue()
+    data = b.getvalue()
+    bad = [c for c in (b'gAMA', b'iCCP', b'sRGB', b'cHRM') if c in png_chunks(data)]
+    assert not bad, bad
+    return data
+
+
+def png_chunks(data):
+    out, i = [], 8
+    while i < len(data):
+        n = int.from_bytes(data[i:i + 4], 'big')
+        out.append(data[i + 4:i + 8])
+        i += 12 + n
+    return out
 
 
 def pack(mid, raw, out):
@@ -94,8 +108,13 @@ def pack(mid, raw, out):
     s = 400 / max(W, H)
     th = th.resize((round(W * s), round(H * s)), Image.LANCZOS)
     th.save(os.path.join(od, 'thumb.jpg'), quality=80, optimize=True)
-    entry = {k: meta[k] for k in KEYS}
+    entry = {k: meta.get(k) for k in KEYS}
     entry['width'], entry['height'] = W, H
+    # print area's width in px at full size: 1 / |du/dpixel| over fully covered pixels
+    gy, gx = np.gradient(u)
+    g = np.hypot(gx, gy)[inner & (cov > 0.99)]
+    g = g[g > 0]
+    entry['printWidth'] = int(round(1.0 / np.median(g))) if len(g) else W
     json.dump(dict(entry, order=meta.get('order', 0)), open(os.path.join(od, 'meta.json'), 'w'))
     size = sum(os.path.getsize(os.path.join(od, f)) for f in os.listdir(od) if f != 'meta.json')
     print(f'packed {mid}: {W}x{H} exposure={k:.3f} {size / 1024:.0f} KB')
@@ -110,7 +129,7 @@ def write_index(out, order=None):
             entries.append(json.load(open(p)))
     pos = {m: i for i, m in enumerate(order or [])}
     entries.sort(key=lambda e: (CATS.index(e['category']), e.get('order', 999), e['id']))
-    idx = {'version': 1, 'mockups': [{k: e[k] for k in KEYS} for e in entries]}
+    idx = {'version': 1, 'mockups': [{k: e.get(k) for k in KEYS} for e in entries]}
     json.dump(idx, open(os.path.join(out, 'index.json'), 'w'), indent=1)
     return idx
 

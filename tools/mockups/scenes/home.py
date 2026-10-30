@@ -70,7 +70,7 @@ def pillow():
         return fn
     seam = ('seam', lambda s, t: (min(s, 1 - s, t, 1 - t) * S, 1.0))
     weave = ('weave', lambda s, t: ((s - 0.5) * S, (t - 0.5) * S))
-    m = 0.04
+    m = 0.025
     front = B.grid_mesh('PillowF', 80, 80, surf(1), uvfn=lambda s, t: ((s - m) / (1 - 2 * m), (t - m) / (1 - 2 * m)),
                         mat=can, extra_uv=(seam, weave))
     back = B.grid_mesh('PillowB', 40, 40, surf(-1), mat=m_canvas('PillowBack', printable=False),
@@ -87,8 +87,8 @@ def pillow():
                bevel=0.06, segs=5)
     B.subsurf(p2, 2)
     B.world_color((0.75, 0.82, 0.95), 0.35)
-    B.sun_light((-1.0, -0.5, 0.5), strength=3.5, angle=3.0)
-    B.area_light((0.8, -2.5, 1.6), (0, -0.4, 0.7), size=2.5, power=350, color=(1, 0.97, 0.93))
+    B.sun_light((-1.0, -0.3, 0.45), strength=4.5, angle=3.0)
+    B.area_light((1.5, -1.5, 1.4), (0, -0.4, 0.7), size=1.5, power=120, color=(1, 0.97, 0.93))
     B.camera((0.45, -1.7, 0.85), (0.1, -0.36, 0.7), lens=50, fstop=4)
 
 
