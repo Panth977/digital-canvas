@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compositeMockup, coverCrop, parseHex, parseMockupIndex, prepareMockup, renderMockup, type MockupBuffers, type Rgba } from '../src/mockup.ts';
+import { compositeMockup, mockupCrop, parseHex, parseMockupIndex, prepareMockup, renderMockup, type MockupBuffers, type Rgba } from '../src/mockup.ts';
 
 /** RGBA buffer from a per-pixel function. */
 function img(w: number, h: number, f: (x: number, y: number) => [number, number, number, number?]): Rgba {
@@ -119,9 +119,9 @@ describe('mockup compositor', () => {
   });
 
   it('cover-fits the design to the print aspect (centre crop)', () => {
-    expect(coverCrop(200, 100, 1)).toEqual({ x: 50, y: 0, w: 100, h: 100 });
-    expect(coverCrop(100, 200, 1)).toEqual({ x: 0, y: 50, w: 100, h: 100 });
-    expect(coverCrop(100, 100, 2)).toEqual({ x: 0, y: 25, w: 100, h: 50 });
+    expect(mockupCrop(200, 100, 1)).toEqual({ x: 50, y: 0, w: 100, h: 100 });
+    expect(mockupCrop(100, 200, 1)).toEqual({ x: 0, y: 50, w: 100, h: 100 });
+    expect(mockupCrop(100, 100, 2)).toEqual({ x: 0, y: 25, w: 100, h: 50 });
     // a 6×2 design on a square print area shows its middle 2×2
     const d = img(6, 2, (x) => [x * 40, 0, 0]);
     const out = renderMockup(mockup(2, 2), d, { aspect: 1 });

@@ -16,6 +16,7 @@
     { id: 'ai', label: 'AI', icon: 'ai' },
     { id: 'templates', label: 'Templates', icon: 'templates' },
     { id: 'elements', label: 'Elements', icon: 'elements' },
+    { id: 'mockups', label: 'Mockups', icon: 'tshirt' },
     { id: 'text', label: 'Text', icon: 'text' },
     { id: 'brand', label: 'Brand', icon: 'brand' },
     { id: 'uploads', label: 'Uploads', icon: 'cloud' },

@@ -199,7 +199,7 @@ function prepareSmall(b: MockupBuffers, W: number, H: number, f: number): Prepar
  * The part of the design shown in the print area: the largest centred
  * rectangle with the print area's aspect (CSS `object-fit: cover`).
  */
-export function coverCrop(dw: number, dh: number, aspect: number): { x: number; y: number; w: number; h: number } {
+export function mockupCrop(dw: number, dh: number, aspect: number): { x: number; y: number; w: number; h: number } {
   if (!(aspect > 0)) return { x: 0, y: 0, w: dw, h: dh };
   if (dw / dh > aspect) {
     const w = dh * aspect;
@@ -231,7 +231,7 @@ export function compositeMockup(m: PreparedMockup, design: Rgba, opts: Composite
   // 2. the design through the UV map
   const dw = design.width, dh = design.height, d = design.data;
   if (dw < 1 || dh < 1) return dst;
-  const crop = coverCrop(dw, dh, opts.aspect);
+  const crop = mockupCrop(dw, dh, opts.aspect);
   const sx = Math.max(0, crop.w - 1), sy = Math.max(0, crop.h - 1);
   const maxX = dw - 1, maxY = dh - 1;
   const { u, v, cover, light, inside } = m;
