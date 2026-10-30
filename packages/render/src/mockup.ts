@@ -60,23 +60,27 @@ export interface MockupBuffers {
   tint?: Rgba | null;
 }
 
-/** A mockup ready to composite at one size. */
+/**
+ * A mockup ready to composite at one size. The print-area arrays are
+ * compact: entry k describes pixel `inside[k]` (most of a photo is outside
+ * the print area, so this keeps a prepared mockup small).
+ */
 export interface PreparedMockup {
   width: number;
   height: number;
   /** RGBA, opaque. */
   base: Uint8ClampedArray;
-  /** Print-area coordinates in [0,1] (only where cover > 0). */
+  /** Product mask 0..255 per pixel, or null (no recolouring). */
+  tint: Uint8Array | null;
+  /** Pixel indices with coverage > 0 (the only ones the design touches). */
+  inside: Uint32Array;
+  /** Print-area coordinates in [0,1], per inside pixel. */
   u: Float32Array;
   v: Float32Array;
-  /** Coverage 0..1. */
+  /** Coverage 0..1, per inside pixel. */
   cover: Float32Array;
-  /** Lighting factor (shade/128). */
+  /** Lighting factor (shade/128), per inside pixel. */
   light: Float32Array;
-  /** Product mask 0..1, or null (no recolouring). */
-  tint: Float32Array | null;
-  /** Pixel indices with cover > 0 (the only ones the design touches). */
-  inside: Uint32Array;
 }
 
 export interface CompositeOptions {
@@ -122,30 +126,26 @@ export function prepareMockup(b: MockupBuffers, maxSide?: number): PreparedMocku
 
 function prepareFull(b: MockupBuffers, W: number, H: number): PreparedMockup {
   const n = W * H;
-  const base = new Uint8ClampedArray(n * 4);
-  const u = new Float32Array(n), v = new Float32Array(n), cover = new Float32Array(n), light = new Float32Array(n);
-  const tint = b.tint ? new Float32Array(n) : null;
   const hi = b.uvHi.data, lo = b.uvLo.data, sh = b.shade.data, bs = b.base.data, tn = b.tint?.data;
-  let inside = 0;
-  for (let i = 0, p = 0; i < n; i++, p += 4) {
+  let count = 0;
+  for (let p = 2; p < n * 4; p += 4) if (hi[p]! > 0) count++;
+  const base = new Uint8ClampedArray(n * 4);
+  const tint = tn ? new Uint8Array(n) : null;
+  const inside = new Uint32Array(count), u = new Float32Array(count), v = new Float32Array(count), cover = new Float32Array(count), light = new Float32Array(count);
+  for (let i = 0, p = 0, k = 0; i < n; i++, p += 4) {
     base[p] = bs[p]!; base[p + 1] = bs[p + 1]!; base[p + 2] = bs[p + 2]!; base[p + 3] = 255;
-    if (tint) tint[i] = tn![p]! / 255;
-    const m = hi[p + 2]! / 255;
+    if (tint) tint[i] = tn![p]!;
+    const m = hi[p + 2]!;
     if (m > 0) {
-      cover[i] = m;
-      u[i] = (hi[p]! * 256 + lo[p]!) / 65535;
-      v[i] = (hi[p + 1]! * 256 + lo[p + 1]!) / 65535;
-      light[i] = sh[p]! / 128;
-      inside++;
+      inside[k] = i;
+      cover[k] = m / 255;
+      u[k] = (hi[p]! * 256 + lo[p]!) / 65535;
+      v[k] = (hi[p + 1]! * 256 + lo[p + 1]!) / 65535;
+      light[k] = sh[p]! / 128;
+      k++;
     }
   }
-  return { width: W, height: H, base, u, v, cover, light, tint, inside: insideOf(cover, inside) };
-}
-
-function insideOf(cover: Float32Array, count: number): Uint32Array {
-  const out = new Uint32Array(count);
-  for (let i = 0, k = 0; i < cover.length; i++) if (cover[i]! > 0) out[k++] = i;
-  return out;
+  return { width: W, height: H, base, tint, inside, u, v, cover, light };
 }
 
 /** Box filter to `W/f × H/f`: each output pixel averages the source pixels under it. */
@@ -153,8 +153,8 @@ function prepareSmall(b: MockupBuffers, W: number, H: number, f: number): Prepar
   const w = Math.max(1, Math.round(W / f)), h = Math.max(1, Math.round(H / f));
   const n = w * h;
   const base = new Uint8ClampedArray(n * 4);
-  const u = new Float32Array(n), v = new Float32Array(n), cover = new Float32Array(n), light = new Float32Array(n);
-  const tint = b.tint ? new Float32Array(n) : null;
+  const tint = b.tint ? new Uint8Array(n) : null;
+  const U = new Float32Array(n), V = new Float32Array(n), C = new Float32Array(n), L = new Float32Array(n);
   const hi = b.uvHi.data, lo = b.uvLo.data, sh = b.shade.data, bs = b.base.data, tn = b.tint?.data;
   const fx = W / w, fy = H / h;
   let count = 0;
@@ -179,14 +179,20 @@ function prepareSmall(b: MockupBuffers, W: number, H: number, f: number): Prepar
       }
       const i = y * w + x, q = i * 4;
       base[q] = r / k; base[q + 1] = g / k; base[q + 2] = bl / k; base[q + 3] = 255;
-      if (tint) tint[i] = t / k / 255;
+      if (tint) tint[i] = Math.round(t / k);
       if (mc > 0) {
-        cover[i] = mc / k; u[i] = mu / mc; v[i] = mv / mc; light[i] = ml / mc;
+        C[i] = mc / k; U[i] = mu / mc; V[i] = mv / mc; L[i] = ml / mc;
         count++;
       }
     }
   }
-  return { width: w, height: h, base, u, v, cover, light, tint, inside: insideOf(cover, count) };
+  const inside = new Uint32Array(count), u = new Float32Array(count), v = new Float32Array(count), cover = new Float32Array(count), light = new Float32Array(count);
+  for (let i = 0, k = 0; i < n; i++) {
+    if (!(C[i]! > 0)) continue;
+    inside[k] = i; u[k] = U[i]!; v[k] = V[i]!; cover[k] = C[i]!; light[k] = L[i]!;
+    k++;
+  }
+  return { width: w, height: h, base, tint, inside, u, v, cover, light };
 }
 
 /**
@@ -211,8 +217,9 @@ export function compositeMockup(m: PreparedMockup, design: Rgba, opts: Composite
   const pc = m.tint ? parseHex(opts.color) : null;
   if (pc && m.tint) {
     const [cr, cg, cb] = pc, tint = m.tint, base = m.base;
+    const k255 = 1 / 255;
     for (let i = 0, p = 0; i < n; i++, p += 4) {
-      const t = tint[i]!;
+      const t = tint[i]! * k255;
       const r = base[p]!, g = base[p + 1]!, b = base[p + 2]!;
       dst[p] = r + (r * cr - r) * t;
       dst[p + 1] = g + (g * cg - g) * t;
@@ -230,7 +237,7 @@ export function compositeMockup(m: PreparedMockup, design: Rgba, opts: Composite
   const { u, v, cover, light, inside } = m;
   for (let k = 0; k < inside.length; k++) {
     const i = inside[k]!;
-    let x = crop.x + u[i]! * sx, y = crop.y + v[i]! * sy;
+    let x = crop.x + u[k]! * sx, y = crop.y + v[k]! * sy;
     if (x < 0) x = 0; else if (x > maxX) x = maxX;
     if (y < 0) y = 0; else if (y > maxY) y = maxY;
     const x0 = x | 0, y0 = y | 0;
@@ -242,14 +249,14 @@ export function compositeMockup(m: PreparedMockup, design: Rgba, opts: Composite
     const a = a00 + a10 + a01 + a11; // 0..255
     if (a <= 0) continue;
     const ia = 1 / a;
-    const L = light[i]!;
+    const L = light[k]!;
     let r = (d[p00]! * a00 + d[p10]! * a10 + d[p01]! * a01 + d[p11]! * a11) * ia * L;
     let g = (d[p00 + 1]! * a00 + d[p10 + 1]! * a10 + d[p01 + 1]! * a01 + d[p11 + 1]! * a11) * ia * L;
     let b = (d[p00 + 2]! * a00 + d[p10 + 2]! * a10 + d[p01 + 2]! * a01 + d[p11 + 2]! * a11) * ia * L;
     if (r > 255) r = 255;
     if (g > 255) g = 255;
     if (b > 255) b = 255;
-    const t = cover[i]! * (a / 255);
+    const t = cover[k]! * (a / 255);
     const p = i * 4;
     const cr = dst[p]!, cg = dst[p + 1]!, cb = dst[p + 2]!;
     dst[p] = cr + (r - cr) * t;
