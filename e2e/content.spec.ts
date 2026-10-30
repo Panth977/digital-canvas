@@ -79,7 +79,7 @@ async function stubLibraries(page: Page): Promise<{ urls: string[] }> {
 /** Fontsource: a tiny catalogue whose files are Inter (made unique per URL so each face is its own asset). */
 async function stubFonts(page: Page): Promise<void> {
   const font = (id: string, family: string, category: string) => ({ id, family, category, weights: [400, 700], styles: ['normal'], subsets: ['latin'] });
-  await page.route('https://api.fontsource.org/v1/fonts', (r) => r.fulfill({ json: [font('lobster', 'Lobster', 'display'), font('space-grotesk', 'Space Grotesk', 'sans-serif'), font('space-mono', 'Space Mono', 'monospace')] }));
+  await page.route('https://api.fontsource.org/v1/fonts', (r) => r.fulfill({ json: [font('lobster', 'Lobster', 'display'), font('archivo-black', 'Archivo Black', 'sans-serif'), font('archivo', 'Archivo', 'sans-serif'), font('space-grotesk', 'Space Grotesk', 'sans-serif'), font('space-mono', 'Space Mono', 'monospace')] }));
   await page.route('https://api.fontsource.org/v1/fonts/*', (r) => {
     const id = r.request().url().split('/').pop();
     const v = (w: number) => ({ normal: { latin: { url: { ttf: `https://cdn.jsdelivr.net/fontsource/fonts/${id}@latest/latin-${w}-normal.ttf` } } } });

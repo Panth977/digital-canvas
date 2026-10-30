@@ -22,14 +22,14 @@ async function makeDesign(page: Page, preset: string, title: string): Promise<vo
 
 test('home: the top search finds your designs, sizes and templates', async ({ page }) => {
   await home(page);
-  await makeDesign(page, 'instagram-post', 'Cafe menu');
+  await makeDesign(page, 'instagram-post', 'Resume draft');
   await makeDesign(page, 'a4', 'Summer flyer');
   await expect(page.getByTestId('project-card')).toHaveCount(2);
 
-  await page.getByTestId('home-search').fill('menu');
+  await page.getByTestId('home-search').fill('resume');
   await expect(page.getByTestId('project-card')).toHaveCount(1);
-  await expect(page.getByTestId('project-card')).toContainText('Cafe menu');
-  await expect(page.getByTestId('search-sizes')).toContainText('Menu (A4)');
+  await expect(page.getByTestId('project-card')).toContainText('Resume draft');
+  await expect(page.getByTestId('search-sizes')).toContainText('Resume (A4)');
   await expect(page.getByTestId('home-templates').locator('button').first()).toBeVisible();
 
   await page.getByTestId('home-search').fill('zzqx');
@@ -134,7 +134,7 @@ test('home: card menu renames, copies, downloads and trashes; grid/list is remem
 test('home screenshots (dark and light)', async ({ page }) => {
   await page.setViewportSize({ width: 1571, height: 875 });
   await home(page);
-  await makeDesign(page, 'instagram-post', 'Cafe menu');
+  await makeDesign(page, 'instagram-post', 'Resume draft');
   await makeDesign(page, 'presentation', 'Quarterly pitch');
   await makeDesign(page, 'a4', 'Summer flyer');
   for (const scheme of ['dark', 'light'] as const) {

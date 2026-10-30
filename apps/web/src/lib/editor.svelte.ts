@@ -379,10 +379,10 @@ export class EditorState {
   }
 
   /** Re-measure text boxes (after fonts load). */
-  refitText(): void {
+  refitText(key = 'refit'): void {
     const ids: string[] = [];
     for (const p of this.doc.pages) for (const e of walk(p.elements)) if (e.type === 'text' && Math.abs(this.renderer.fitText(e).h - e.h) > 0.5) ids.push(e.id);
-    if (ids.length) this.commit(updateElements(this.doc, ids, (e) => (e.type === 'text' ? this.fitPatch(e) : {})), 'refit');
+    if (ids.length) this.commit(updateElements(this.doc, ids, (e) => (e.type === 'text' ? this.fitPatch(e) : {})), key);
   }
 
   /**

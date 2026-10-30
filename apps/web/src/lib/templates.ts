@@ -151,10 +151,9 @@ export async function insertDesign(ed: EditorState, src: Doc, mode: InsertMode, 
   } else list.splice(at + 1, 0, ...pages);
   const next: Doc = { ...ed.doc, assets: docAssets, pages: list, updatedAt: new Date().toISOString() };
   ed.commit(next, key);
+  ed.refitText(key); // same undo step: one undo takes the whole template back
   ed.seal();
   ed.select([], mode === 'replace' ? list[at]!.id : pages[0]!.id);
-  ed.refitText();
-  ed.seal();
 }
 
 /** Is the current page blank (nothing on it)? Then a template just fills it. */
