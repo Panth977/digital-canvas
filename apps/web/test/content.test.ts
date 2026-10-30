@@ -350,3 +350,19 @@ describe('open catalogues', () => {
     expect((await searchDoodles('read', 0, f)).items).toHaveLength(1);
   });
 });
+
+describe('feeds with a local source', () => {
+  it('shows bundled content without waiting for a slow remote source', async () => {
+    const { createFeed } = await import('../src/lib/content/search.ts');
+    let asked = 0;
+    const item = (key: string) => ({ key, kind: 'illustration', source: 'doodles', title: key, thumb: '', credit: { title: key, license: 'CC0', source: 'x' } }) as never;
+    const feed = createFeed([
+      { id: 'doodles', label: 'Open Doodles', local: true, first: 0, page: async () => ({ items: [item('a')], next: null }) },
+      { id: 'openverse', label: 'Openverse', first: 1, page: async () => { asked++; return { items: [item('b')], next: null }; } },
+    ], 'x');
+    expect((await feed.next()).map((i) => i.key)).toEqual(['a']);
+    expect(asked).toBe(0);
+    expect((await feed.next()).map((i) => i.key)).toEqual(['b']);
+    expect(feed.done).toBe(true);
+  });
+});

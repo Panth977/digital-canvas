@@ -14,6 +14,8 @@ import type { Fetch, Item, Kind, Page, SourceId } from './types.ts';
 export interface Source {
   id: SourceId;
   label: string;
+  /** Ships with the app: answers first, so a slow remote source can't hold it back. */
+  local?: boolean;
   /** Cursor of the first page. */
   first: unknown;
   page: (query: string, cursor: unknown, f?: Fetch) => Promise<Page>;
@@ -45,7 +47,7 @@ export function sourcesFor(kind: Kind, opts: FeedOptions = {}): Source[] {
   let list: Source[];
   switch (kind) {
     case 'graphic': case 'sticker': case 'icon': list = [icon(kind)]; break;
-    case 'illustration': list = [{ id: 'doodles', label: SOURCE_LABEL.doodles, first: 0, page: (q, c, f) => searchDoodles(q === DEFAULT_QUERY.illustration ? '' : q, n(c), f) }, ov('illustration')]; break;
+    case 'illustration': list = [{ id: 'doodles', label: SOURCE_LABEL.doodles, local: true, first: 0, page: (q, c, f) => searchDoodles(q === DEFAULT_QUERY.illustration ? '' : q, n(c), f) }, ov('illustration')]; break;
     case 'photo': list = opts.only === 'nasa' ? [nasa('photo')] : [ov('photograph'), commons('photo')]; break;
     case 'video': list = [commons('video'), nasa('video')]; break;
     case 'audio': list = [{ id: 'openverse', label: SOURCE_LABEL.openverse, first: 1, page: (q, c, f) => searchAudio(q, { category: opts.audio, page: n(c) }, f) }, commons('audio')]; break;
@@ -75,8 +77,10 @@ export function createFeed(sources: Source[], query: string, f?: Fetch): Feed {
   let busy: Promise<Item[]> | null = null;
   const live = () => sources.filter((s) => cursors.get(s.id) !== null);
   async function load(): Promise<Item[]> {
-    const now = live();
-    if (!now.length) return [];
+    const all = live();
+    if (!all.length) return [];
+    const local = all.filter((s) => s.local);
+    const now = local.length ? local : all;
     const pages = await Promise.all(now.map((s) => s.page(query, cursors.get(s.id), f).catch((e: unknown) => (e instanceof Error ? e : new Error(String(e))))));
     const lists: Item[][] = [];
     let errors = 0, lastError: Error | null = null;
