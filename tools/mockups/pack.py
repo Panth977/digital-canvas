@@ -52,6 +52,9 @@ def pack(mid, raw, out):
     inner = cov > 0.985
     if inner.sum() < 50:
         inner = cov > 0.5
+    if inner.sum() < 50:
+        print(f'!! {mid}: no print coverage, skipped')
+        return None
     # exposure
     if meta.get('exposure'):
         k = meta['exposure']
@@ -127,6 +130,9 @@ if __name__ == '__main__':
     if not ids:
         ids = sorted(x for x in os.listdir(raw) if os.path.isfile(os.path.join(raw, x, 'passes.npz')))
     for mid in ids:
-        pack(mid, raw, out)
+        try:
+            pack(mid, raw, out)
+        except Exception as e:  # keep going; report
+            print(f'!! {mid}: {e}')
     idx = write_index(out)
     print(f'index.json: {len(idx["mockups"])} mockups')

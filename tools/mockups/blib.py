@@ -710,12 +710,17 @@ def grid_mesh(name, nx, ny, fn, uvfn=None, mat=None, extra_uv=None):
     return o
 
 
-def set_uv(o, name, fn, per_face_ref=False):
-    """fn(co: Vector object-space rest position, face_center: Vector) -> (u, v)."""
+def set_uv(o, name, fn, face_filter=None):
+    """fn(co: Vector object-space rest position, face_center: Vector) -> (u, v).
+    face_filter(polygon) False -> UV (-5, -5) (never printed)."""
     me = o.data
     uvl = me.uv_layers.get(name) or me.uv_layers.new(name=name)
     for p in me.polygons:
         c = p.center
+        if face_filter is not None and not face_filter(p):
+            for li in p.loop_indices:
+                uvl.data[li].uv = (-5.0, -5.0)
+            continue
         for li in p.loop_indices:
             vi = me.loops[li].vertex_index
             uvl.data[li].uv = fn(me.vertices[vi].co, c)
@@ -1059,3 +1064,35 @@ def capsule_chain(pts, radii, stiff=2.0):
             els.append((a.lerp(b, f), ra + (rb - ra) * f, 'BALL', None, None))
     els.append((Vector(pts[-1]), radii[-1], 'BALL', None, None))
     return els
+
+
+def outward(p, axis_center=(0, 0)):
+    """Face normal points away from the Z axis (outer wall of a lathe)."""
+    c = p.center
+    return (p.normal.x * (c.x - axis_center[0]) + p.normal.y * (c.y - axis_center[1])) > 0
+
+
+def studio(color=(0.82, 0.82, 0.8), key=600, fill=180, rim=300, world=0.15, key_side=-1, floor_y=-3, back_y=1.2,
+           curve=0.6, height=3.0, mat=None):
+    """Seamless curved backdrop (cyclorama) + softbox key/fill/rim."""
+    mat = mat or m_simple('Backdrop', color, rough=0.75)
+
+    def fn(s, t):
+        x = (s - 0.5) * 8
+        L = (back_y - floor_y) + height
+        d = t * (back_y - curve - floor_y + math.pi * curve / 2 + height)
+        flat = back_y - curve - floor_y
+        if d < flat:
+            return (x, floor_y + d, 0.0)
+        d -= flat
+        arc = math.pi * curve / 2
+        if d < arc:
+            a = d / curve
+            return (x, back_y - curve + curve * math.sin(a), curve - curve * math.cos(a))
+        d -= arc
+        return (x, back_y, curve + d)
+    grid_mesh('Backdrop', 8, 60, fn, mat=mat)
+    world_color((0.8, 0.8, 0.82), world)
+    area_light((key_side * 1.4, -1.2, 1.4), (0, 0, 0.1), size=1.6, power=key, color=(1, 0.98, 0.95))
+    area_light((-key_side * 1.6, -0.9, 0.7), (0, 0, 0.1), size=1.2, power=fill, color=(0.95, 0.97, 1))
+    area_light((key_side * -0.6, 0.9, 1.6), (0, 0, 0.1), size=1.0, power=rim)
