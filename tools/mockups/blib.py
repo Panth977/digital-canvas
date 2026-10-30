@@ -894,3 +894,168 @@ def room(wall_mat, floor_mat, size=(8, 8, 3.2), back_y=1.0, side=False):
                  name='Ceil')
     ceil.visible_camera = False
     return f, walls
+
+
+# ----------------------------------------------------------------- printed things / props
+
+def sheet(w, h, thick=0.0002, loc=(0, 0, 0), rot=(0, 0, 0), front=None, back=None, nx=1, ny=1, warp=None,
+          name='Sheet'):
+    """Paper-like sheet in local XY (w along X, h along Y, front faces +Z), print UV = (s, t).
+    warp(x, y, s, t) -> (x, y, z) bends it. Back + edges get `back` material."""
+    def fn(s, t):
+        x, y, z = (s - 0.5) * w, (t - 0.5) * h, 0.0
+        if warp:
+            x, y, z = warp(x, y, s, t)
+        return (x, y, z)
+    o = grid_mesh(name, nx, ny, fn, uvfn=lambda s, t: (s, t), mat=front)
+    if back:
+        o.data.materials.append(back)
+    if thick:
+        sol = solidify(o, thick, offset=-1)
+        sol.material_offset = 1
+        sol.material_offset_rim = 1
+        sol.use_even_offset = True
+    o.location = Vector(loc)
+    o.rotation_euler = [math.radians(r) for r in rot]
+    return o
+
+
+def m_marble(name='Marble', color=(0.85, 0.85, 0.84), vein=(0.35, 0.35, 0.37), rough=0.12):
+    m, nb = new_mat(name)
+    co = nb.coord('Object')
+    n = nb.noise(co, scale=1.2, detail=12, rough=0.6, dist=3.0)
+    w = nb.wave(n.outputs[1], scale=2.5, axis='X', dist=6, detail=8, profile='SIN')
+    f = nb.math('POWER', nb.math('ABSOLUTE', nb.math('SUBTRACT', w.outputs[1], 0.5)), 0.35)
+    col = nb.ramp(f, [(0.0, vein), (0.45, tuple(c * 0.95 for c in color)), (1.0, color)])
+    nb.output(nb.bsdf(color=col, rough=rough, coat=0.4, coat_rough=0.05, sss=0.05, sss_radius=(0.5, 0.5, 0.5), sss_scale=0.01))
+    return m
+
+
+def m_linen(name='Linen', color=(0.75, 0.72, 0.66), scale=900.0, strength=0.3):
+    m, nb = new_mat(name)
+    co = nb.coord('Object')
+    w1 = nb.wave(co, scale=scale, axis='X', dist=2.0, detail=2, profile='SIN')
+    w2 = nb.wave(co, scale=scale, axis='Y', dist=2.0, detail=2, profile='SIN')
+    n = nb.noise(co, scale=8, detail=6)
+    slub = nb.noise(nb.node('ShaderNodeMapping', inputs={'Scale': (60, 1, 1), 'Vector': co}), scale=40, detail=2)
+    hh = nb.math('ADD', nb.math('MULTIPLY', w1.outputs[1], w2.outputs[1]), nb.math('MULTIPLY', slub.outputs[0], 0.3))
+    col = nb.mix(nb.math('ADD', nb.math('MULTIPLY', n.outputs[0], 0.25), nb.math('MULTIPLY', slub.outputs[0], 0.2)),
+                 color, tuple(c * 0.85 for c in color))
+    nb.output(nb.bsdf(color=col, rough=0.95, sheen=0.5, normal=nb.bump(hh, strength=strength, distance=0.001)))
+    return m
+
+
+def mug_prop(loc, r=0.042, h=0.095, mat=None, coffee=True, rot=0.0):
+    mat = mat or m_ceramic('PropMug', color=(0.88, 0.87, 0.85), printable=False, tint=False)
+    t = 0.004
+    prof = [(0.0, 0.0), (r - 0.006, 0.0), (r, 0.006), (r, h), (r - t, h), (r - t, 0.008), (0.0, 0.008)]
+    o = lathe('PropMug', prof, 64, mat)
+    subsurf(o, 1)
+    pts = [(r - 0.002, 0, h * 0.8), (r + 0.03, 0, h * 0.72), (r + 0.033, 0, h * 0.4), (r - 0.002, 0, h * 0.25)]
+    hd = curve_tube('Handle', pts, 0.0055, mat)
+    hd.parent = o
+    if coffee:
+        cm = m_simple('Coffee', (0.06, 0.03, 0.015), rough=0.05)
+        c = cylinder(r - t - 0.0005, 0.002, (0, 0, h * 0.82), mat=cm)
+        c.parent = o
+    o.location = loc
+    o.rotation_euler = (0, 0, math.radians(rot))
+    return o
+
+
+def pen_prop(loc, rot=0.0, length=0.14, color=(0.05, 0.05, 0.06)):
+    body = m_simple('PenBody', color, rough=0.25, coat=0.5)
+    metal = m_metal('PenMetal', (0.8, 0.75, 0.6), rough=0.2)
+    o = cylinder(0.0045, length, (0, 0, 0), rot=(0, 90, 0), mat=body, verts=32)
+    tip = cylinder(0.0045, 0.018, (length / 2 + 0.009, 0, 0), rot=(0, 90, 0), mat=metal, verts=32)
+    tip.parent = o
+    clip = box((0.05, 0.0015, 0.002), (-length / 2 + 0.03, 0, 0.0055), mat=metal, bevel=0.0005)
+    clip.parent = o
+    o.location = (loc[0], loc[1], loc[2] + 0.0045)
+    o.rotation_euler = (0, 0, math.radians(rot))
+    return o
+
+
+def glass_prop(loc, kind='wine', mat=None):
+    mat = mat or m_glass('PropGlass', thin=False)
+    if kind == 'wine':
+        prof = [(0, 0), (0.035, 0), (0.036, 0.002), (0.004, 0.006), (0.0035, 0.09), (0.02, 0.1), (0.04, 0.14),
+                (0.038, 0.2), (0.036, 0.2), (0.038, 0.14), (0.019, 0.102), (0, 0.098)]
+    else:
+        prof = [(0, 0), (0.033, 0), (0.036, 0.11), (0.033, 0.11), (0.03, 0.006), (0, 0.006)]
+    o = lathe('Glass', prof, 64, mat)
+    subsurf(o, 1)
+    o.location = loc
+    return o
+
+
+def plate_prop(loc, r=0.13, mat=None):
+    mat = mat or m_ceramic('Plate', color=(0.9, 0.9, 0.88), printable=False, tint=False)
+    prof = [(0, 0.004), (r * 0.6, 0.004), (r * 0.62, 0.0), (r * 0.68, 0.0), (r * 0.72, 0.008), (r, 0.018),
+            (r, 0.021), (r * 0.72, 0.012), (r * 0.62, 0.007), (0, 0.007)]
+    o = lathe('Plate', prof, 96, mat)
+    subsurf(o, 1)
+    o.location = loc
+    return o
+
+
+def cutlery_knife(loc, rot=0.0, length=0.22):
+    metal = m_metal('Steel', (0.85, 0.85, 0.86), rough=0.18)
+    def fn(s, t):
+        x = (s - 0.5) * length
+        if s < 0.45:
+            w = 0.009
+        else:
+            q = (s - 0.45) / 0.55
+            w = 0.011 * (1 - q ** 3) + 0.001
+        y = (t - 0.5) * 2 * w
+        return (x, y, 0.0)
+    o = grid_mesh('Knife', 30, 2, fn, mat=metal)
+    solidify(o, 0.0025, 0)
+    subsurf(o, 1)
+    o.location = (loc[0], loc[1], loc[2] + 0.0013)
+    o.rotation_euler = (0, 0, math.radians(rot))
+    return o
+
+
+def bokeh_lights(center, n=40, spread=(6, 1, 2), size=(0.02, 0.06), color=(1.0, 0.75, 0.45), strength=30, seed=1):
+    rnd = random.Random(seed)
+    m = m_emission('Bokeh', color, strength)
+    for i in range(n):
+        p = (center[0] + rnd.uniform(-1, 1) * spread[0], center[1] + rnd.uniform(-1, 1) * spread[1],
+             center[2] + rnd.uniform(-1, 1) * spread[2])
+        sphere(rnd.uniform(*size), p, mat=m)
+
+
+def metaball_obj(name, elems, mat=None, res=0.004, thresh=0.6):
+    """elems: list of (co, radius, kind, size_xyz or None, rotation quaternion or None)."""
+    mb = bpy.data.metaballs.new(name)
+    mb.resolution = res
+    mb.render_resolution = res
+    mb.threshold = thresh
+    for co, r, kind, size, rot in elems:
+        e = mb.elements.new()
+        e.co = co
+        e.radius = r
+        e.type = kind
+        if size is not None:
+            e.size_x, e.size_y, e.size_z = size
+        if rot is not None:
+            e.rotation = rot
+    o = link(bpy.data.objects.new(name, mb))
+    if mat:
+        o.data.materials.append(mat)
+    return o
+
+
+def capsule_chain(pts, radii, stiff=2.0):
+    """Metaball elements along a polyline: (co, radius, 'BALL', None, None) sampled densely."""
+    els = []
+    for (a, ra), (b, rb) in zip(zip(pts, radii), zip(pts[1:], radii[1:])):
+        a, b = Vector(a), Vector(b)
+        n = max(2, int((b - a).length / (min(ra, rb) * 0.35)))
+        for k in range(n):
+            f = k / n
+            els.append((a.lerp(b, f), ra + (rb - ra) * f, 'BALL', None, None))
+    els.append((Vector(pts[-1]), radii[-1], 'BALL', None, None))
+    return els
