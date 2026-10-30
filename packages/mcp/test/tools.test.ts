@@ -11,6 +11,9 @@ import { ffmpeg } from '../src/node/index.ts';
 import { chunkTranscript } from '../src/tools/video.ts';
 import { clipWebm, harness, isPng, samplePng, toneMp3, type Harness } from './helpers.ts';
 
+// real CanvasKit renders; slow when the whole suite runs in parallel
+vi.setConfig({ testTimeout: 30_000 });
+
 let h: Harness;
 let png: Uint8Array;
 let photo: string;
@@ -230,7 +233,7 @@ describe('editing', () => {
     const r = await h.call('apply_template', { design_id: applied, template_id: 'community-cards' });
     expect(r.isError, r.text).toBe(false);
     expect((await h.call('render_page', { design_id: applied, page: 1 })).isError).toBe(false);
-  }, 30_000); // two full renders of a picture-heavy template
+  });
 
   it('brand kit: read and apply (colours, fonts, logo)', async () => {
     expect((await h.call('get_brand_kit')).json.empty).toBe(true);
