@@ -59,7 +59,7 @@ describe('iconify', () => {
     const p1 = await searchIconify('sticker', 'cat', 0, f);
     expect(f.calls[0]).toContain('query=cat');
     expect(f.calls[0]).toContain('limit=48');
-    expect(f.calls[0]).toContain('prefixes=fluent-emoji-flat,noto,twemoji,fluent-emoji');
+    expect(f.calls[0]).toContain('prefixes=fluent-emoji-flat,noto,twemoji,fluent-emoji,openmoji');
     expect(p1.items).toHaveLength(48);
     expect(p1.next).toBe(48);
     expect(p1.items[0]).toMatchObject({ kind: 'sticker', source: 'iconify', icon: 'twemoji:c0', title: 'C0' });
@@ -250,6 +250,7 @@ describe('combined feed', () => {
     expect(sourcesFor('video').map((s) => s.id)).toEqual(['commons', 'nasa']);
     expect(sourcesFor('audio', { audio: 'music' }).map((s) => s.id)).toEqual(['openverse', 'commons']);
     expect(sourcesFor('sticker').map((s) => s.id)).toEqual(['iconify']);
+    expect(sourcesFor('illustration').map((s) => s.id)).toEqual(['doodles', 'openverse']);
   });
 });
 
@@ -302,12 +303,50 @@ describe('helpers', () => {
     expect(recent(['content'])[0]!.data).toEqual({ n: 2 });
   });
 
-  it('font combinations: about 30, searchable, Fontsource ids', () => {
+  it('font combinations: plain sourced pairs, searchable, Fontsource ids', () => {
     expect(COMBOS.length).toBeGreaterThanOrEqual(30);
     expect(new Set(COMBOS.map((c) => c.id)).size).toBe(COMBOS.length);
-    expect(findCombos('wedding').map((c) => c.id)).toContain('wedding');
-    expect(findCombos('playfair').map((c) => c.id)).toContain('grand-opening');
+    for (const c of COMBOS) {
+      expect(c.lines).toHaveLength(2);
+      expect(c.lines[0]!.family).not.toBe(c.lines[1]!.family);
+      expect(c.description).not.toBe('');
+      // no invented decoration: no colours, no fixed copy, only the font names
+      for (const l of c.lines) { expect(l.color).toBeUndefined(); expect(l.text).toBe(l.family); }
+    }
+    expect(findCombos('archivo black').map((c) => c.id)).toContain('brutalist');
+    expect(findCombos('editorial').length).toBeGreaterThan(0);
     expect(fontId('Playfair Display')).toBe('playfair-display');
     expect(fontId('Press Start 2P')).toBe('press-start-2p');
+  });
+});
+
+describe('open catalogues', () => {
+  it('palettes, gradients and patterns are the real upstream data', async () => {
+    const { GRADIENTS, PALETTES, loadPatterns, patternTile } = await import('../src/lib/apps.ts');
+    expect(new Set(PALETTES.map((p) => p.catalog))).toEqual(new Set(['Open Color', 'Tailwind CSS']));
+    expect(PALETTES.find((p) => p.id === 'open-color-red')!.colors.slice(0, 2)).toEqual(['#fff5f5', '#ffe3e3']);
+    expect(PALETTES.find((p) => p.id === 'tailwind-rose')!.colors[0]).toBe('#fff1f2');
+    for (const p of PALETTES) for (const c of p.colors) expect(c).toMatch(/^#[0-9a-f]{6}$/);
+    expect(GRADIENTS.length).toBeGreaterThan(300);
+    for (const g of GRADIENTS) for (const c of g.colors) expect(c).toMatch(/^#[0-9a-f]{6}$/);
+    const patterns = await loadPatterns();
+    expect(patterns.length).toBeGreaterThan(80);
+    expect(patterns.map((p) => p.id)).toContain('jigsaw');
+    for (const p of patterns) { expect(p.width).toBeGreaterThan(0); expect(patternTile(p, '#123456')).toContain('#123456'); expect(p.svg).not.toContain('<script'); }
+  });
+
+  it('avatars offer only styles under an open licence', async () => {
+    const { AVATAR_STYLES } = await import('../src/lib/apps.ts');
+    expect(AVATAR_STYLES.length).toBeGreaterThanOrEqual(8);
+    for (const s of AVATAR_STYLES) expect(s.licence).toMatch(/^(CC0|CC BY 4\.0|MIT)/);
+  });
+
+  it('Open Doodles list and search', async () => {
+    const { searchDoodles } = await import('../src/lib/content/doodles.ts');
+    const f = (async () => new Response(JSON.stringify([{ id: 'coffee', title: 'Coffee', width: 1024, height: 768 }, { id: 'reading', title: 'Reading', width: 1024, height: 768 }]))) as typeof fetch;
+    const all = await searchDoodles('', 0, f);
+    expect(all.items.map((i) => i.title)).toEqual(['Coffee', 'Reading']);
+    expect(all.items[0]).toMatchObject({ kind: 'illustration', source: 'doodles', url: '/illustrations/open-doodles/coffee.svg', credit: { creator: 'Pablo Stanley', license: 'CC0' } });
+    expect((await searchDoodles('read', 0, f)).items).toHaveLength(1);
   });
 });

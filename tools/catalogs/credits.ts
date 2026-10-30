@@ -59,7 +59,7 @@ const SECTIONS: { title: string; intro?: string; rows: Row[] }[] = [
     row('Wikimedia Commons', 'https://commons.wikimedia.org', 'many authors', L.Each, 'credit kept with each item'),
     row('NASA Image and Video Library', 'https://images.nasa.gov', 'NASA', L.Each, 'generally public domain'),
     row('OpenStreetMap', 'https://www.openstreetmap.org/copyright', 'OpenStreetMap contributors', L.ODbL) ] },
-  { title: 'Device mockups', rows: [ row('Digital Canvas mockups', 'https://github.com/digital-canvas', 'rendered with Blender for this project', L.CC0, 'see public/mockups/LICENSES.md') ] },
+  { title: 'Device mockups', rows: [ row('Digital Canvas mockups', '', 'rendered with Blender for this project', L.CC0, 'see public/mockups/LICENSES.md') ] },
 ];
 
 interface Tpl { id: string; title: string; category: string; credit: { author: string; authorUrl?: string; catalog: string; sourceUrl: string; fileUrl?: string; licence: string; licenceUrl: string; note?: string } }

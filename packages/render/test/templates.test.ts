@@ -5,10 +5,14 @@ import type { CanvasKit } from 'canvaskit-wasm';
 import { parseDoc, walk, type Doc } from '@digital-canvas/scene';
 import { FontLibrary, Renderer } from '../src/index.ts';
 
-/** The built-in template library (apps/web/src/templates, built by tools/templates/build.ts). */
+/** The built-in template library (apps/web/src/templates, built by tools/templates/penpot-import/build.ts). */
 const dir = new URL('../../../apps/web/src/templates/', import.meta.url);
 const thumbs = new URL('../../../apps/web/public/templates/', import.meta.url);
-const index = JSON.parse(readFileSync(new URL('index.json', dir), 'utf8')) as { id: string; title: string; category: string; width: number; height: number; pages: number; fonts: string[] }[];
+const assetsDir = new URL('../../../apps/web/public/templates/assets/', import.meta.url);
+const credits = readFileSync(new URL('../../../apps/web/public/credits.html', import.meta.url), 'utf8');
+const licences = readFileSync(new URL('../../../LICENSES', import.meta.url), 'utf8');
+interface Credit { author: string; catalog: string; sourceUrl: string; licence: string; licenceUrl: string }
+const index = JSON.parse(readFileSync(new URL('index.json', dir), 'utf8')) as { id: string; title: string; category: string; width: number; height: number; pages: number; fonts: string[]; assets: string[]; credit: Credit }[];
 
 const require = createRequire(import.meta.url);
 let ck: CanvasKit;
@@ -21,23 +25,34 @@ beforeAll(async () => {
 });
 
 describe('template library', () => {
-  it('has at least 40 templates across Canva’s main categories', () => {
-    expect(index.length).toBeGreaterThanOrEqual(40);
+  it('has at least 30 real templates across several kinds, each credited under an open licence', () => {
+    expect(index.length).toBeGreaterThanOrEqual(30);
     const cats = new Set(index.map((t) => t.category));
-    for (const c of ['Instagram post', 'Story', 'Poster', 'Flyer', 'Menu', 'Presentation', 'Business card', 'Invitation', 'Resume', 'Logo', 'YouTube thumbnail', 'Video']) expect(cats).toContain(c);
+    for (const c of ['Social post', 'Resume', 'Planning', 'App screen', 'Presentation', 'Game']) expect(cats).toContain(c);
     expect(new Set(index.map((t) => t.id)).size).toBe(index.length);
+    for (const t of index) {
+      expect(t.credit.author, t.id).not.toBe('');
+      expect(t.credit.catalog).toBe('Penpot Hub');
+      expect(t.credit.sourceUrl).toMatch(/^https:\/\/penpot\.app\/penpothub\/libraries-templates\/[\w-]+$/);
+      expect(['CC-BY-4.0', 'CC0-1.0', 'MIT', 'Apache-2.0', 'CC-BY-SA-4.0']).toContain(t.credit.licence);
+      expect(credits).toContain(`data-template="${t.id}"`);
+      expect(licences).toContain(`${t.id}: "${t.title}" by ${t.credit.author}`);
+    }
   });
 
   it.each(index.map((t) => [t.id, t] as const))('%s parses, matches its index entry and renders', (id, entry) => {
     const doc: Doc = parseDoc(JSON.parse(readFileSync(new URL(`${id}.json`, dir), 'utf8')));
     expect([doc.width, doc.height, doc.pages.length]).toEqual([entry.width, entry.height, entry.pages]);
-    expect(Object.keys(doc.assets)).toEqual([]); // vector only: nothing to download
+    expect(Object.keys(doc.assets).sort()).toEqual([...entry.assets].sort());
+    for (const id of Object.keys(doc.assets)) renderer.setImage(id, new Uint8Array(readFileSync(new URL(id, assetsDir))));
     const ids = new Set<string>();
     const families = new Set<string>();
     for (const p of doc.pages) for (const e of walk(p.elements)) {
       expect(ids.has(e.id)).toBe(false);
       ids.add(e.id);
       if (e.type === 'text' || e.type === 'table' || e.type === 'chart') families.add(e.style.fontFamily);
+      if (e.type === 'text') for (const r of e.runs ?? []) if (r.style?.fontFamily) families.add(r.style.fontFamily);
+      if (e.type === 'image' && e.asset) expect(doc.assets[e.asset], e.id).toBeTruthy();
       if (e.type === 'text') expect(e.h).toBeGreaterThan(0);
     }
     expect([...families].sort()).toEqual(entry.fonts);

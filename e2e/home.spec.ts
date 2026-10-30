@@ -71,13 +71,13 @@ test('home: design-type shortcuts create or filter sizes', async ({ page }) => {
 test('home: a template becomes a new design and opens in this tab', async ({ page }) => {
   await home(page);
   const pages = page.context().pages().length;
-  await page.getByTestId('home-template-ig-sale-bold').click();
+  await page.getByTestId('home-template-community-cards').click();
   await expect(page.getByTestId('canvas')).toBeVisible();
   await page.waitForFunction(() => !!(window as any).__dc);
   const d = await page.evaluate(() => ({ title: (window as any).__dc.doc.title, n: (window as any).__dc.doc.pages[0].elements.length, id: (window as any).__dc.doc.id }));
-  expect(d.title).toBe('Big Sale');
+  expect(d.title).toBe('Community cards');
   expect(d.n).toBeGreaterThan(2);
-  expect(d.id).not.toBe('tpl_ig-sale-bold');
+  expect(d.id).not.toBe('tpl_community-cards');
   expect(page.context().pages().length).toBe(pages);
 });
 

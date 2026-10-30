@@ -71,7 +71,7 @@ const save = (name: string, v: unknown) => { writeFileSync(join(DATA, `${name}.j
 // ---- gradients: uiGradients (MIT)
 {
   const list = JSON.parse(await get('https://raw.githubusercontent.com/Ghosh/uiGradients/master/gradients.json', 'uigradients.json')) as { name: string; colors: string[] }[];
-  save('gradients', list.map((g) => ({ name: g.name.trim(), colors: g.colors.map((c) => c.toLowerCase()) })));
+  save('gradients', list.map((g) => ({ name: g.name.trim(), colors: g.colors.map((c) => c.toLowerCase().replace(/^#(.)(.)(.)$/, '#$1$1$2$2$3$3')) })));
 }
 
 // ---- patterns: Hero Patterns by Steve Schoger (CC BY 4.0), the tiles from the hero-patterns package
