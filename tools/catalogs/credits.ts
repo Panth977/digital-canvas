@@ -66,7 +66,7 @@ const SECTIONS: { title: string; intro?: string; rows: Row[] }[] = [
     row('Tesseract.js', 'https://github.com/naptha/tesseract.js', 'Project Naptha and contributors', L.Apache, 'Grab Text'),
     row('ONNX Runtime Web', 'https://github.com/microsoft/onnxruntime', 'Microsoft', L.MIT, 'runs the models'),
   ] },
-  { title: 'Device mockups', rows: [ row('Digital Canvas mockups', '', 'rendered with Blender for this project', L.CC0, 'see public/mockups/LICENSES.md') ] },
+  { title: 'Mockups', rows: [ row('Mockup photographs', 'https://unsplash.com', '38 photographers on Unsplash', ['Unsplash License', 'https://unsplash.com/license'], 'author and URL per photo in /mockups/LICENSES.md') ] },
 ];
 
 interface Tpl { id: string; title: string; category: string; credit: { author: string; authorUrl?: string; catalog: string; sourceUrl: string; fileUrl?: string; licence: string; licenceUrl: string; note?: string } }
