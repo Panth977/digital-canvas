@@ -127,11 +127,11 @@ Open-source Canva alternative. Built on TaskManager ticket **ORCH-27** (ORCH boa
 - MCP: `list_mockups`, `render_mockup` (`packages/mcp/src/mockups.ts`, `tools/mockups.ts`). Files via `Platform.mockupFile` (Node: `DC_MOCKUPS_DIR` or local public/mockups, else `DC_MOCKUPS_URL`/the site with a disk cache in tmp; browser worker: the app's `/mockups/`). `list_mockups` runs in the relay.
 - e2e: `routeMockups(page)` (`e2e/mockup-fixtures.ts`) serves the fixtures; route with the regex there, a `**/mockups/**` glob also catches the app's `src/lib/mockups` modules.
 
-## Mockup library (r13-assets, 2026-10-30)
+## Mockup library (r14-photos, 2026-10-30)
 
-- `apps/web/public/mockups/` = format v1 (`index.json` + per id `base.jpg`, `uv-hi.png`, `uv-lo.png`, `shade.png`, `tint.png`, `thumb.jpg`; entries also carry `printWidth`). All CC0, rendered by Blender (`brew install --cask blender`, 5.2) from procedural scenes; no photos (`LICENSES.md`).
-- Generator `tools/mockups/`: scenes register with `@mockup(...)` in `scenes/<category>.py` over `blib.py` helpers. One Cycles render per mockup: the print material writes AOV `pc` = (u·c, v·c, c) (premultiplied print UV + coverage), product materials AOV `tint`; shade = Combined / print albedo, auto-exposed so the print surface sits near 1.0. Any printable material must only sit on meshes with a `print` UV map (a missing map reads (0,0) = covered).
-- Run with the venv python (numpy, scipy, Pillow): `python tools/mockups/build.py [ids] [--preview]` (render → `pack.py` → contact sheet). `composite.py` is the reference compositor for the contract formula. UV/shade/tint PNGs carry no gAMA/iCCP/sRGB/cHRM chunks (`pack.py` asserts it).
+- `apps/web/public/mockups/` = format v1 (`index.json` + per id `base.jpg`, `uv-hi.png`, `uv-lo.png`, `shade.png`, `tint.png`, `thumb.jpg`; entries also carry `printWidth`). Real Unsplash photographs under the Unsplash License, never rendered or AI scenes (`LICENSES.md` has author and URL per photo). Maps are built from each photo by `tools/mockups/build.py` (`photo.py`, `specs.py`).
+- Generator `tools/mockups/`: `specs.py` lists each photo's surface, `photo.py` builds the UV, shade and tint maps from the photo (flat homography, cylinder wrap, cloth mesh displaced by luminance), `pack.py` writes the files.
+- Run with numpy, opencv-python-headless and Pillow: `python tools/mockups/build.py` (downloads photos into `DC_PHOTO_CACHE`). `composite.py` is the reference compositor for the contract.
 
 ## Open content (r14-content, 2026-10-30)
 
