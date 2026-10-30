@@ -190,4 +190,5 @@ Environment variables:
 | `DC_GOOGLE_ACCESS_TOKEN` | Use a raw Drive token, for testing |
 | `DC_OFFLINE=1` | Turn off font downloads (tests) |
 | `DC_FONTS_DIR` / `DC_TEMPLATES_DIR` | Override the bundled resources |
+| `DC_TEMPLATE_ASSETS_DIR` / `DC_TEMPLATE_ASSETS_URL` | Where template pictures come from (default: the app's public folder, else the site) |
 | `DC_CLOUD_ALLOWLIST` | Functions only: emails allowed to process in the cloud (comma-separated; default `ppanth977@gmail.com`). Put it in `backend/mcp/.env` and `backend/functions/.env`; the deploy scripts copy them |

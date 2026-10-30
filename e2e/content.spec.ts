@@ -79,7 +79,7 @@ async function stubLibraries(page: Page): Promise<{ urls: string[] }> {
 /** Fontsource: a tiny catalogue whose files are Inter (made unique per URL so each face is its own asset). */
 async function stubFonts(page: Page): Promise<void> {
   const font = (id: string, family: string, category: string) => ({ id, family, category, weights: [400, 700], styles: ['normal'], subsets: ['latin'] });
-  await page.route('https://api.fontsource.org/v1/fonts', (r) => r.fulfill({ json: [font('lobster', 'Lobster', 'display'), font('space-grotesk', 'Space Grotesk', 'sans-serif'), font('space-mono', 'Space Mono', 'monospace')] }));
+  await page.route('https://api.fontsource.org/v1/fonts', (r) => r.fulfill({ json: [font('lobster', 'Lobster', 'display'), font('archivo-black', 'Archivo Black', 'sans-serif'), font('archivo', 'Archivo', 'sans-serif'), font('space-grotesk', 'Space Grotesk', 'sans-serif'), font('space-mono', 'Space Mono', 'monospace')] }));
   await page.route('https://api.fontsource.org/v1/fonts/*', (r) => {
     const id = r.request().url().split('/').pop();
     const v = (w: number) => ({ normal: { latin: { url: { ttf: `https://cdn.jsdelivr.net/fontsource/fonts/${id}@latest/latin-${w}-normal.ttf` } } } });
@@ -168,6 +168,22 @@ test('elements: browse a category with endless scrolling, built-in categories, b
   expect(((await elements(page))[1] as any).shape).toBe('pentagon');
 });
 
+test('elements: Open Doodles show without the network and come in as a credited picture', async ({ page }) => {
+  await newDesign(page);
+  await stubLibraries(page);
+  await page.getByTestId('cat-illustrations').click();
+  const grid = page.getByTestId('element-results');
+  await expect(grid.getByRole('button', { name: 'Coffee' })).toBeVisible();
+  await grid.getByRole('button', { name: 'Coffee' }).click();
+  await expect.poll(async () => (await elements(page)).length).toBe(1);
+  const [img] = (await elements(page)) as any[];
+  expect(img.type).toBe('image');
+  const meta = (await doc(page)).assets[img.asset];
+  expect(meta.mime).toBe('image/png');
+  expect(meta.name).toContain('Pablo Stanley');
+  expect(meta.name).toContain('CC0');
+});
+
 test('elements: drag a sticker from the panel onto the page', async ({ page }) => {
   await newDesign(page);
   await stubLibraries(page);
@@ -192,13 +208,13 @@ test('text: font combinations add a styled group with its fonts embedded', async
   await expect(page.getByTestId('combos').locator('.combo')).toHaveCount(12);
   await page.getByTestId('see-combos').click();
   expect(await page.locator('.combo').count()).toBeGreaterThanOrEqual(30);
-  await page.getByTestId('combo-minimal').click();
+  await page.getByTestId('combo-brutalist').click();
   await expect.poll(async () => (await elements(page)).length).toBe(1);
   const [g] = (await elements(page)) as any[];
   expect(g.type).toBe('group');
-  expect(g.children.map((c: any) => [c.text, c.style.fontFamily, c.style.bold])).toEqual([['Less, but better.', 'Space Grotesk', true], ['— Dieter Rams', 'Space Mono', false]]);
+  expect(g.children.map((c: any) => [c.text, c.style.fontFamily, c.style.bold])).toEqual([['Archivo Black', 'Archivo Black', true], ['Archivo', 'Archivo', false]]);
   const families = new Set((await doc(page)).fonts.map((f: any) => f.family));
-  expect(families.has('Space Grotesk') && families.has('Space Mono')).toBe(true);
+  expect(families.has('Archivo Black') && families.has('Archivo')).toBe(true);
   // one undo removes the whole combination
   await page.getByTestId('undo').click();
   expect(await elements(page)).toHaveLength(0);
@@ -209,7 +225,7 @@ test('text: font library; a font adds a text box, or restyles the selected text;
   await stubFonts(page);
   await page.getByTestId('tab-text').click();
   await page.getByTestId('browse-fonts').click();
-  await expect(page.getByTestId('fontlib-results').locator('.font')).toHaveCount(3);
+  await expect(page.getByTestId('fontlib-results').locator('.font')).toHaveCount(5);
   await page.getByTestId('fontcat-monospace').click();
   await expect(page.getByTestId('fontlib-results').locator('.font')).toHaveCount(1);
   await page.getByTestId('fontcat-monospace').click(); // stays on monospace

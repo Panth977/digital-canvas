@@ -96,3 +96,5 @@
 @keyframes dp-spin { to { transform: rotate(360deg); } }
 .dp-hint .svgi, .dp-empty .svgi { display: inline-block; vertical-align: -2px; }
 .dp-cell.light { background: #f2f3f5; }
+
+.dp-by { display: block; padding: 2px 4px 4px; font-size: 11px; line-height: 1.25; color: var(--muted); text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

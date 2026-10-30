@@ -21,6 +21,12 @@ export const fontsDir = (): string => find(process.env.DC_FONTS_DIR, [join(here,
 /** Folder holding the template library (`index.json` + `<id>.json`). */
 export const templatesDir = (): string => find(process.env.DC_TEMPLATES_DIR, [join(here, 'templates'), resolve(here, '../dist/templates'), resolve(here, '../../../apps/web/src/templates')]);
 
+/** Folder with the template pictures, or null (then they come from the site). */
+export function templateAssetsDir(): string | null {
+  for (const c of [process.env.DC_TEMPLATE_ASSETS_DIR, join(here, 'templates/assets'), resolve(here, '../../../apps/web/public/templates/assets')]) if (c && existsSync(c)) return c;
+  return null;
+}
+
 /** The CanvasKit wasm file (bundles copy it next to the code). */
 export function canvasKitWasm(): string | null {
   for (const c of [join(here, 'canvaskit.wasm'), resolve(here, '../dist/canvaskit.wasm')]) if (existsSync(c)) return c;

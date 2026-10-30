@@ -22,14 +22,14 @@ async function makeDesign(page: Page, preset: string, title: string): Promise<vo
 
 test('home: the top search finds your designs, sizes and templates', async ({ page }) => {
   await home(page);
-  await makeDesign(page, 'instagram-post', 'Cafe menu');
+  await makeDesign(page, 'instagram-post', 'Resume draft');
   await makeDesign(page, 'a4', 'Summer flyer');
   await expect(page.getByTestId('project-card')).toHaveCount(2);
 
-  await page.getByTestId('home-search').fill('menu');
+  await page.getByTestId('home-search').fill('resume');
   await expect(page.getByTestId('project-card')).toHaveCount(1);
-  await expect(page.getByTestId('project-card')).toContainText('Cafe menu');
-  await expect(page.getByTestId('search-sizes')).toContainText('Menu (A4)');
+  await expect(page.getByTestId('project-card')).toContainText('Resume draft');
+  await expect(page.getByTestId('search-sizes')).toContainText('Resume (A4)');
   await expect(page.getByTestId('home-templates').locator('button').first()).toBeVisible();
 
   await page.getByTestId('home-search').fill('zzqx');
@@ -71,13 +71,13 @@ test('home: design-type shortcuts create or filter sizes', async ({ page }) => {
 test('home: a template becomes a new design and opens in this tab', async ({ page }) => {
   await home(page);
   const pages = page.context().pages().length;
-  await page.getByTestId('home-template-ig-sale-bold').click();
+  await page.getByTestId('home-template-community-cards').click();
   await expect(page.getByTestId('canvas')).toBeVisible();
   await page.waitForFunction(() => !!(window as any).__dc);
   const d = await page.evaluate(() => ({ title: (window as any).__dc.doc.title, n: (window as any).__dc.doc.pages[0].elements.length, id: (window as any).__dc.doc.id }));
-  expect(d.title).toBe('Big Sale');
+  expect(d.title).toBe('Community cards');
   expect(d.n).toBeGreaterThan(2);
-  expect(d.id).not.toBe('tpl_ig-sale-bold');
+  expect(d.id).not.toBe('tpl_community-cards');
   expect(page.context().pages().length).toBe(pages);
 });
 
@@ -134,7 +134,7 @@ test('home: card menu renames, copies, downloads and trashes; grid/list is remem
 test('home screenshots (dark and light)', async ({ page }) => {
   await page.setViewportSize({ width: 1571, height: 875 });
   await home(page);
-  await makeDesign(page, 'instagram-post', 'Cafe menu');
+  await makeDesign(page, 'instagram-post', 'Resume draft');
   await makeDesign(page, 'presentation', 'Quarterly pitch');
   await makeDesign(page, 'a4', 'Summer flyer');
   for (const scheme of ['dark', 'light'] as const) {

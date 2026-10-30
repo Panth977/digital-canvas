@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { CONTENT_HOSTS, fakeWco } from './helpers.ts';
+import { stubFonts } from './module-stubs.ts';
 
 /** Screenshots of the design tabs: browser bar, installed-app title bar (WCO), dark and light. */
 const SHOTS = '/tmp/orch27-rw';
@@ -12,15 +13,17 @@ test.describe.configure({ retries: 2 });
 /** Three designs from Home templates, each its own tab. */
 async function threeDesigns(page: Page): Promise<void> {
   await page.context().route(CONTENT_HOSTS, (r) => r.fulfill({ status: 503, body: 'offline in tests' }));
+  // every template click embeds its fonts: never let that depend on the real network
+  await stubFonts(page, ['Source Sans 3', 'Playfair Display', 'Abhaya Libre', 'Ms Madi']);
   await page.goto('/');
-  for (const t of ['menu-cafe', 'deck-pitch', 'yt-thumb-tech']) {
+  for (const t of ['community-cards', 'wb-swot', 'resume-just-another-1']) {
     const card = page.getByTestId(`home-template-${t}`);
-    const id = (await card.count()) ? card : page.locator('[data-testid^=home-template-]').nth(['menu-cafe', 'deck-pitch', 'yt-thumb-tech'].indexOf(t));
+    const id = (await card.count()) ? card : page.locator('[data-testid^=home-template-]').nth(['community-cards', 'wb-swot', 'resume-just-another-1'].indexOf(t));
     const before = await page.evaluate(() => (window as any).__dc?.doc.id);
     await id.click();
     await expect.poll(() => page.evaluate(() => (window as any).__dc?.doc.id)).not.toBe(before);
     await expect(page.getByTestId('canvas')).toBeVisible();
-    if (t !== 'yt-thumb-tech') await page.getByTestId('home').click();
+    if (t !== 'resume-just-another-1') await page.getByTestId('home').click();
   }
 }
 

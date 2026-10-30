@@ -13,7 +13,7 @@
   import { objectUrl, timeAgo } from '../lib/files.ts';
   import { toast } from '../lib/toast.svelte.ts';
   import { copyDesign, downloadDesignFile, renameDesign, trashIsUndoable } from '../lib/designs.ts';
-  import { TEMPLATES, fetchFonts, loadTemplate, searchTemplates, thumbUrl, type TemplateEntry } from '../lib/templates.ts';
+  import { TEMPLATES, creditLine, fetchFonts, loadTemplate, loadTemplateAssets, searchTemplates, thumbUrl, type TemplateEntry } from '../lib/templates.ts';
   import { SHORTCUTS, loadView, popularPresets, previewBox, saveView, searchDesigns, type HomeView, type Shortcut } from '../lib/homeutil.ts';
 
   let projects = $state<ProjectMeta[]>([]);
@@ -101,7 +101,7 @@
       const tpl = await loadTemplate(t.id);
       const sample = tpl.pages.flatMap((p) => [...walk(p.elements)]).map((e) => (e.type === 'text' ? e.text : '')).join(' ');
       const files = await fetchFonts(t.fonts, sample);
-      const assets = new Map<string, Uint8Array>();
+      const assets = await loadTemplateAssets(tpl);
       const docAssets = { ...tpl.assets };
       const fonts = [...(tpl.fonts ?? [])];
       for (const f of files) {

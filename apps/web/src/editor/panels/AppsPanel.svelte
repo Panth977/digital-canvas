@@ -1,6 +1,6 @@
 <script lang="ts">
   import './panels.css';
-  import { CHARTS, newId } from '@digital-canvas/scene';
+  import { CHARTS, newId, type ImageElement } from '@digital-canvas/scene';
   import type { EditorState } from '../../lib/editor.svelte.ts';
   import Icon, { type IconName } from '../../lib/Icon.svelte';
   import { account } from '../../lib/account.svelte.ts';
@@ -11,9 +11,9 @@
   import { catalog, previewFamily, type CatalogFont } from '../../lib/fonts.ts';
   import { place } from '../../lib/tools.ts';
   import {
-    AVATAR_STYLES, GRADIENTS, HARMONIES, ICON_SETS, MAP_CREDIT, PATTERNS, avatarUrl, commonsCredit, download, gradientCss, gradientFill, harmony,
-    pageColors, paletteMap, patternElement, patternPath, randomPalette, recolorPage, searchCommons, searchIconSet, searchPlaces, staticMap, svgToPng,
-    type CommonsImage, type Harmony, type PatternKind, type Place,
+    AVATAR_STYLES, GRADIENTS, ICON_SETS, MAP_CREDIT, PALETTES, PALETTE_CATALOGS, PATTERN_CREDIT, avatarUrl, commonsCredit, download, gradientCss, gradientFill,
+    loadPatterns, pageColors, paletteMap, patternPng, patternTile, recolorPage, searchCommons, searchIconSet, searchPlaces, staticMap, svgDataUrl, svgToPng,
+    type CommonsImage, type HeroPattern, type Palette, type Place,
   } from '../../lib/apps.ts';
 
   let { ed }: { ed: EditorState } = $props();
@@ -30,9 +30,9 @@
     { id: 'charts', name: 'Charts', desc: 'Bars, lines and pies', icon: 'chart', color: '#06b6d4', tag: 'Visuals' },
     { id: 'drive', name: 'Google Drive', desc: 'Your designs and assets', icon: 'drive', color: '#1fa463', tag: 'Files' },
     { id: 'fonts', name: 'Google Fonts', desc: '1,800+ free fonts', icon: 'text', color: '#4285f4', tag: 'Text' },
-    { id: 'patterns', name: 'Pattern generator', desc: 'Seamless vector patterns', icon: 'pattern', color: '#8b5cf6', tag: 'Visuals' },
-    { id: 'gradients', name: 'Gradient generator', desc: 'Smooth colour blends', icon: 'gradient', color: '#f43f5e', tag: 'Visuals' },
-    { id: 'palettes', name: 'Colour palettes', desc: 'Harmonies and recolouring', icon: 'palette', color: '#14b8a6', tag: 'Visuals' },
+    { id: 'patterns', name: 'Hero Patterns', desc: 'Repeating SVG patterns', icon: 'pattern', color: '#8b5cf6', tag: 'Visuals' },
+    { id: 'gradients', name: 'uiGradients', desc: 'Named colour gradients', icon: 'gradient', color: '#f43f5e', tag: 'Visuals' },
+    { id: 'palettes', name: 'Colour palettes', desc: 'Open Color and Tailwind, recolouring', icon: 'palette', color: '#14b8a6', tag: 'Visuals' },
   ];
   let app = $state<AppId | null>(null);
   let filter = $state('');
@@ -50,6 +50,7 @@
     app = id;
     error = '';
     if (id === 'emoji' && !emojis.length) emojis = POPULAR_EMOJI;
+    if (id === 'patterns' && !patterns.length) void guard('patterns', async () => { patterns = await loadPatterns(); pat = patterns.find((p) => p.id === 'jigsaw') ?? patterns[0] ?? null; });
     if (id === 'fonts' && !fonts.length) void guard('fonts', async () => (fonts = await catalog()));
   }
 
@@ -100,19 +101,27 @@
   const useFont = (f: CatalogFont) => guard(f.id, async () => { if (!ed.selected.some((e) => e.type === 'text')) ed.addText('body'); await ed.useFont(f); });
 
   // ---- Patterns ----
-  let patKind = $state<PatternKind>('dots'), patColor = $state('#8b3dff'), patBg = $state('#f3e8ff'), patBgOn = $state(true), patSize = $state(48);
-  const patPreview = $derived.by(() => { const p = patternPath(patKind, 160, 160, patSize / 2); return `${patBgOn ? `<rect width="160" height="160" fill="${patBg}"/>` : ''}<path d="${p.d}" fill="${p.stroke ? 'none' : patColor}" stroke="${p.stroke ? patColor : 'none'}" stroke-width="${p.width}"/>`; });
-  function addPattern(asBackground: boolean): void {
-    const el = patternElement(patKind, ed.doc.width, ed.doc.height, patSize, patColor, patBgOn ? patBg : null);
+  let patterns = $state.raw<HeroPattern[]>([]), pat = $state.raw<HeroPattern | null>(null), patQ = $state('');
+  let patColor = $state('#8b3dff'), patBg = $state('#f3e8ff'), patBgOn = $state(true), patScale = $state(1);
+  const patHits = $derived(patterns.filter((p) => p.name.toLowerCase().includes(patQ.trim().toLowerCase())));
+  const patPreview = $derived(pat ? `background-image:url("${svgDataUrl(patternTile(pat, patColor))}");background-size:${pat.width * patScale}px ${pat.height * patScale}px;background-color:${patBgOn ? patBg : 'transparent'}` : '');
+  const addPattern = (asBackground: boolean) => guard('pattern-add', async () => {
+    const p = pat;
+    if (!p) return;
+    const { width: w, height: h } = ed.doc;
+    const id = await ed.addAsset(await patternPng(p, w, h, patScale, patColor, patBgOn ? patBg : null), 'image/png', `${p.name}, ${PATTERN_CREDIT}`);
+    if (!id) throw new Error('Couldn’t add the pattern.');
+    const el: ImageElement = { id: newId('e_'), type: 'image', name: `Pattern: ${p.name}`, asset: id, x: 0, y: 0, w, h, rotation: 0, opacity: 1, radius: 0 };
     if (asBackground) {
-      ed.commit({ ...ed.doc, pages: ed.doc.pages.map((p) => (p.id === ed.pageId ? { ...p, elements: [el, ...p.elements] } : p)) });
+      ed.commit({ ...ed.doc, pages: ed.doc.pages.map((pg) => (pg.id === ed.pageId ? { ...pg, elements: [el, ...pg.elements] } : pg)) });
       ed.seal();
       ed.select([el.id], ed.pageId);
     } else place(ed, [el]);
-  }
+  });
 
   // ---- Gradients ----
-  let gA = $state('#ff512f'), gB = $state('#dd2476'), gC = $state(''), gAngle = $state(135);
+  let gA = $state(GRADIENTS[0]!.colors[0]!), gB = $state(GRADIENTS[0]!.colors[1]!), gC = $state(GRADIENTS[0]!.colors[2] ?? ''), gAngle = $state(90), gQ = $state('');
+  const gHits = $derived(GRADIENTS.filter((g) => g.name.toLowerCase().includes(gQ.trim().toLowerCase())).slice(0, gQ.trim() ? 120 : 48));
   const gColors = $derived([gA, gB, ...(gC ? [gC] : [])]);
   function setGradient(g: (typeof GRADIENTS)[number]): void { gA = g.colors[0]!; gB = g.colors[1]!; gC = g.colors[2] ?? ''; gAngle = g.angle; }
   function gradientTo(where: 'page' | 'shape' | 'selection'): void {
@@ -131,8 +140,9 @@
   const canGradientSel = $derived(ed.selected.some((e) => e.type === 'shape' || e.type === 'text'));
 
   // ---- Palettes ----
-  let palBase = $state('#8b3dff'), palKind = $state<Harmony>('analogous'), palette = $state<string[]>(harmony('#8b3dff', 'analogous'));
-  $effect(() => { palette = harmony(palBase, palKind); });
+  let palCatalog = $state(PALETTE_CATALOGS[0]!), current_pal = $state.raw<Palette>(PALETTES[0]!);
+  const palette = $derived(current_pal.colors);
+  const palList = $derived(PALETTES.filter((p) => p.catalog === palCatalog));
   function applyColor(hex: string): void {
     const sel = ed.selected;
     if (!sel.length) { ed.updatePage({ background: { type: 'solid', color: hex } }); ed.seal(); return; }
@@ -163,7 +173,7 @@
         </button>
       {/each}
     </div>
-    <p class="dp-hint">Every app here is free and needs no account. Content keeps its licence and credit (hover an image in Uploads to see it).</p>
+    <p class="dp-hint">Every app here is free and needs no account. Content keeps its licence and credit (hover an image in Uploads to see it). <a href="/credits.html" target="_blank" rel="noreferrer" data-testid="apps-credits">Credits and licences</a></p>
   {:else}
     <button class="dp-back" onclick={() => (app = null)} data-testid="apps-back"><Icon name="left" size={16} /> {current?.name}</button>
     {#if error}<p class="dp-err" data-testid="app-error">{error}</p>{/if}
@@ -283,28 +293,32 @@
       <p class="dp-hint">Click a font to use it on the selected text (or a new text box). Fonts are embedded in the design.</p>
 
     {:else if app === 'patterns'}
-      <div class="patprev" style="background:repeating-conic-gradient(var(--chip) 0 25%, transparent 0 50%) 0 0/16px 16px"><svg viewBox="0 0 160 160" width="100%" height="100%">{@html patPreview}</svg></div>
-      <div class="dp-grid four" style="margin-top:10px">
-        {#each PATTERNS as k (k)}
-          {@const p = patternPath(k, 48, 48, 16)}
-          <button class="dp-cell" class:sel={patKind === k} title={k} onclick={() => (patKind = k)} data-testid="pattern-{k}"><svg viewBox="0 0 48 48" width="40" height="40"><path d={p.d} fill={p.stroke ? 'none' : 'currentColor'} stroke={p.stroke ? 'currentColor' : 'none'} stroke-width={p.width} /></svg></button>
+      {#if busy === 'patterns'}<p class="dp-hint"><span class="dp-spin"></span> Loading patterns…</p>{/if}
+      <div class="patprev" style={patPreview} data-testid="pattern-preview"></div>
+      <div class="dp-search" style="margin-top:10px"><Icon name="search" size={18} /><input placeholder="Search patterns" bind:value={patQ} aria-label="Search patterns" data-testid="pattern-search" /></div>
+      <div class="dp-grid four patlist">
+        {#each patHits as p (p.id)}
+          <button class="dp-cell patcell" class:sel={pat?.id === p.id} title={p.name} style="background-image:url(&quot;{svgDataUrl(patternTile(p, '#6b7280'))}&quot;);background-size:{p.width * 0.6}px {p.height * 0.6}px" onclick={() => (pat = p)} data-testid="pattern-{p.id}" aria-label={p.name}></button>
         {/each}
       </div>
+      {#if patterns.length && !patHits.length}<p class="dp-empty">No patterns match.</p>{/if}
       <div class="dp-row" style="margin-top:10px">
         <label class="field grow">Colour<input class="input" type="color" bind:value={patColor} /></label>
         <label class="field grow">Background<input class="input" type="color" bind:value={patBg} disabled={!patBgOn} /></label>
         <label class="chk"><input type="checkbox" bind:checked={patBgOn} /> Fill</label>
       </div>
-      <label class="field" style="margin-top:8px">Scale · {patSize}px<input type="range" min="12" max="160" bind:value={patSize} /></label>
+      <label class="field" style="margin-top:8px">Scale · {Math.round(patScale * 100)}%<input type="range" min="0.25" max="4" step="0.05" bind:value={patScale} /></label>
       <div class="dp-row" style="margin-top:10px">
-        <button class="btn primary grow" onclick={() => addPattern(true)} data-testid="pattern-bg">Use as background</button>
-        <button class="btn grow" onclick={() => addPattern(false)} data-testid="pattern-add">Add element</button>
+        <button class="btn primary grow" disabled={!pat || busy === 'pattern-add'} onclick={() => addPattern(true)} data-testid="pattern-bg">Use as background</button>
+        <button class="btn grow" disabled={!pat || busy === 'pattern-add'} onclick={() => addPattern(false)} data-testid="pattern-add">Add element</button>
       </div>
+      <p class="dp-hint"><a href="https://heropatterns.com" target="_blank" rel="noreferrer">Hero Patterns</a> by Steve Schoger, CC BY 4.0. The credit stays with the picture.</p>
 
     {:else if app === 'gradients'}
       <div class="gprev" style="background:{gradientCss(gAngle, gColors)}"></div>
+      <div class="dp-search" style="margin-top:10px"><Icon name="search" size={18} /><input placeholder="Search {GRADIENTS.length} gradients" bind:value={gQ} aria-label="Search gradients" data-testid="gradient-search" /></div>
       <div class="dp-grid four" style="margin-top:10px">
-        {#each GRADIENTS as g (g.name)}<button class="dp-cell gsw" title={g.name} style="background:{gradientCss(g.angle, g.colors)}" onclick={() => setGradient(g)} data-testid="gradient-{g.name}"></button>{/each}
+        {#each gHits as g (g.name)}<button class="dp-cell gsw" title={g.name} style="background:{gradientCss(g.angle, g.colors)}" onclick={() => setGradient(g)} data-testid="gradient-{g.name}"></button>{/each}
       </div>
       <div class="dp-row" style="margin-top:10px">
         <label class="field grow">From<input class="input" type="color" bind:value={gA} /></label>
@@ -318,24 +332,29 @@
         <button class="btn dp-cta" onclick={() => gradientTo('shape')} data-testid="gradient-shape">Add gradient shape</button>
         {#if canGradientSel}<button class="btn dp-cta" onclick={() => gradientTo('selection')} data-testid="gradient-selection">Apply to selection</button>{/if}
       </div>
+      <p class="dp-hint">Gradients from <a href="https://uigradients.com" target="_blank" rel="noreferrer">uiGradients</a> (MIT).</p>
 
     {:else if app === 'palettes'}
-      <div class="dp-row">
-        <label class="field grow">Base colour<input class="input" type="color" bind:value={palBase} data-testid="palette-base" /></label>
-        <button class="btn" style="align-self:end" onclick={() => { const p = randomPalette(); palBase = p[2] ?? p[0]!; palKind = 'analogous'; palette = p; }} data-testid="palette-random"><Icon name="sparkle" size={16} /> Random</button>
+      <div class="dp-chips">
+        {#each PALETTE_CATALOGS as c (c)}<button class="dp-chip" class:on={palCatalog === c} onclick={() => (palCatalog = c)} data-testid="palette-catalog-{c}">{c}</button>{/each}
       </div>
-      <div class="dp-chips" style="margin-top:10px">
-        {#each HARMONIES as h (h.id)}<button class="dp-chip" class:on={palKind === h.id} onclick={() => (palKind = h.id)}>{h.label}</button>{/each}
+      <div class="dp-list pallist">
+        {#each palList as p (p.id)}
+          <button class="palrow" class:sel={current_pal.id === p.id} onclick={() => (current_pal = p)} data-testid="palette-{p.id}" title="{p.name} ({p.catalog})">
+            <span class="palname">{p.name}</span>
+            <span class="palstrip">{#each p.colors as c, i (i)}<i style="background:{c}"></i>{/each}</span>
+          </button>
+        {/each}
       </div>
       <div class="palette" data-testid="palette-swatches">
         {#each palette as hex, i (i)}<button class="pc" style="background:{hex}" title="Apply {hex}" onclick={() => applyColor(hex)}><span>{hex}</span></button>{/each}
       </div>
       <div class="dp-stack" style="margin-top:10px">
         <button class="btn primary dp-cta" onclick={recolorDesign} data-testid="palette-recolor"><Icon name="palette" size={16} /> Recolour this page</button>
-        <button class="btn dp-cta" onclick={() => brand.addPalette(palette, `${HARMONIES.find((h) => h.id === palKind)?.label} palette`)} data-testid="palette-save">Save to Brand Kit</button>
+        <button class="btn dp-cta" onclick={() => brand.addPalette(palette, `${current_pal.name} (${current_pal.catalog})`)} data-testid="palette-save">Save to Brand Kit</button>
         <button class="btn ghost dp-cta" onclick={async () => { await navigator.clipboard?.writeText(palette.join(', ')).catch(() => {}); copied = true; setTimeout(() => (copied = false), 1500); }}>{copied ? 'Copied' : 'Copy hex codes'}</button>
       </div>
-      <p class="dp-hint">Click a colour to apply it to the selection (or the page). Recolour swaps the page’s colours for these, darkest to darkest.</p>
+      <p class="dp-hint">Click a colour to apply it to the selection (or the page). Recolour swaps the page’s colours for these, darkest to darkest. Colours from <a href="https://yeun.github.io/open-color/" target="_blank" rel="noreferrer">Open Color</a> and <a href="https://tailwindcss.com/docs/colors" target="_blank" rel="noreferrer">Tailwind CSS</a> (both MIT).</p>
     {/if}
   {/if}
 </div>
@@ -350,7 +369,15 @@
   .at small { color: var(--muted); font-size: 12px; }
   .mapprev { aspect-ratio: 3 / 2; border-radius: 8px; overflow: hidden; background: var(--chip); display: grid; place-items: center; }
   .mapprev img { width: 100%; height: 100%; object-fit: cover; }
-  .patprev { aspect-ratio: 1; border-radius: 10px; overflow: hidden; border: 1px solid var(--line); }
+  .patprev { aspect-ratio: 16 / 10; border-radius: 10px; overflow: hidden; border: 1px solid var(--line); }
+  .patlist { max-height: 300px; overflow: auto; margin-top: 10px; }
+  .patcell { aspect-ratio: 1; }
+  .pallist { max-height: 300px; overflow: auto; margin-top: 6px; }
+  .palrow { display: grid; grid-template-columns: 84px 1fr; align-items: center; gap: 8px; padding: 5px 6px; border: 1px solid transparent; border-radius: 8px; background: none; color: var(--ink); font-size: 12px; text-align: left; }
+  .palrow:hover { background: var(--hover); }
+  .palrow.sel { border-color: var(--accent); }
+  .palstrip { display: flex; height: 20px; border-radius: 4px; overflow: hidden; }
+  .palstrip i { flex: 1; }
   .dp-cell.sel { border-color: var(--accent); }
   .chk { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); align-self: end; height: 32px; }
   .gprev { height: 120px; border-radius: 10px; }

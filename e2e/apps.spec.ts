@@ -93,35 +93,39 @@ test('apps: DiceBear avatars', async ({ page }) => {
   expect((await doc(page)).assets[img.asset].name).toContain('DiceBear Notionists');
 });
 
-test('apps: pattern, gradient and palette generators', async ({ page }) => {
+test('apps: Hero Patterns, uiGradients and open palettes', async ({ page }) => {
   await newDesign(page);
   await page.getByTestId('shape-rect').click();
   await openApp(page, 'patterns');
-  await page.getByTestId('pattern-checker').click();
+  await page.getByTestId('pattern-search').fill('jigsaw');
+  await page.getByTestId('pattern-jigsaw').click();
   await page.getByTestId('pattern-bg').click();
+  await expect.poll(async () => (await elements(page)).length).toBe(2);
   let els = (await elements(page)) as any[];
-  expect(els).toHaveLength(2);
-  expect(els[0].type).toBe('path'); // behind the rect
-  expect(els[0].name).toBe('Pattern: checker');
+  expect(els[0].type).toBe('image'); // behind the rect
+  expect(els[0].name).toBe('Pattern: Jigsaw');
   expect([els[0].w, els[0].h]).toEqual([1080, 1080]);
+  expect((await doc(page)).assets[els[0].asset].name).toContain('Hero Patterns by Steve Schoger (CC BY 4.0)');
 
   await page.getByTestId('apps-back').click();
   await page.getByTestId('app-gradients').click();
-  await page.getByTestId('gradient-Ocean').click();
+  await page.getByTestId('gradient-search').fill('Blue Skies');
+  await page.getByTestId('gradient-Blue Skies').click();
   await page.getByTestId('gradient-page').click();
-  expect((await doc(page)).pages[0].background).toEqual({ type: 'linear', angle: 135, stops: [{ offset: 0, color: '#2193b0' }, { offset: 1, color: '#6dd5ed' }] });
+  expect((await doc(page)).pages[0].background).toEqual({ type: 'linear', angle: 90, stops: [{ offset: 0, color: '#56ccf2' }, { offset: 1, color: '#2f80ed' }] });
 
   await page.getByTestId('apps-back').click();
   await page.getByTestId('app-palettes').click();
-  await page.getByTestId('palette-base').fill('#e11d48');
+  await page.getByTestId('palette-open-color-red').click();
   const palette = await page.getByTestId('palette-swatches').locator('button').evaluateAll((bs) => bs.map((b) => b.getAttribute('title')!.slice(6)));
-  expect(palette).toHaveLength(5);
+  expect(palette).toHaveLength(10); // Open Color's scale for red
+  expect(palette[0]).toBe('#fff5f5');
   await page.getByTestId('palette-recolor').click();
   els = (await elements(page)) as any[];
   expect(palette).toContain(els[1].fill.color); // the rect took a palette colour
   await page.getByTestId('palette-save').click();
   await page.getByTestId('tab-brand').click();
-  await expect(page.getByTestId('brand-swatch')).toHaveCount(5);
+  await expect(page.getByTestId('brand-swatch')).toHaveCount(10);
 });
 
 test('apps: Google Fonts, QR codes and charts', async ({ page }) => {

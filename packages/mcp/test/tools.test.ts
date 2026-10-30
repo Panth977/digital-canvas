@@ -201,21 +201,35 @@ describe('editing', () => {
   });
 
   it('templates: list, outline resource, apply with replace_text (scaled to the design)', async () => {
-    const list = await h.call('list_templates', { query: 'sale' });
-    expect(list.json.templates[0].id).toBe('ig-sale-bold');
-    const res = await h.client.readResource({ uri: 'dcanvas://template/ig-sale-bold' });
+    const list = await h.call('list_templates', { query: 'swot' });
+    expect(list.json.templates[0].id).toBe('wb-swot');
+    expect(list.json.templates[0]).toMatchObject({ author: 'Renan Mayrinck', licence: 'CC-BY-4.0' });
+    const res = await h.client.readResource({ uri: 'dcanvas://template/wb-swot' });
     const outline = JSON.parse(String((res.contents[0] as { text: string }).text));
-    const sale = outline.pages[0].elements.find((e: { text?: string }) => e.text === 'SALE');
+    const swot = outline.pages[0].elements.find((e: { text?: string }) => e.text === 'strengths');
     const id = await make({ preset: 'instagram-portrait' });
-    const r = await h.call('apply_template', { design_id: id, template_id: 'ig-sale-bold', replace_text: [{ match: sale.id, text: 'DEALS' }, { match: 'UP TO', text: '50% OFF' }, { match: 'not there', text: 'x' }] });
+    const r = await h.call('apply_template', { design_id: id, template_id: 'wb-swot', replace_text: [{ match: swot.id, text: 'WINS' }, { match: 'weaknesses', text: 'GAPS' }, { match: 'not there', text: 'x' }] });
     expect(r.isError, r.text).toBe(false);
     const texts = r.json.pages[0].elements.filter((e: { type: string }) => e.type === 'text').map((e: { text: string }) => e.text);
-    expect(texts).toContain('DEALS');
-    expect(texts).toContain('50% OFF');
+    expect(texts).toContain('WINS');
+    expect(texts).toContain('GAPS');
     expect(r.json.warnings.join()).toMatch(/not there/);
-    expect(r.json.template_ids_to_new_ids[sale.id]).toMatch(/^e_/);
-    const fromTpl = await h.call('create_design', { title: 'From template', template: 'yt-vlog' });
-    expect(fromTpl.json.outline.size).toEqual([1280, 720]);
+    expect(r.json.template_ids_to_new_ids[swot.id]).toMatch(/^e_/);
+    const fromTpl = await h.call('create_design', { title: 'From template', template: 'community-post-1' });
+    expect(fromTpl.json.outline.size).toEqual([1200, 627]);
+  });
+
+  it('templates with pictures carry them into the design', async () => {
+    const made = await h.call('create_design', { title: 'Cards', template: 'community-cards' });
+    expect(made.isError, made.text).toBe(false);
+    const png = await h.call('render_page', { design_id: made.json.id, page: 1 });
+    expect(png.isError, png.text).toBe(false);
+    const open = await h.call('open_design', { design_id: made.json.id });
+    expect(open.text).toContain('image');
+    const applied = await make({ preset: 'instagram-post' });
+    const r = await h.call('apply_template', { design_id: applied, template_id: 'community-cards' });
+    expect(r.isError, r.text).toBe(false);
+    expect((await h.call('render_page', { design_id: applied, page: 1 })).isError).toBe(false);
   });
 
   it('brand kit: read and apply (colours, fonts, logo)', async () => {

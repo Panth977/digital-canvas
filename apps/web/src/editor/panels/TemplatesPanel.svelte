@@ -6,7 +6,7 @@
   import Icon from '../../lib/Icon.svelte';
   import { library } from '../../lib/library.svelte.ts';
   import { objectUrl } from '../../lib/files.ts';
-  import { TEMPLATES, TEMPLATE_CATEGORIES, byFit, insertDesign, loadTemplate, pageIsEmpty, searchTemplates, thumbUrl, type InsertMode, type TemplateEntry } from '../../lib/templates.ts';
+  import { TEMPLATES, TEMPLATE_CATEGORIES, byFit, creditLine, insertDesign, licenceName, loadTemplate, loadTemplateAssets, pageIsEmpty, searchTemplates, thumbUrl, type InsertMode, type TemplateEntry } from '../../lib/templates.ts';
   import InsertDialog from './InsertDialog.svelte';
 
   let { ed }: { ed: EditorState } = $props();
@@ -52,8 +52,9 @@
     busy = t.title;
     try {
       const doc = await loadTemplate(t.id);
+      const assets = await loadTemplateAssets(doc);
       busy = null;
-      await run(doc, new Map(), t.title);
+      await run(doc, assets, t.title);
     } catch (e) {
       busy = null;
       error = `Couldn’t open the template: ${e instanceof Error ? e.message : e}`;
@@ -100,7 +101,7 @@
       <div class="dp-head"><h3>For this design</h3></div>
       <div class="dp-strip">
         {#each fitting as t (t.id)}
-          <button class="dp-card" title={t.title} onclick={() => useTemplate(t)} data-testid="tpl-fit-{t.id}">
+          <button class="dp-card" title={creditLine(t)} onclick={() => useTemplate(t)} data-testid="tpl-fit-{t.id}">
             <img src={thumbUrl(t.id)} alt={t.title} loading="lazy" style="aspect-ratio:{ratio(t)}" />
           </button>
         {/each}
@@ -124,9 +125,10 @@
       <div class="dp-head"><h3>{c}</h3><button class="dp-link" onclick={() => (category = c)} data-testid="tpl-seeall-{c}">See all</button></div>
       <div class="dp-strip">
         {#each list as t (t.id)}
-          <button class="dp-card" title={t.title} onclick={() => useTemplate(t)} data-testid="tpl-{t.id}">
+          <button class="dp-card" title={creditLine(t)} onclick={() => useTemplate(t)} data-testid="tpl-{t.id}">
             <img src={thumbUrl(t.id)} alt={t.title} loading="lazy" style="aspect-ratio:{ratio(t)}" />
             {#if t.pages > 1}<span class="dp-badge">{t.pages} pages</span>{/if}
+            <span class="dp-by" data-testid="tpl-by-{t.id}">{t.credit.author}</span>
           </button>
         {/each}
       </div>
@@ -138,16 +140,17 @@
       <div class="dp-head"><h3>{category === 'All' ? 'Templates' : category}</h3><span class="dp-link">{results.length}</span></div>
       <div class="dp-cols" data-testid="template-results">
         {#each results as t (t.id)}
-          <button class="dp-card" title={t.title} onclick={() => useTemplate(t)} data-testid="tpl-{t.id}">
+          <button class="dp-card" title={creditLine(t)} onclick={() => useTemplate(t)} data-testid="tpl-{t.id}">
             <img src={thumbUrl(t.id)} alt={t.title} loading="lazy" style="aspect-ratio:{ratio(t)}" />
             {#if t.pages > 1}<span class="dp-badge">{t.pages} pages</span>{/if}
             <span class="dp-cap">{t.title}</span>
+            <span class="dp-by" data-testid="tpl-by-{t.id}">{t.credit.author} · {licenceName(t.credit.licence)}</span>
           </button>
         {/each}
       </div>
     {/if}
   {/if}
-  <p class="dp-hint">Templates use free Google Fonts and open-licensed icons (Fluent Emoji, MIT). They resize to your page.</p>
+  <p class="dp-hint">Real designs by people in the Penpot community, under open licences. They resize to your page and use free Google Fonts. <a href="/credits.html" target="_blank" rel="noreferrer" data-testid="tpl-credits">Credits and licences</a></p>
 </div>
 
 {#if pending}

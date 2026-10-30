@@ -52,6 +52,13 @@ export async function loadTemplate(id: string): Promise<Doc> {
   return parseDoc(structuredClone(await platform().templateDoc(id)));
 }
 
+/** The pictures a template uses, by asset id. */
+export async function loadTemplateAssets(doc: Doc): Promise<Map<string, Uint8Array>> {
+  const ids = Object.entries(doc.assets).filter(([, m]) => m.mime.startsWith('image/')).map(([id]) => id);
+  const files = await Promise.all(ids.map((id) => platform().templateAsset(id)));
+  return new Map(ids.map((id, i) => [id, files[i]!]));
+}
+
 export const templateThumb = (id: string, base: string) => `${base}/templates/${id}.png`;
 
 /** Scale `src` to a page size (like Resize), with fresh ids. Returns the pages and old → new element ids. */

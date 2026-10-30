@@ -1,6 +1,7 @@
 /**
- * Templates: the built-in library (apps/web/src/templates, built by
- * tools/templates/build.ts) and putting any design's pages into the open one
+ * Templates: the built-in library (apps/web/src/templates, real designs from
+ * open catalogues, built by tools/templates/penpot-import/build.ts) and putting
+ * any design's pages into the open one
  * (a template, or one of your own designs).
  */
 import { cloneElement, newId, parseDoc, resizeDoc, walk, type Doc, type Element, type Page } from '@digital-canvas/scene';
@@ -18,7 +19,25 @@ export interface TemplateEntry {
   pages: number;
   fonts: string[];
   video?: boolean;
+  /** Pictures the template needs, in public/templates/assets. */
+  assets?: string[];
+  /** Who made it and under which licence. */
+  credit: TemplateCredit;
 }
+
+export interface TemplateCredit {
+  author: string;
+  authorUrl?: string;
+  catalog: string;
+  sourceUrl: string;
+  fileUrl?: string;
+  licence: string;
+  licenceUrl: string;
+}
+
+/** e.g. "CC BY 4.0" from "CC-BY-4.0". */
+export const licenceName = (spdx: string) => spdx.replace(/^CC-BY-SA-/, 'CC BY-SA ').replace(/^CC-BY-/, 'CC BY ').replace(/^CC0-1\.0$/, 'CC0');
+export const creditLine = (t: TemplateEntry) => `${t.title} by ${t.credit.author}, ${t.credit.catalog} (${licenceName(t.credit.licence)})`;
 
 export const TEMPLATES = INDEX as TemplateEntry[];
 export const TEMPLATE_CATEGORIES = [...new Set(TEMPLATES.map((t) => t.category))];
@@ -33,10 +52,21 @@ export async function loadTemplate(id: string): Promise<Doc> {
   return parseDoc(structuredClone(await load()));
 }
 
+/** The picture files a template uses (fetched from the app's own /templates/assets/). */
+export async function loadTemplateAssets(doc: Doc): Promise<Map<string, Uint8Array>> {
+  const out = new Map<string, Uint8Array>();
+  await Promise.all(Object.entries(doc.assets).filter(([, m]) => m.mime.startsWith('image/')).map(async ([id]) => {
+    const r = await fetch(`${import.meta.env.BASE_URL}templates/assets/${id}`);
+    if (!r.ok) throw new Error(`picture ${id}: HTTP ${r.status}`);
+    out.set(id, new Uint8Array(await r.arrayBuffer()));
+  }));
+  return out;
+}
+
 /** Templates matching words (title, category, tags) and a category ('All' = any). */
 export function searchTemplates(query: string, category = 'All', list = TEMPLATES): TemplateEntry[] {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-  return list.filter((t) => (category === 'All' || t.category === category) && words.every((w) => `${t.title} ${t.category} ${t.tags}`.toLowerCase().includes(w)));
+  return list.filter((t) => (category === 'All' || t.category === category) && words.every((w) => `${t.title} ${t.category} ${t.tags} ${t.credit.author}`.toLowerCase().includes(w)));
 }
 
 /** Templates shaped like the open design come first (same aspect ratio). */
@@ -121,10 +151,9 @@ export async function insertDesign(ed: EditorState, src: Doc, mode: InsertMode, 
   } else list.splice(at + 1, 0, ...pages);
   const next: Doc = { ...ed.doc, assets: docAssets, pages: list, updatedAt: new Date().toISOString() };
   ed.commit(next, key);
+  ed.refitText(key); // same undo step: one undo takes the whole template back
   ed.seal();
   ed.select([], mode === 'replace' ? list[at]!.id : pages[0]!.id);
-  ed.refitText();
-  ed.seal();
 }
 
 /** Is the current page blank (nothing on it)? Then a template just fills it. */

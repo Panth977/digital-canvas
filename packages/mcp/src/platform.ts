@@ -27,6 +27,10 @@ export interface TemplateEntry {
   pages: number;
   fonts: string[];
   video?: boolean;
+  /** Pictures the template needs. */
+  assets?: string[];
+  /** Who made it and under which licence. */
+  credit: { author: string; authorUrl?: string; catalog: string; sourceUrl: string; fileUrl?: string; licence: string; licenceUrl: string };
 }
 
 export interface VideoExportOptions {
@@ -47,6 +51,8 @@ export interface Platform {
   templateIndex(): TemplateEntry[];
   /** One template's document JSON (unparsed). */
   templateDoc(id: string): Promise<unknown>;
+  /** A picture a template uses (file name = its asset id). */
+  templateAsset(id: string): Promise<Uint8Array>;
   /** One frame of a video file as PNG, or null when this machine can't decode it. */
   videoFrame(bytes: Uint8Array, at: number, mime?: string): Promise<Uint8Array | null>;
   /** Why MP4 export can't run here (shown to the agent), or null when it can. */

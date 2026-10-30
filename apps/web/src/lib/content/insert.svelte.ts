@@ -93,7 +93,9 @@ export async function insertItem(ed: EditorState, item: Item, at?: { x: number; 
         const { bytes, mime } = await fetchMedia(full, 'audio', LIMITS.audio);
         if (!(await ed.addAudioBytes(bytes, mime, creditLine(full.credit), full.title))) throw new Error("this browser can't play the sound");
       } else {
-        const { bytes, mime } = await fetchMedia(full, 'image', LIMITS.photo);
+        let { bytes, mime } = await fetchMedia(full, 'image', LIMITS.photo);
+        // our renderer doesn't read SVG files: bundled illustrations go in as a sharp picture
+        if (mime === 'image/svg+xml') { bytes = await rasterize(new TextDecoder().decode(bytes), 2048); mime = 'image/png'; }
         const id = await ed.addAsset(bytes, mime, creditLine(full.credit));
         if (!id) throw new Error("couldn't read the picture");
         frameId ? ed.fillFrame(frameId, id) : ed.addImageAsset(id, at);

@@ -43,7 +43,7 @@ Open-source Canva alternative. Built on TaskManager ticket **ORCH-27** (ORCH boa
 ## Rail modules (r3, 2026-10-27)
 
 - Panels live in `apps/web/src/editor/panels/` (AI, Templates, Brand, Tools, Projects, Apps); shared look in `panels.css` (`dp-` classes).
-- Templates: author in `tools/templates/library.ts` (loose docs, see `packages/scene/src/loose.ts`), then `npx tsx tools/templates/build.ts [id…]` writes `apps/web/src/templates/*.json` + `index.json` and `apps/web/public/templates/*.png`. Icons are baked in from Iconify (Fluent Emoji flat, Phosphor, MDI). `packages/render/test/templates.test.ts` checks every template.
+- Templates are real designs from open catalogues, never generated: see "Open content (r14)" below.
 - Brand Kit: `packages/storage/src/brand.ts`; every store implements `loadBrand/saveBrand` (Drive: `Digital Canvas/brand.json` with `appProperties.dcBrand=1`, logos in `assets/`).
 - AI is bring-your-own-key on any provider (r10, below). "Design for me" asks for a loose doc and validates it with `designFromReply` → `parseDoc` (one retry with the error).
 - Eraser brush: `addStroke` with brush `eraser` removes drawings (`erasedBy`, scene/erase.ts) instead of drawing.
@@ -132,3 +132,15 @@ Open-source Canva alternative. Built on TaskManager ticket **ORCH-27** (ORCH boa
 - `apps/web/public/mockups/` = format v1 (`index.json` + per id `base.jpg`, `uv-hi.png`, `uv-lo.png`, `shade.png`, `tint.png`, `thumb.jpg`; entries also carry `printWidth`). All CC0, rendered by Blender (`brew install --cask blender`, 5.2) from procedural scenes; no photos (`LICENSES.md`).
 - Generator `tools/mockups/`: scenes register with `@mockup(...)` in `scenes/<category>.py` over `blib.py` helpers. One Cycles render per mockup: the print material writes AOV `pc` = (u·c, v·c, c) (premultiplied print UV + coverage), product materials AOV `tint`; shade = Combined / print albedo, auto-exposed so the print surface sits near 1.0. Any printable material must only sit on meshes with a `print` UV map (a missing map reads (0,0) = covered).
 - Run with the venv python (numpy, scipy, Pillow): `python tools/mockups/build.py [ids] [--preview]` (render → `pack.py` → contact sheet). `composite.py` is the reference compositor for the contract formula. UV/shade/tint PNGs carry no gAMA/iCCP/sRGB/cHRM chunks (`pack.py` asserts it).
+
+## Open content (r14-content, 2026-10-30)
+
+Panth's rule: no generated design content. Templates, stickers, illustrations, font pairs, palettes, patterns and gradients come from open catalogues, with credit.
+
+- Templates: `tools/templates/penpot-import/` (`source.ts` = the seam: a `TemplateSource` yields `SourceBoard`s; `penpot.ts` reads `.penpot` zips, `convert.ts` is the pure shape mapping, `catalog.ts` picks boards, `build.ts` renders, compares with the file's preview, writes the library). `npx tsx tools/templates/penpot-import/build.ts --dry --review <dir>` writes side-by-sides; look at them, a low score alone means little on mostly white boards. A Figma source plugs in as `figma.ts` (needs a token from Panth), see `source.ts`.
+- Output: `apps/web/src/templates/*.json` + `index.json` (each entry has `credit` and `assets`), `apps/web/public/templates/<id>.png` and `assets/<assetId>`. `loadTemplateAssets()` in the web and MCP libraries brings the pictures; `Platform.templateAsset` serves MCP.
+- Rights: CC BY 4.0 is penpot-files' default for files with no `.LICENSE`, and it does not cover third-party content inside. Stock photos and brand logos go: `stripImages` turns them into empty frames. The build prints image names so a person can check them. Files in the old binary format (magic `01 0b 1a 86`, not zip) are not read yet.
+- Scene limits the converter works around: no general clip (boxes and images are cut by geometry), no shape shadows, no radial gradients, no blend modes (noted per board as lossy).
+- Other catalogues: `tools/catalogs/build.ts` writes `apps/web/src/lib/content/data/*.json` (Open Color, Tailwind, uiGradients, Hero Patterns, Fonttrio) and `public/illustrations/open-doodles/`. `tools/catalogs/credits.ts` writes `LICENSES` and `public/credits.html` from that data: run it after any catalogue change.
+- Hero Patterns come in as a PNG (`patternPng`): a page of vector tiles would be megabytes of path. Open Doodles are rasterised on insert because the renderer doesn't read SVG files.
+- DiceBear: only CC0, CC BY and MIT styles; Avataaars and Bottts are under the artist's own terms and stay out.

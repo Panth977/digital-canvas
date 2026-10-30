@@ -6,7 +6,7 @@
 /** What a result is, which decides how it goes into the design. */
 export type Kind = 'graphic' | 'sticker' | 'icon' | 'illustration' | 'photo' | 'video' | 'audio';
 
-export type SourceId = 'iconify' | 'openverse' | 'commons' | 'nasa';
+export type SourceId = 'iconify' | 'openverse' | 'commons' | 'nasa' | 'doodles';
 
 /** Who made it and under which licence: kept with the asset in the design. */
 export interface Credit {

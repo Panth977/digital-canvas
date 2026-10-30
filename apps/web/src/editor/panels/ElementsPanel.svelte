@@ -286,7 +286,7 @@
       {@render tableForm()}
       <h3 class="sec">QR code</h3>
       {@render qrForm()}
-      <p class="credits">Graphics, stickers and icons from open-source sets via <a href="https://iconify.design" target="_blank" rel="noreferrer">Iconify</a>; photos, videos and sounds from <a href="https://openverse.org" target="_blank" rel="noreferrer">Openverse</a>, <a href="https://commons.wikimedia.org" target="_blank" rel="noreferrer">Wikimedia Commons</a> and <a href="https://images.nasa.gov" target="_blank" rel="noreferrer">NASA</a>. Each item's licence and author are kept with it in your design (hover a tile to see them).</p>
+      <p class="credits">Graphics, stickers (Fluent Emoji, Noto, Twemoji, OpenMoji) and icons from open-source sets via <a href="https://iconify.design" target="_blank" rel="noreferrer">Iconify</a>; illustrations from <a href="https://www.opendoodles.com" target="_blank" rel="noreferrer">Open Doodles</a> and Openverse; photos, videos and sounds from <a href="https://openverse.org" target="_blank" rel="noreferrer">Openverse</a>, <a href="https://commons.wikimedia.org" target="_blank" rel="noreferrer">Wikimedia Commons</a> and <a href="https://images.nasa.gov" target="_blank" rel="noreferrer">NASA</a>. Each item's licence and author are kept with it in your design (hover a tile to see them). <a href="/credits.html" target="_blank" rel="noreferrer" data-testid="elements-credits">Credits and licences</a></p>
     {/if}
   </div>
 </div>
