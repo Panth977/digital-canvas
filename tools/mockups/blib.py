@@ -1096,3 +1096,58 @@ def studio(color=(0.82, 0.82, 0.8), key=600, fill=180, rim=300, world=0.15, key_
     area_light((key_side * 1.4, -1.2, 1.4), (0, 0, 0.1), size=1.6, power=key, color=(1, 0.98, 0.95))
     area_light((-key_side * 1.6, -0.9, 0.7), (0, 0, 0.1), size=1.2, power=fill, color=(0.95, 0.97, 1))
     area_light((key_side * -0.6, 0.9, 1.6), (0, 0, 0.1), size=1.0, power=rim)
+
+
+def rounded_rect_pts(w, h, r, n=10):
+    pts = []
+    for cx, cy, a0 in ((w / 2 - r, h / 2 - r, 0), (-w / 2 + r, h / 2 - r, 90), (-w / 2 + r, -h / 2 + r, 180),
+                       (w / 2 - r, -h / 2 + r, 270)):
+        for k in range(n + 1):
+            a = math.radians(a0 + 90 * k / n)
+            pts.append((cx + r * math.cos(a), cy + r * math.sin(a)))
+    return pts
+
+
+def rounded_slab(w, h, t, r, mat=None, bevel=0.0, name='Slab', n=10):
+    """Rounded rectangle in XY, thickness t from z=0 to z=t."""
+    bm = bmesh.new()
+    vs = [bm.verts.new((x, y, 0.0)) for x, y in rounded_rect_pts(w, h, r, n)]
+    f = bm.faces.new(vs)
+    bm.normal_update()
+    if f.normal.z < 0:
+        f.normal_flip()
+    ex = bmesh.ops.extrude_face_region(bm, geom=[f])
+    for v in ex['geom']:
+        if isinstance(v, bmesh.types.BMVert):
+            v.co.z += t
+    bmesh.ops.reverse_faces(bm, faces=[f])
+    me = bpy.data.meshes.new(name)
+    bm.to_mesh(me)
+    bm.free()
+    o = link(bpy.data.objects.new(name, me))
+    if mat:
+        o.data.materials.append(mat)
+    if bevel:
+        b = o.modifiers.new('Bevel', 'BEVEL')
+        b.width = bevel
+        b.segments = 4
+        b.limit_method = 'ANGLE'
+        b.angle_limit = math.radians(50)
+        b.harden_normals = False
+    for p in me.polygons:
+        p.use_smooth = True
+    if hasattr(me, 'set_sharp_from_angle'):
+        me.set_sharp_from_angle(angle=math.radians(60))
+    return o
+
+
+def rounded_face(w, h, r, mat=None, name='Face', n=10, uv_rect=None):
+    """Flat rounded-rect face at z=0 facing +Z, 'print' UV maps uv_rect (w,h) centred to 0..1."""
+    vs = [(x, y, 0.0) for x, y in rounded_rect_pts(w, h, r, n)]
+    vs.append((0.0, 0.0, 0.0))
+    c = len(vs) - 1
+    faces = [(c, i, (i + 1) % c) for i in range(c)]
+    o = mesh_obj(name, vs, faces, mat, smooth=False)
+    uw, uh = uv_rect or (w, h)
+    set_uv(o, 'print', lambda co, fc: (co.x / uw + 0.5, co.y / uh + 0.5))
+    return o
