@@ -118,12 +118,14 @@ test('preview dialog: full size, colours, prev/next, download PNG/JPG, add as a 
   await expect(full).toHaveAttribute('data-color', '#ffffff');
   const body = async () => full.evaluate((c: HTMLCanvasElement) => Array.from(c.getContext('2d')!.getImageData(470, 615, 1, 1).data));
   const white = await body();
+  const firstMs = await full.getAttribute('data-ms');
   const n = Number(await full.getAttribute('data-renders'));
   await page.getByTestId('mockup-color-1f3a93').click();
   await expect(full).toHaveAttribute('data-color', '#1f3a93');
   await expect.poll(() => full.getAttribute('data-renders').then(Number)).toBeGreaterThan(n);
   const blue = await body();
   expect(white[0]! - blue[0]!).toBeGreaterThan(60);
+  console.log(`mockup preview 1000×800: first render ${firstMs} ms (fetch + decode + prepare + composite), colour change ${await full.getAttribute('data-ms')} ms`);
   expect(blue[2]!).toBeGreaterThan(blue[0]! + 40);
   // custom colour
   await page.getByTestId('mockup-color-custom').evaluate((i: HTMLInputElement) => { i.value = '#00aa00'; i.dispatchEvent(new Event('input', { bubbles: true })); });
