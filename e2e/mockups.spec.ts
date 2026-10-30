@@ -2,28 +2,14 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test, expect, type Page } from '@playwright/test';
 import { newDesign, doc } from './helpers';
+import { routeMockups } from './mockup-fixtures';
 
 /**
  * The Mockups tab on the synthetic fixture library (e2e/fixtures/mockups,
  * tools/mockups/fixtures.ts): fx-poster (Print, 800×1000), fx-mug (Home,
  * 1000×800, tint), fx-billboard (Outdoor, 1200×800).
  */
-const LIB = new URL('./fixtures/mockups/', import.meta.url);
 const SHOTS = '/tmp/orch27-rw';
-
-export async function routeMockups(page: Page): Promise<void> {
-  // only the site's /mockups/ folder (not the app's own src/lib/mockups modules)
-  await page.route(/^https?:\/\/[^/]+\/mockups\//, (r) => {
-    const path = new URL(r.request().url()).pathname.replace(/^\/mockups\//, '');
-    try {
-      const body = readFileSync(new URL(path, LIB));
-      const type = path.endsWith('.json') ? 'application/json' : path.endsWith('.png') ? 'image/png' : 'image/jpeg';
-      return r.fulfill({ status: 200, body, contentType: type });
-    } catch {
-      return r.fulfill({ status: 404, body: 'not found' });
-    }
-  });
-}
 
 /** A red page with a white circle (easy to find in a composite). */
 async function redPage(page: Page): Promise<void> {

@@ -135,7 +135,7 @@
     <header>
       <div class="mkp-title">
         <h2>{entry.label}</h2>
-        <span>{entry.category} · {list.length > 1 ? `${index + 1} of ${list.length}` : ''}</span>
+        <span>{list.length > 1 ? `${entry.category} · ${index + 1} of ${list.length}` : entry.category}</span>
       </div>
       <button class="mkp-x" aria-label="Close" data-testid="mockup-close" onclick={onclose}><Icon name="close" size={18} /></button>
     </header>
