@@ -225,7 +225,7 @@ test('text: font library; a font adds a text box, or restyles the selected text;
   await stubFonts(page);
   await page.getByTestId('tab-text').click();
   await page.getByTestId('browse-fonts').click();
-  await expect(page.getByTestId('fontlib-results').locator('.font')).toHaveCount(3);
+  await expect(page.getByTestId('fontlib-results').locator('.font')).toHaveCount(5);
   await page.getByTestId('fontcat-monospace').click();
   await expect(page.getByTestId('fontlib-results').locator('.font')).toHaveCount(1);
   await page.getByTestId('fontcat-monospace').click(); // stays on monospace
