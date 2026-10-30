@@ -29,17 +29,8 @@
    "width": 1600,
    "height": 1202,
    "aspect": 0.761,
-   "tint": true,
-   "colors": [
-    "#ffffff",
-    "#1d1d1f",
-    "#9aa5b1",
-    "#1f3a93",
-    "#c0392b",
-    "#2e7d32",
-    "#f1c40f",
-    "#f5e6c8"
-   ],
+   "tint": false,
+   "colors": [],
    "credit": "Photo by Mediamodifier on Unsplash: https://unsplash.com/photos/white-crew-neck-t-shirt-elbKS4DY21g",
    "printWidth": 351
   },
@@ -107,17 +98,8 @@
    "width": 1600,
    "height": 1067,
    "aspect": 1.065,
-   "tint": true,
-   "colors": [
-    "#ffffff",
-    "#1d1d1f",
-    "#9aa5b1",
-    "#1f3a93",
-    "#c0392b",
-    "#2e7d32",
-    "#f1c40f",
-    "#f5e6c8"
-   ],
+   "tint": false,
+   "colors": [],
    "credit": "Photo by Brando Makes Branding on Unsplash: https://unsplash.com/photos/white-reusable-bag-on-gray-surface-smTDI-z1rlY",
    "printWidth": 492
   },
@@ -128,17 +110,8 @@
    "width": 1600,
    "height": 1067,
    "aspect": 0.934,
-   "tint": true,
-   "colors": [
-    "#ffffff",
-    "#1d1d1f",
-    "#9aa5b1",
-    "#1f3a93",
-    "#c0392b",
-    "#2e7d32",
-    "#f1c40f",
-    "#f5e6c8"
-   ],
+   "tint": false,
+   "colors": [],
    "credit": "Photo by Mediamodifier on Unsplash: https://unsplash.com/photos/person-in-blue-denim-jeans-holding-white-tote-bag-PENodSVsL1s",
    "printWidth": 321
   },
@@ -662,17 +635,8 @@
    "width": 1600,
    "height": 1600,
    "aspect": 0.995,
-   "tint": true,
-   "colors": [
-    "#ffffff",
-    "#1d1d1f",
-    "#9aa5b1",
-    "#1f3a93",
-    "#c0392b",
-    "#2e7d32",
-    "#f1c40f",
-    "#f5e6c8"
-   ],
+   "tint": false,
+   "colors": [],
    "credit": "Photo by Mediamodifier on Unsplash: https://unsplash.com/photos/white-throw-pillow-on-gray-sofa-zTY9OwAfOrg",
    "printWidth": 719
   },
@@ -683,17 +647,8 @@
    "width": 1600,
    "height": 1600,
    "aspect": 0.82,
-   "tint": true,
-   "colors": [
-    "#ffffff",
-    "#1d1d1f",
-    "#9aa5b1",
-    "#1f3a93",
-    "#c0392b",
-    "#2e7d32",
-    "#f1c40f",
-    "#f5e6c8"
-   ],
+   "tint": false,
+   "colors": [],
    "credit": "Photo by Mediamodifier on Unsplash: https://unsplash.com/photos/white-throw-pillow-on-white-textile-rf3u4jac6go",
    "printWidth": 765
   },
@@ -704,17 +659,8 @@
    "width": 1600,
    "height": 1600,
    "aspect": 1.071,
-   "tint": true,
-   "colors": [
-    "#ffffff",
-    "#1d1d1f",
-    "#9aa5b1",
-    "#1f3a93",
-    "#c0392b",
-    "#2e7d32",
-    "#f1c40f",
-    "#f5e6c8"
-   ],
+   "tint": false,
+   "colors": [],
    "credit": "Photo by Mediamodifier on Unsplash: https://unsplash.com/photos/white-throw-pillow-on-white-couch-UR_eZMMmVn4",
    "printWidth": 898
   },
@@ -725,17 +671,8 @@
    "width": 1600,
    "height": 1600,
    "aspect": 0.976,
-   "tint": true,
-   "colors": [
-    "#ffffff",
-    "#1d1d1f",
-    "#9aa5b1",
-    "#1f3a93",
-    "#c0392b",
-    "#2e7d32",
-    "#f1c40f",
-    "#f5e6c8"
-   ],
+   "tint": false,
+   "colors": [],
    "credit": "Photo by Mediamodifier on Unsplash: https://unsplash.com/photos/white-throw-pillow-on-bed-3pvour1eAbU",
    "printWidth": 749
   },

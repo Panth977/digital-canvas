@@ -192,18 +192,6 @@ def make_shade(lum, cov, ref=None, gamma=1.0, pct=92, lo=205, smooth=4):
     return np.clip(s, 8, 230)
 
 
-def grabcut_body(rgb, poly, exclude=None, iters=5):
-    h, w = rgb.shape[:2]
-    m = np.full((h, w), cv2.GC_BGD, np.uint8)
-    pm = poly_mask([poly], w, h) > 0.5
-    m[pm] = cv2.GC_PR_FGD
-    if exclude:
-        m[poly_mask(exclude, w, h) > 0.5] = cv2.GC_BGD
-    bg, fg = np.zeros((1, 65)), np.zeros((1, 65))
-    cv2.grabCut(cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR), m, None, bg, fg, iters, cv2.GC_INIT_WITH_MASK)
-    return ((m == cv2.GC_FGD) | (m == cv2.GC_PR_FGD)).astype(np.uint8) * 255
-
-
 def build(spec, path):
     """-> (base uint8, u, v, cov, shade, tint|None, aspect)"""
     rgb = prepare(path, spec.get('crop'))
@@ -264,10 +252,9 @@ def build(spec, path):
     tint = None
     t = spec.get('tint')
     if t:
-        if t.get('seed'):
-            body = clean(flood(rgb, t['seed'], t.get('tol', 3)), t.get('close', 7), True)
-        else:
-            body = clean(grabcut_body(rgb, t['poly'], t.get('exclude')), t.get('close', 7), True)
+        # rough product outline + brightness: a light product on a darker ground, and it cannot leak out
+        inside = poly_mask([t['poly']], w, h) > 0.5
+        body = clean(((lum >= t['min']) & inside).astype(np.uint8) * 255, t.get('close', 9), True)
         tint = cv2.GaussianBlur((body > 0).astype(np.float32), (0, 0), t.get('feather', 1.3))
         if t.get('exclude'):
             tint = tint * (1 - cv2.GaussianBlur(poly_mask(t['exclude'], w, h), (0, 0), 1.2))
