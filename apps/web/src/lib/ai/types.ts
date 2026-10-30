@@ -60,6 +60,16 @@ export interface ImageRequest {
   onProgress?: (p: Progress) => void;
 }
 
+export interface ImageEditRequest {
+  model: string;
+  prompt: string;
+  image: Media;
+  /** PNG, the picture's size: clear where the model may paint. */
+  mask: Media;
+  signal?: AbortSignal;
+  onProgress?: (p: Progress) => void;
+}
+
 export interface VideoRequest {
   model: string;
   prompt: string;
@@ -79,6 +89,8 @@ export interface Provider {
   listModels(): Promise<ModelInfo[]>;
   chat?(req: ChatRequest): Promise<string>;
   images?(req: ImageRequest): Promise<Media[]>;
+  /** Change the masked part of a picture from a prompt (Magic Edit, Magic Expand). */
+  editImage?(req: ImageEditRequest): Promise<Media>;
   video?(req: VideoRequest): Promise<Media>;
 }
 

@@ -15,6 +15,9 @@
   import Icon from '../lib/Icon.svelte';
   import { view, clampZoom, type FitMode } from '../lib/view.svelte.ts';
   import CanvasMenu from './CanvasMenu.svelte';
+  import CropBar from './CropBar.svelte';
+  import ImageBrush from './ImageBrush.svelte';
+  import { brush } from '../lib/vision/brush.svelte.ts';
   import Rulers, { RULER } from './Rulers.svelte';
   import { ui } from '../lib/ui.svelte.ts';
   import { textShortcut } from '../lib/shortcuts.ts';
@@ -531,6 +534,12 @@
       surface?.delete();
       surface = null;
     };
+  });
+
+  /** The picture the mask brush is on. */
+  const brushEl = $derived.by(() => {
+    const hit = brush.id ? findElement(ed.doc, brush.id) : null;
+    return hit ? { el: hit.element, i: pageIndexOf(hit.page.id) } : null;
   });
 
   // ---- crop mode ----
@@ -1759,12 +1768,12 @@
   {/if}
 
   {#if cropping}
-    {@const pts = [...boxScreen(cropping.el, cropping.i, cropping.frame), ...boxScreen(cropping.el, cropping.i, cropping.img)]}
-    <div class="cropbar" style="left:{(Math.min(...pts.map((p) => p.x)) + Math.max(...pts.map((p) => p.x))) / 2}px;top:{Math.max(...pts.map((p) => p.y)) + 16}px"
-      role="toolbar" aria-label="Crop" tabindex="-1" onpointerdown={(e) => e.stopPropagation()}>
-      <button class="btn" onclick={() => ed.update({ crop: undefined })}>Reset</button>
-      <button class="btn primary" data-testid="crop-done" onclick={() => ed.stopCrop()}>Done</button>
-    </div>
+    <CropBar {ed} el={cropping.el} frame={cropping.frame} img={cropping.img} />
+  {/if}
+
+  {#if brushEl}
+    {@const p = toScreen(brushEl.el.x, brushEl.el.y + pageTop(brushEl.i))}
+    <ImageBrush {ed} left={p.x} top={p.y} {zoom} />
   {/if}
 
   {#if editing}

@@ -1,13 +1,15 @@
 <script lang="ts">
   import {
     isVideo, pageDuration, formatLength, TRANSITIONS, type TransitionType,
-    type Element, type ImageElement, type LineElement, type LineMarker, type LineRoute, type ShapeElement, type Stroke, type TextAlign, type TextElement, type VideoElement,
+    type BlendMode, type Element, type ImageElement, type LineElement, type LineMarker, type LineRoute, type ShapeElement, type Stroke, type TextAlign, type TextElement, type VideoElement,
   } from '@digital-canvas/scene';
   import type { EditorState } from '../lib/editor.svelte.ts';
   import Icon, { type IconName } from '../lib/Icon.svelte';
   import { ui, type ColorTarget } from '../lib/ui.svelte.ts';
   import { formatTime } from '../lib/media.ts';
   import { pickFiles, IMAGE_TYPES } from '../lib/files.ts';
+  import { BLEND_MODES } from '@digital-canvas/scene';
+  import { downloadSelection, replaceImage } from '../lib/vision/tools.svelte.ts';
   import ColorField from './ColorField.svelte';
   import NumField from './NumField.svelte';
   import { FONT_SIZES, parseSize } from '../lib/uiutil.ts';
@@ -145,6 +147,14 @@
   function graphicColor(i: number, c: string): void {
     let cur = c;
     color({ title: 'Colour', testid: `graphic-color-${i}`, value: () => cur, onchange: (hex) => { ed.recolor(cur, hex, key(`rc${i}`)); cur = hex; } });
+  }
+
+  const img0 = $derived(one?.type === 'image' && one.asset ? one : null);
+  const detachable = $derived(!!img0?.locked && img0.x <= 0 && img0.y <= 0 && img0.w >= ed.doc.width && img0.h >= ed.doc.height);
+  async function replacePicked(): Promise<void> {
+    const el = img0;
+    const [f] = await pickFiles(IMAGE_TYPES.join(','), false);
+    if (f && el) await replaceImage(ed, el, f);
   }
 
   async function uploadToFrame(id: string): Promise<void> {
@@ -459,6 +469,24 @@
     {#if !compact}
       <button class="ib" class:on={!!ui.styleClip} title={ui.styleClip ? 'Click an element to paste the style (Esc to cancel)' : 'Copy style (⌥⌘C)'} aria-label="Copy style" aria-pressed={!!ui.styleClip} data-testid="copy-style" onclick={armStyle}><Icon name="roller" /></button>
     {/if}
+    {#if pic && (kind === 'image' || kind === 'video' || (kind === 'frame' && fr?.asset))}
+      <div class="pw">
+        <button class="ib" class:on={ui.pop === 'iborder'} title="Border" aria-label="Border" data-testid="border-btn" onclick={() => togglePop('iborder')}><Icon name="border" /></button>
+        {#if ui.pop === 'iborder'}
+          <div class="pop" data-testid="border-pop">
+            <div class="row">
+              {#each [{ id: '', label: 'None' }, { id: 'solid', label: 'Solid' }, { id: 'dashed', label: 'Dashed' }, { id: 'dotted', label: 'Dotted' }] as d (d.id)}
+                <button class="tb" class:on={(pic.border ? pic.border.dash ?? 'solid' : '') === d.id} data-testid="border-{d.id || 'none'}" onclick={() => { ed.updateLook({ border: d.id ? { color: pic!.border?.color ?? '#000000', width: pic!.border?.width ?? 8, dash: d.id as 'solid' } : undefined }); end(); }}>{d.label}</button>
+              {/each}
+            </div>
+            {#if pic.border}
+              <NumField label="Border weight" value={pic.border.width} min={1} max={200} testid="border-width" onchange={(v) => ed.updateLook({ border: { ...pic!.border!, width: v } }, key('ibw'))} onend={end} />
+              <button class="tb" data-testid="border-color" onclick={() => color({ title: 'Border colour', testid: 'border-col', value: () => pic?.border?.color ?? '#000000', onchange: (hex) => ed.updateLook({ border: { ...pic!.border!, color: hex } }, key('ibc')) })}><i class="swatch" style="background:{pic.border.color}"></i> Colour</button>
+            {/if}
+          </div>
+        {/if}
+      </div>
+    {/if}
     {#if pic && !fr && (kind === 'image' || kind === 'video')}
       <div class="pw">
         <button class="ib" class:on={ui.pop === 'iradius'} title="Corner rounding" aria-label="Corner rounding" data-testid="radius-btn" onclick={() => togglePop('iradius')}><Icon name="radius" /></button>
@@ -478,6 +506,11 @@
             <input class="input n" type="number" min="0" max="100" value={opacity} aria-label="Transparency value"
               oninput={(e) => ed.update({ opacity: Math.max(0, Math.min(100, Number((e.currentTarget as HTMLInputElement).value))) / 100 }, key('op'))} onchange={end} />
           </div>
+          <label class="slider"><span>Blend</span>
+            <select class="input" value={sel[0]?.blend ?? ''} data-testid="blend" onchange={(e) => { ed.update({ blend: ((e.currentTarget as HTMLSelectElement).value || undefined) as BlendMode | undefined }); end(); }}>
+              {#each BLEND_MODES as m (m.mode)}<option value={m.mode}>{m.label}</option>{/each}
+            </select>
+          </label>
         </div>
       {/if}
     </div>
@@ -506,6 +539,14 @@
           <button data-testid="more-lock" onclick={() => { ed.update({ locked: !locked }); end(); ui.pop = null; }}><Icon name={locked ? 'unlock' : 'lock'} size={16} /> {locked ? 'Unlock' : 'Lock'} <kbd>⌥⇧L</kbd></button>
           <button onclick={() => { ed.update((e) => ({ flipX: !e.flipX })); end(); }}><Icon name="flipx" size={16} /> Flip horizontal</button>
           <button onclick={() => { ed.update((e) => ({ flipY: !e.flipY })); end(); }}><Icon name="flipy" size={16} /> Flip vertical</button>
+ 
+          {#if img0}
+            <button data-testid="replace-image" onclick={() => { void replacePicked(); ui.pop = null; }}><Icon name="replace" size={16} /> Replace image</button>
+          {/if}
+          {#if detachable}
+            <button data-testid="detach-bg" onclick={() => { ed.detachBackground(); ui.pop = null; }}><Icon name="image" size={16} /> Detach image from background</button>
+          {/if}
+          <button data-testid="download-selection" onclick={() => { void downloadSelection(ed); ui.pop = null; }}><Icon name="download" size={16} /> Download selection</button>
           {#if pic && !(fr && !fr.asset)}
             <button data-testid="set-bg" onclick={() => { ed.setAsBackground(); ui.pop = null; }}><Icon name="image" size={16} /> Set image as background</button>
           {/if}
@@ -576,6 +617,8 @@
   .slider input[type='range'] { width: 100%; }
   .slider .n { height: 30px; text-align: center; }
   .slider b { text-align: center; }
+  .row { display: flex; gap: 2px; }
+  .swatch { display: inline-block; width: 16px; height: 16px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(127,127,127,.4); margin-right: 4px; }
   .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: end; }
   .btns { display: flex; gap: 6px; }
   .hint { color: var(--muted); font-size: 12px; margin: 0; line-height: 1.4; }

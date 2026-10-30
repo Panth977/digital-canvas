@@ -1,10 +1,9 @@
 <script lang="ts">
   import BrandColorRow from './panels/BrandColorRow.svelte';
   import {
-    ADJUST_SLIDERS, addElements, createDoc, defaultImageEffect, IMAGE_EFFECTS, IMAGE_FILTERS, image as imageEl,
     CHARTS, coverCrop, FRAMES, tableAddCol, tableAddRow, tableColWidth, tableRemoveCol, tableRemoveRow, tableSetCell,
     childrenOf, findElement, moveElementTo, walk, defaultEffect, TEXT_EFFECTS,
-    type ImageAdjustKey, type ImageEffect, type ImageEffectType, type VideoElement, type ChartElement, type LineElement, type TableElement,
+    type VideoElement, type ChartElement, type LineElement, type TableElement,
     type Element, type TextAlign, type TextEffect, type TextEffectType, type TextElement, type ImageElement,
   } from '@digital-canvas/scene';
   import type { EditorState } from '../lib/editor.svelte.ts';
@@ -12,6 +11,7 @@
   import Icon, { type IconName } from '../lib/Icon.svelte';
   import { ui } from '../lib/ui.svelte.ts';
   import ColorField from './ColorField.svelte';
+  import ImagePanel from './ImagePanel.svelte';
   import NumField from './NumField.svelte';
   import FontPanel from './FontPanel.svelte';
   import AnimatePanel from './AnimatePanel.svelte';
@@ -59,7 +59,7 @@
   });
 
   const TITLES: Record<string, string> = {
-    font: 'Font', color: 'Colour', effects: 'Effects', animate: 'Animate', position: 'Position', image: 'Edit', table: 'Table', chart: 'Chart', qr: 'QR code', frame: 'Frame', audio: 'Sounds',
+    font: 'Font', color: 'Colour', effects: 'Effects', animate: 'Animate', position: 'Position', image: 'Edit image', table: 'Table', chart: 'Chart', qr: 'QR code', frame: 'Frame', audio: 'Sounds',
   };
 
   // ---- colour ----
@@ -189,52 +189,6 @@
     neon: [{ k: 'intensity', label: 'Intensity', min: 0, max: 100 }],
     background: [{ k: 'roundness', label: 'Roundness', min: 0, max: 100 }, { k: 'spread', label: 'Spread', min: 0, max: 100 }, { k: 'transparency', label: 'Transparency', min: 0, max: 100 }],
   };
-
-  // ---- image tools ----
-  let imgTab = $state<'adjust' | 'filters' | 'effects'>('adjust');
-  const IMG_TABS = [{ id: 'adjust', label: 'Adjust' }, { id: 'filters', label: 'Filters' }, { id: 'effects', label: 'Effects' }] as const;
-  function setAdjust(k: ImageAdjustKey, v: number): void {
-    ed.updateLook((e) => {
-      const adjust = { ...e.adjust, [k]: v };
-      if (!v) delete adjust[k];
-      return { adjust: Object.keys(adjust).length ? adjust : undefined };
-    }, key(`adj-${k}`));
-  }
-  function setImgEffect(type: ImageEffectType | ''): void {
-    ed.updateLook({ effect: type ? defaultImageEffect(type) : undefined });
-    end();
-  }
-  function patchImgEffect(patch: Record<string, unknown>): void {
-    if (!pic?.effect) return;
-    ed.updateLook({ effect: { ...pic.effect, ...patch } as ImageEffect }, key('ifx'));
-  }
-  const IMG_FX_SLIDERS: Record<ImageEffectType, { k: string; label: string; min: number; max: number }[]> = {
-    shadow: [{ k: 'offset', label: 'Offset', min: 0, max: 100 }, { k: 'direction', label: 'Direction', min: -180, max: 180 }, { k: 'blur', label: 'Blur', min: 0, max: 100 }, { k: 'transparency', label: 'Transparency', min: 0, max: 100 }],
-    glow: [{ k: 'size', label: 'Size', min: 0, max: 100 }, { k: 'transparency', label: 'Transparency', min: 0, max: 100 }],
-    duotone: [],
-    pixelate: [{ k: 'size', label: 'Size', min: 1, max: 100 }],
-    outline: [{ k: 'thickness', label: 'Thickness', min: 0, max: 100 }],
-  };
-  const ifxNum = (fx: ImageEffect, k: string) => (fx as unknown as Record<string, number>)[k] ?? 0;
-
-  /** Small previews of each filter on the selected picture (object URLs). */
-  let thumbs = $state<Record<string, string>>({});
-  const thumbAsset = $derived(pic && ui.panel === 'image' && imgTab === 'filters' ? (pic.type === 'video' ? `${pic.asset}.poster` : pic.asset) : null);
-  $effect(() => {
-    const asset = thumbAsset;
-    void ed.frame;
-    if (!asset || !ed.renderer.hasImage(asset)) return;
-    const urls: Record<string, string> = {};
-    const doc = createDoc({ width: 64, height: 64 });
-    const base = { ...imageEl(asset, { x: 0, y: 0, w: 64, h: 64 }), crop: undefined };
-    for (const f of [{ name: '' }, ...IMAGE_FILTERS]) {
-      const d = addElements(doc, doc.pages[0]!.id, [f.name ? { ...base, filter: { name: f.name, intensity: 100 } } : base]);
-      const bytes = ed.renderer.exportPage(d, d.pages[0]!, { format: 'png', scale: 2 });
-      urls[f.name] = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'image/png' }));
-    }
-    thumbs = urls;
-    return () => { for (const u of Object.values(urls)) URL.revokeObjectURL(u); };
-  });
 
   // ---- position ----
   let ratio = $state(false);
@@ -507,82 +461,7 @@
       </div>
 
     {:else if ui.panel === 'image' && pic}
-      <div class="scroll-y body" data-testid="image-tools">
-        {#if pic.type === 'image'}
-          <button class="btn tool" data-testid="remove-bg" disabled={!!ed.bgStatus} onclick={() => void ed.removeBackground()}><Icon name="wand" size={18} /> BG Remover</button>
-        {/if}
-        {#if ed.bgStatus}
-          <div class="progress" data-testid="bg-progress">
-            <span>{ed.bgStatus.msg}</span>
-            {#if ed.bgStatus.fraction !== undefined}<i style="width:{Math.round(ed.bgStatus.fraction * 100)}%"></i>{/if}
-          </div>
-        {/if}
-        {#if ed.bgError}<p class="hint err">Background remover: {ed.bgError}</p>{/if}
-        {#if pic.type === 'image' && pic.original}
-          <button class="btn link" data-testid="restore-original" onclick={() => ed.restoreOriginal()}>Restore the original background</button>
-        {/if}
-        <div class="tabs" role="tablist">
-          {#each IMG_TABS as t (t.id)}
-            <button role="tab" aria-selected={imgTab === t.id} class:on={imgTab === t.id} data-testid="imgtab-{t.id}" onclick={() => (imgTab = t.id)}>{t.label}</button>
-          {/each}
-        </div>
-        {#if imgTab === 'adjust'}
-          {#each ADJUST_SLIDERS as sl (sl.key)}
-            <div class="field">
-              <span>{sl.label} · {Math.round(pic.adjust?.[sl.key] ?? 0)}</span>
-              <input type="range" min={sl.min} max={sl.max} value={pic.adjust?.[sl.key] ?? 0} data-testid="adj-{sl.key}"
-                oninput={(e) => setAdjust(sl.key, Number((e.currentTarget as HTMLInputElement).value))} onchange={end}
-                ondblclick={() => { setAdjust(sl.key, 0); end(); }} />
-            </div>
-          {/each}
-          {#if pic.adjust}
-            <button class="btn" data-testid="adj-reset" onclick={() => { ed.updateLook({ adjust: undefined }); end(); }}>Reset adjustments</button>
-          {/if}
-        {:else if imgTab === 'filters'}
-          <div class="filters">
-            {#each [{ name: '', label: 'None' }, ...IMAGE_FILTERS] as f (f.name)}
-              <button class="filter" class:on={(pic.filter?.name ?? '') === f.name} data-testid="filter-{f.name || 'none'}"
-                onclick={() => { ed.updateLook({ filter: f.name ? { name: f.name, intensity: pic!.filter?.intensity ?? 100 } : undefined }); end(); }}>
-                {#if thumbs[f.name]}<img src={thumbs[f.name]} alt="" />{:else}<span class="ph"></span>{/if}
-                <span>{f.label}</span>
-              </button>
-            {/each}
-          </div>
-          {#if pic.filter}
-            <div class="field">
-              <span>Intensity · {pic.filter.intensity}</span>
-              <input type="range" min="0" max="100" value={pic.filter.intensity} data-testid="filter-intensity"
-                oninput={(e) => ed.updateLook({ filter: { name: pic!.filter!.name, intensity: Number((e.currentTarget as HTMLInputElement).value) } }, key('fint'))} onchange={end} />
-            </div>
-          {/if}
-        {:else}
-          <label class="field"><span>Effect</span>
-            <select class="input" value={pic.effect?.type ?? ''} data-testid="img-effect" onchange={(e) => setImgEffect((e.currentTarget as HTMLSelectElement).value as ImageEffectType | '')}>
-              <option value="">None</option>
-              {#each IMAGE_EFFECTS as fx}<option value={fx.type}>{fx.label}</option>{/each}
-            </select>
-          </label>
-          {#if pic.effect}
-            {@const fx = pic.effect}
-            {#each IMG_FX_SLIDERS[fx.type] as sl (sl.k)}
-              <div class="field">
-                <span>{sl.label} · {ifxNum(fx, sl.k)}</span>
-                <input type="range" min={sl.min} max={sl.max} value={ifxNum(fx, sl.k)} data-testid="ifx-{sl.k}"
-                  oninput={(e) => patchImgEffect({ [sl.k]: Number((e.currentTarget as HTMLInputElement).value) })} onchange={end} />
-              </div>
-            {/each}
-            {#if fx.type === 'duotone'}
-              <div class="row2">
-                <ColorField label="Highlights" value={fx.light} onchange={(hex) => patchImgEffect({ light: hex })} onend={end} />
-                <ColorField label="Shadows" value={fx.dark} onchange={(hex) => patchImgEffect({ dark: hex })} onend={end} />
-              </div>
-            {:else if 'color' in fx}
-              <ColorField label="Colour" value={fx.color} onchange={(hex) => patchImgEffect({ color: hex })} onend={end} />
-            {/if}
-            {#if fx.type === 'outline'}<p class="hint">Follows the outline of transparent PNGs (e.g. after the background remover).</p>{/if}
-          {/if}
-        {/if}
-      </div>
+      <ImagePanel {ed} {pic} />
 
     {:else if ui.panel === 'table' && tb}
       <div class="scroll-y body" data-testid="table-props">
@@ -735,7 +614,6 @@
   .pbtn:disabled { opacity: .45; }
   .toggles { display: flex; gap: 4px; flex-wrap: wrap; }
   .hint { color: var(--muted); font-size: 12px; line-height: 1.5; margin: 0; }
-  .hint.err { color: var(--danger); }
   .swatches { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
   .swatch { aspect-ratio: 1; border-radius: 50%; border: 0; box-shadow: inset 0 0 0 1px rgba(127,127,127,.35); padding: 0; }
   .swatch:hover { transform: scale(1.06); }
@@ -764,16 +642,7 @@
   .tabs { display: flex; gap: 2px; padding: 3px; background: var(--chip); border-radius: 9px; flex-shrink: 0; }
   .tabs button { flex: 1; border: 0; background: none; border-radius: 7px; padding: 7px 4px; font-size: 13px; font-weight: 600; color: var(--muted); }
   .tabs button.on { background: var(--panel); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.18); }
-  .filters { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-  .filter { display: flex; flex-direction: column; align-items: center; gap: 4px; border: 0; background: none; padding: 0; font-size: 11px; color: var(--ink-2); }
-  .filter img, .filter .ph { width: 100%; aspect-ratio: 1; border-radius: 8px; border: 2px solid transparent; object-fit: cover; background: var(--chip); display: block; }
-  .filter.on img, .filter.on .ph { border-color: var(--accent); }
-  .filter.on { color: var(--accent); font-weight: 600; }
-  .tool { height: 44px; justify-content: flex-start; }
   .big { height: 40px; }
-  .btn.link { border: 0; background: none; color: var(--accent); padding: 0; height: auto; justify-content: flex-start; font-size: 12px; }
-  .progress { position: relative; font-size: 12px; color: var(--muted); padding-bottom: 6px; }
-  .progress i { position: absolute; left: 0; bottom: 0; height: 3px; border-radius: 2px; background: var(--accent); }
   .data { display: grid; gap: 4px; align-items: center; }
   .data .input { height: 30px; padding: 0 6px; font-size: 12px; min-width: 0; }
   .data .x { width: auto; height: auto; font-size: 16px; color: var(--muted); }

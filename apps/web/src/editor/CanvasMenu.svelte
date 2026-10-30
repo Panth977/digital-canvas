@@ -1,7 +1,9 @@
 <script lang="ts">
-  import { childrenOf } from '@digital-canvas/scene';
+  import { childrenOf, type ImageElement } from '@digital-canvas/scene';
   import type { EditorState } from '../lib/editor.svelte.ts';
   import Icon from '../lib/Icon.svelte';
+  import { IMAGE_TYPES, pickFiles } from '../lib/files.ts';
+  import { downloadSelection, replaceImage } from '../lib/vision/tools.svelte.ts';
 
   /**
    * Canva's right-click menu on the canvas. On an element: Copy, Paste,
@@ -51,6 +53,11 @@
       onclose();
     }
   }
+  async function pickReplace(): Promise<void> {
+    const el = ed.selected.find((e): e is ImageElement => e.type === 'image');
+    const [f] = await pickFiles(IMAGE_TYPES.join(','), false);
+    if (f && el) await replaceImage(ed, el, f);
+  }
 </script>
 
 <svelte:window onkeydowncapture={onKey} onpointerdown={(e) => { if (!box?.contains(e.target as Node)) onclose(); }} onblur={onclose} />
@@ -98,7 +105,12 @@
     <button role="menuitem" onclick={() => run(() => { ed.update({ locked: !locked }); ed.seal(); })}><Icon name={locked ? 'unlock' : 'lock'} size={18} /> {locked ? 'Unlock' : 'Lock'}</button>
     {#if one && one.type === 'image'}
       <button role="menuitem" onclick={() => run(() => ed.setAsBackground())}><Icon name="image" size={18} /> Set image as background</button>
+      {#if one.locked && one.x <= 0 && one.y <= 0 && one.w >= ed.doc.width && one.h >= ed.doc.height}
+        <button role="menuitem" onclick={() => run(() => ed.detachBackground())}><Icon name="image" size={18} /> Detach image from background</button>
+      {/if}
+      <button role="menuitem" data-testid="menu-replace" onclick={() => run(() => void pickReplace())}><Icon name="replace" size={18} /> Replace image</button>
     {/if}
+    <button role="menuitem" data-testid="menu-download-selection" onclick={() => run(() => void downloadSelection(ed))}><Icon name="download" size={18} /> Download selection</button>
   {:else if page}
     <button role="menuitem" onclick={() => run(() => ed.paste())}><Icon name="copy" size={18} /> Paste<kbd>{M}V</kbd></button>
     <hr />
