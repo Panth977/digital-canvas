@@ -61,6 +61,13 @@ def pack(mid, raw, out):
     u = np.clip(pc[..., 0] / safe, 0, 1)
     v = np.clip(pc[..., 1] / safe, 0, 1)
     cov[cov < 1.5 / 255] = 0
+    # AOV sample jitter leaves ~±3/65535 noise in u,v that makes uv-lo incompressible: smooth fully
+    # covered pixels (sigma 1.5 px, normalised over the covered mask so edges don't bleed)
+    full = cov > 0.995
+    wsum = ndimage.gaussian_filter(full.astype(np.float64), 1.5)
+    for arr in (u, v):
+        sm = ndimage.gaussian_filter(np.where(full, arr, 0.0), 1.5) / np.maximum(wsum, 1e-6)
+        arr[full] = np.clip(sm[full], 0, 1)
     lum = comb[..., 0] * 0.2126 + comb[..., 1] * 0.7152 + comb[..., 2] * 0.0722
     irr = lum / meta['albedo']
     inner = cov > 0.985
@@ -85,8 +92,9 @@ def pack(mid, raw, out):
     base = srgb(soft(k * comb))
     base8 = np.clip(base * 255 + 0.5, 0, 255).astype(np.uint8)
     # uv
-    u16 = np.round(u * 65535).astype(np.uint32)
-    v16 = np.round(v * 65535).astype(np.uint32)
+    # 14-bit effective precision (step 4/65535, < 0.15 px on a 4000 px design) keeps uv-lo compressible
+    u16 = np.minimum(np.round(u * 65535 / 4) * 4, 65535).astype(np.uint32)
+    v16 = np.minimum(np.round(v * 65535 / 4) * 4, 65535).astype(np.uint32)
     u16[cov == 0] = 0
     v16[cov == 0] = 0
     c8 = np.round(cov * 255).astype(np.uint8)

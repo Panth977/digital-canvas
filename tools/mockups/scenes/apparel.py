@@ -78,46 +78,30 @@ def ridge(P, a, b, width, height):
 def garment_mesh(name, outline, mat, height_fn, step=0.004, print_box=None, seams=(), rng=None, drift=0.0):
     """Grid inside outline; boundary verts snapped onto the outline. height_fn(P, d_edge) -> z.
     print_box = (x0, y0_top, w, h). seams = list of (polyline, closed) for crease lines."""
-    xs = np.arange(outline[:, 0].min() - step, outline[:, 0].max() + step, step)
-    ys = np.arange(outline[:, 1].min() - step, outline[:, 1].max() + step, step)
+    from mathutils.geometry import delaunay_2d_cdt
+    # resample the outline evenly, add interior grid points away from it, constrained Delaunay inside
+    seg = np.roll(outline, -1, axis=0) - outline
+    L = np.linalg.norm(seg, axis=1)
+    cum = np.concatenate([[0], np.cumsum(L)])
+    n_out = max(64, int(cum[-1] / (step * 0.75)))
+    tt = np.linspace(0, cum[-1], n_out, endpoint=False)
+    k = np.searchsorted(cum, tt, side='right') - 1
+    ring = outline[k] + seg[k] * ((tt - cum[k]) / np.maximum(L[k], 1e-12))[:, None]
+    xs = np.arange(outline[:, 0].min(), outline[:, 0].max(), step)
+    ys = np.arange(outline[:, 1].min(), outline[:, 1].max(), step * 0.866)
     GX, GY = np.meshgrid(xs, ys)
-    ins = inside_poly(GX, GY, outline)
-    ny, nx = ins.shape
-    # keep verts used by a quad whose 4 corners... allow quads with >=3 inside, then snap outside corners
-    q = ins[:-1, :-1].astype(int) + ins[1:, :-1] + ins[:-1, 1:] + ins[1:, 1:]
-    keepq = q >= 2
-    used = np.zeros_like(ins)
-    used[:-1, :-1] |= keepq
-    used[1:, :-1] |= keepq
-    used[:-1, 1:] |= keepq
-    used[1:, 1:] |= keepq
-    idx = -np.ones(ins.shape, int)
-    idx[used] = np.arange(used.sum())
-    P = np.stack([GX[used], GY[used]], 1)
-    # snap: verts outside polygon -> nearest point on outline; inside verts near edge stay
-    out = ~ins[used]
-    if out.any():
-        A, Bp = outline, np.roll(outline, -1, axis=0)
-        Q = P[out]
-        best = np.full(len(Q), 1e9)
-        bq = Q.copy()
-        for a, b in zip(A, Bp):
-            ab = b - a
-            t = np.clip(((Q - a) @ ab) / (ab @ ab + 1e-12), 0, 1)
-            pr = a + t[:, None] * ab
-            dd = np.linalg.norm(Q - pr, axis=1)
-            m = dd < best
-            best[m] = dd[m]
-            bq[m] = pr[m]
-        P[out] = bq
+    GX = GX + (np.arange(len(ys))[:, None] % 2) * step * 0.5
+    gx, gy = GX.ravel(), GY.ravel()
+    ins = inside_poly(gx, gy, outline)
+    G = np.column_stack([gx[ins], gy[ins]])
+    G = G[poly_dist(G, outline) > step * 0.6]
+    pts = [B.Vector((float(x), float(y))) for x, y in np.vstack([ring, G])]
+    edges = [(i, (i + 1) % n_out) for i in range(n_out)]
+    vout, _, fout, _, _, _ = delaunay_2d_cdt(pts, edges, [], 1, 1e-7)
+    P = np.array([[v.x, v.y] for v in vout])
+    faces = [tuple(f) for f in fout]
     d_edge = poly_dist(P, outline)
-    d_edge[out] = 0
     Z = height_fn(P, d_edge)
-    faces = []
-    for j in range(ny - 1):
-        for i in range(nx - 1):
-            if keepq[j, i]:
-                faces.append((idx[j, i], idx[j, i + 1], idx[j + 1, i + 1], idx[j + 1, i]))
     Pd = P.copy()
     if drift:
         r2 = np.random.default_rng(11)
@@ -126,6 +110,7 @@ def garment_mesh(name, outline, mat, height_fn, step=0.004, print_box=None, seam
         Pd[:, 1] += drift * waves(P, r2, 8, (0.12, 0.3)) * env
     verts = np.column_stack([Pd, Z])
     o = B.mesh_obj(name, verts, faces, mat)
+
     me = o.data
     li_v = np.zeros(len(me.loops), int)
     me.loops.foreach_get('vertex_index', li_v)
