@@ -6,6 +6,7 @@
  * onto every mockup asked for.
  */
 import { MOCKUP_SMALL, mockupFiles, parseMockupIndex, type MockupEntry, type Rgba } from '@digital-canvas/render/mockup';
+import { untrack } from 'svelte';
 import type { EditorState } from '../editor.svelte.ts';
 import { MockupEngine, type MockupSize, type RenderRequest } from './engine.ts';
 
@@ -22,8 +23,9 @@ class MockupLibrary {
   list = $state.raw<MockupEntry[]>([]);
   error = $state('');
 
+  /** Load once (force: again, e.g. "Check again"). */
   async load(force = false): Promise<void> {
-    if (!force && (this.status === 'loading' || this.status === 'ready')) return;
+    if (untrack(() => this.status) === 'loading' || (!force && untrack(() => this.status) !== 'idle')) return;
     this.status = 'loading';
     try {
       const res = await fetch(new URL('index.json', MOCKUPS_BASE), { cache: force ? 'reload' : 'default' });

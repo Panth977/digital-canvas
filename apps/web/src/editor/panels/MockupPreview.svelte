@@ -117,17 +117,21 @@
     }
   }
 
+  /** Window capture phase: the dialog has the keys while it is open, wherever the focus is (the editor's shortcuts must not nudge or deselect). */
   function key(e: KeyboardEvent): void {
-    if ((e.target as HTMLElement).closest('input, select, textarea')) return;
-    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onclose(); }
-    else if (e.key === 'ArrowLeft') { e.preventDefault(); go(-1); }
-    else if (e.key === 'ArrowRight') { e.preventDefault(); go(1); }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onclose(); return; }
+    if ((e.target as HTMLElement).closest?.('input, select, textarea')) return;
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      e.preventDefault();
+      e.stopPropagation();
+      go(e.key === 'ArrowLeft' ? -1 : 1);
+    }
   }
 </script>
 
+<svelte:window onkeydowncapture={key} />
 <div class="dp-modal-bg mkp-bg" role="presentation" onclick={(e) => e.target === e.currentTarget && onclose()}>
-  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-  <div class="mkp" class:phone={mobile.on} role="dialog" aria-modal="true" aria-label="{entry.label} mockup" tabindex="-1" bind:this={dialog} onkeydown={key} data-testid="mockup-preview">
+  <div class="mkp" class:phone={mobile.on} role="dialog" aria-modal="true" aria-label="{entry.label} mockup" tabindex="-1" bind:this={dialog} data-testid="mockup-preview">
     <header>
       <div class="mkp-title">
         <h2>{entry.label}</h2>

@@ -6,7 +6,7 @@
    * them after a pause. A click opens the big preview.
    */
   import './panels.css';
-  import { onDestroy } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import type { Page } from '@digital-canvas/scene';
   import type { EditorState } from '../../lib/editor.svelte.ts';
   import Icon from '../../lib/Icon.svelte';
@@ -20,7 +20,7 @@
   let category = $state('All');
   let open = $state<number | null>(null);
 
-  $effect(() => { void mockupLib.load(); });
+  $effect(() => { untrack(() => void mockupLib.load()); });
 
   const pageId = $derived(pagePick && ed.doc.pages.some((p) => p.id === pagePick) ? pagePick : ed.pageId);
   const shown = $derived(category === 'All' ? mockupLib.list : mockupLib.list.filter((m) => m.category === category));
