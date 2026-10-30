@@ -53,6 +53,8 @@ self.addEventListener('fetch', (event) => {
     return event.respondWith(shellFirst(req));
   }
   if (url.hostname === 'cdn.jsdelivr.net' && url.pathname.startsWith('/fontsource/')) return event.respondWith(staleWhileRevalidate(req, RUNTIME));
+  // the image models' runtime, so the background remover works offline after its first use
+  if (url.hostname === 'cdn.jsdelivr.net' && url.pathname.startsWith('/npm/onnxruntime-web@')) return event.respondWith(staleWhileRevalidate(req, RUNTIME));
   if (url.hostname === 'api.fontsource.org') return event.respondWith(staleWhileRevalidate(req, RUNTIME));
   if (isDriveRead(url)) return event.respondWith(networkFirst(req, DRIVE));
 });
