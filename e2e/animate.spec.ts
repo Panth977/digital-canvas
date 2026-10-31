@@ -220,7 +220,7 @@ test.describe('Animate panel', () => {
 });
 
 /** The stage while scrubbing against the export's frame at the same time. */
-async function compareWithExport(page: Page, t: number): Promise<number> {
+async function compareWithExport(page: Page, t: number, exportAt = t): Promise<number> {
   await page.evaluate(async (t) => { const ed = (window as any).__dc; ed.player.scrub(true); await ed.player.seek(t); }, t);
   await page.waitForTimeout(120);
   const v = await page.evaluate(() => (window as any).__dcView.get());
@@ -228,7 +228,7 @@ async function compareWithExport(page: Page, t: number): Promise<number> {
   const d = await doc(page);
   const W = Math.round(d.width * v.zoom), H = Math.round(d.height * v.zoom);
   const shot = await page.screenshot({ clip: { x: stage.x + v.panX, y: stage.y + v.panY, width: W, height: H } });
-  return page.evaluate(async ({ png, t, W, H }) => {
+  return page.evaluate(async ({ png, exportAt, W, H }) => {
     const bin = atob(png);
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
@@ -237,12 +237,12 @@ async function compareWithExport(page: Page, t: number): Promise<number> {
     const g = c.getContext('2d')!;
     g.drawImage(bmp, 0, 0, W, H);
     const live = g.getImageData(0, 0, W, H).data;
-    const b64 = await (window as any).__dcExportFrame(t, W, H);
+    const b64 = await (window as any).__dcExportFrame(exportAt, W, H);
     const eb = atob(b64);
     let sum = 0;
     for (let i = 0; i < live.length; i += 4) sum += (Math.abs(live[i]! - eb.charCodeAt(i)) + Math.abs(live[i + 1]! - eb.charCodeAt(i + 1)) + Math.abs(live[i + 2]! - eb.charCodeAt(i + 2))) / 3;
     return sum / (live.length / 4);
-  }, { png: shot.toString('base64'), t, W, H });
+  }, { png: shot.toString('base64'), exportAt, W, H });
 }
 
 test.describe('editor = export', () => {
@@ -270,10 +270,17 @@ test.describe('editor = export', () => {
       ed.addPage();
       ed.updatePage({ duration: 2, background: { type: 'solid', color: '#ffffff' }, transition: { type: 'circle', duration: 1 } });
     });
+    const means: number[] = [];
     for (const t of [0.4, 0.8, 1.2, 2.2, 2.7, 3.5, 5.5, 7.5]) {
       const mean = await compareWithExport(page, t);
-      expect(mean, `at ${t}s`).toBeLessThan(5);
+      means.push(mean);
+      expect(mean, `at ${t}s`).toBeLessThan(1.5);
     }
+    console.log('editor vs export, mean colour difference per frame:', means.map((m) => m.toFixed(2)).join(' '));
+    // the comparison can fail: an export frame 0.15 s off is well above that
+    const off = await compareWithExport(page, 0.8, 0.95);
+    console.log('same, export 0.15 s off:', off.toFixed(2));
+    expect(off).toBeGreaterThan(2);
     if (shoot) await page.screenshot({ path: `${SHOTS}/r16-anim-export-match.png` });
   });
 });
