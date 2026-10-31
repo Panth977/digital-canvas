@@ -125,14 +125,68 @@ test('a template opens offline, with its fonts from the app', async () => {
 });
 
 test('stock search says it needs the internet', async () => {
-  await page.getByText('Agent poster').first().click();
+  await page.getByRole('link', { name: 'Open Agent poster' }).click();
   await expect(page).toHaveURL(/#\/d\//);
-  await page.getByRole('button', { name: 'Photos', exact: false }).first().click();
-  await page.getByPlaceholder(/search/i).first().fill('mountain');
+  await page.getByRole('button', { name: 'Photos' }).first().click();
+  await page.getByTestId('photo-search').locator('input').or(page.getByTestId('photo-search')).first().fill('mountain');
   await page.keyboard.press('Enter');
-  await expect(page.getByText(/internet|offline|couldn|no results|nothing/i).first()).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/Couldn't reach the library/).first()).toBeVisible({ timeout: 15_000 });
   await shot(page, 'offline-photos');
+});
+
+test('an open design follows an agent\'s edit', async () => {
+  const c = await mcp();
+  const list = await c.callTool({ name: 'list_designs', arguments: {} }) as { content: { text: string }[] };
+  const id = /"id":\s*"([^"]+)"[^}]*Agent poster|Agent poster[^}]*"id":\s*"([^"]+)"/.exec(list.content[0]!.text)!;
+  const design_id = id[1] ?? id[2]!;
+  await c.callTool({ name: 'add_elements', arguments: { design_id, elements: [{ type: 'text', text: 'From the agent', x: 100, y: 100, w: 600, h: 120 }] } });
+  await c.close();
+  // the editor mounts again on the file's new contents
+  await expect.poll(() => page.evaluate(() => document.querySelector('[data-testid="canvas"]')?.isConnected ?? false), { timeout: 10_000 }).toBe(true);
+  await page.waitForTimeout(1200);
+  await page.getByRole('button', { name: 'Layers' }).first().click().catch(() => {});
+  await expect(page.getByTestId('save-state').or(page.getByTestId('canvas')).first()).toBeVisible();
+  const after = await page.evaluate(() => (window as unknown as { dcDesktop: { call(o: string, a?: unknown): Promise<Uint8Array> } }).dcDesktop.call('store.read', { id: location.hash.split('/').pop() }).then((b) => b.length));
+  expect(after).toBeGreaterThan(100);
+});
+
+test('an upload lands in assets/ and the MCP lists it', async () => {
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
   await page.evaluate(() => { location.hash = '#/'; });
+  await page.getByRole('link', { name: 'Open Agent poster' }).click();
+  await page.getByRole('button', { name: 'Uploads' }).first().click();
+  await page.evaluate((b64) => {
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const dt = new DataTransfer();
+    dt.items.add(new File([bytes], 'dot.png', { type: 'image/png' }));
+    document.querySelector('[data-testid="canvas"]')!.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true, clientX: 700, clientY: 400 }));
+  }, png.toString('base64'));
+  await expect.poll(() => { try { return readdirSync(join(folder, 'assets')).filter((f) => f !== 'index.json').length; } catch { return 0; } }, { timeout: 10_000 }).toBe(1);
+  const c = await mcp();
+  const r = await c.callTool({ name: 'list_assets', arguments: {} }) as { content: { text: string }[] };
+  await c.close();
+  expect(r.content[0]!.text).toContain('dot.png');
+  await page.evaluate(() => { location.hash = '#/'; });
+});
+
+test('MCP video export runs on the window\'s encoder, no ffmpeg', async () => {
+  test.setTimeout(90_000);
+  const c = await mcp();
+  const made = await c.callTool({ name: 'create_design', arguments: { title: 'Reel', width: 320, height: 240 } }) as { content: { text: string }[] };
+  const design_id = /"id":\s*"([^"]+)"|"design_id":\s*"([^"]+)"/.exec(made.content[0]!.text)!.slice(1).find(Boolean)!;
+  await c.callTool({ name: 'set_page', arguments: { design_id, page: 1, duration: 1, background: '#3366ff' } });
+  const start = await c.callTool({ name: 'export_video', arguments: { design_id, fps: 10 } }, undefined, { timeout: 80_000 }) as { content: { text: string }[] };
+  let text = start.content.map((x) => x.text).join('\n');
+  const job = /"job_id":\s*"([^"]+)"/.exec(text)?.[1];
+  for (let i = 0; job && i < 10 && !/\.mp4/.test(text); i++) {
+    text = ((await c.callTool({ name: 'get_export', arguments: { job_id: job, wait_seconds: 5 } })) as { content: { text: string }[] }).content.map((x) => x.text).join('\n');
+  }
+  await c.close();
+  expect(text).toContain('.mp4');
+  const mp4 = readdirSync(join(folder, 'Exports')).find((f) => f.endsWith('.mp4'))!;
+  const bytes = readFileSync(join(folder, 'Exports', mp4));
+  expect(bytes.subarray(4, 8).toString()).toBe('ftyp');
+  expect(bytes.length).toBeGreaterThan(500);
 });
 
 test('nothing went to our backend, and the app restarts into the same folder', async () => {
