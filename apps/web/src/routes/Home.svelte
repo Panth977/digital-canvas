@@ -57,8 +57,9 @@
 
   const onDesktop = isDesktop();
 
-  async function refresh() {
-    loading = !projects.length; // an agent's change must not blank the list
+  /** `quiet`: the folder changed behind us (an agent); keep the list on screen. */
+  async function refresh(quiet = false) {
+    if (!quiet) loading = true;
     error = '';
     try {
       projects = await library.store.list();
@@ -72,8 +73,11 @@
 
   $effect(() => {
     void library.store;
-    void library.revision;
     void refresh();
+  });
+
+  $effect(() => {
+    if (library.revision) untrack(() => void refresh(true));
   });
 
   async function create(opts: { width: number; height: number; unit: Unit; print?: boolean; title?: string; video?: boolean }) {
