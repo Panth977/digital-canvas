@@ -1,5 +1,6 @@
 import { FORMAT, VERSION } from './types.ts';
 import type { Doc } from './types.ts';
+import { ANIMATION_TYPES, TRANSITIONS as TRANSITION_LIST } from './anim.ts';
 
 export class DocFormatError extends Error {
   override name = 'DocFormatError';
@@ -7,18 +8,26 @@ export class DocFormatError extends Error {
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const num = (v: unknown) => typeof v === 'number' && Number.isFinite(v);
-const ANIM_TYPES = ['rise', 'pan', 'fade', 'pop', 'wipe', 'typewriter', 'baseline', 'drift', 'tumble'];
 const ANIM_DIRS = ['left', 'right', 'up', 'down'];
 /** An unknown or broken animation is dropped (the design still opens). */
 function cleanAnimation(o: Record<string, unknown>): void {
   if (!('animation' in o)) return;
   const a = o.animation;
-  if (!isObj(a) || !ANIM_TYPES.includes(a.type as string)) { delete o.animation; return; }
+  if (!isObj(a) || !ANIMATION_TYPES.includes(a.type as string)) { delete o.animation; return; }
   if (a.duration !== undefined && !(num(a.duration) && (a.duration as number) > 0)) delete a.duration;
   if (a.direction !== undefined && !ANIM_DIRS.includes(a.direction as string)) delete a.direction;
+  if (a.phase !== undefined && !['in', 'out', 'both'].includes(a.phase as string)) delete a.phase;
+  if (a.by !== undefined && !['element', 'line', 'word', 'letter', 'page'].includes(a.by as string)) delete a.by;
+  if (a.order !== undefined && !['forward', 'reverse', 'center', 'random', 'together'].includes(a.order as string)) delete a.order;
+  if (a.intensity !== undefined && !(num(a.intensity) && (a.intensity as number) >= 0 && (a.intensity as number) <= 1)) delete a.intensity;
+  if (a.path !== undefined) {
+    const pts = isObj(a.path) ? a.path.points : null;
+    if (!Array.isArray(pts) || !pts.every((q) => Array.isArray(q) && q.length === 3 && q.every(num))) delete a.path;
+  }
+  if (a.type === 'custom' && !a.path) delete o.animation;
 }
 
-const TRANSITIONS = ['dissolve', 'fade', 'slide', 'wipe', 'zoom'];
+const TRANSITIONS = TRANSITION_LIST.map((t) => t.type as string);
 /** An unknown transition or a broken timing is dropped. */
 function cleanTiming(o: Record<string, unknown>): void {
   if ('timing' in o) {

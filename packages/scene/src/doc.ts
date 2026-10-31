@@ -349,8 +349,18 @@ export function clipTime(el: VideoElement, local: number, fileDuration: number):
   const a = el.trimStart ?? 0;
   const b = Math.min(el.trimEnd ?? fileDuration, fileDuration);
   const len = Math.max(0.001, b - a);
-  if (local < len) return a + local;
-  return el.loop ? a + (local % len) : null;
+  const at = local * clipSpeed(el);
+  if (at < len) return a + at;
+  return el.loop ? a + (at % len) : null;
+}
+
+export const SPEED_MIN = 0.25;
+export const SPEED_MAX = 2;
+/** A clip's playback speed, within Canva's 0.25×–2×. */
+export const clipSpeed = (el: Pick<VideoElement, 'speed'>): number => Math.max(SPEED_MIN, Math.min(SPEED_MAX, el.speed && el.speed > 0 ? el.speed : 1));
+/** Seconds the trimmed clip lasts on the timeline, at its speed. */
+export function clipLength(el: VideoElement, fileDuration: number): number {
+  return Math.max(0, Math.min(el.trimEnd ?? fileDuration, fileDuration) - (el.trimStart ?? 0)) / clipSpeed(el);
 }
 
 export function addAudio(doc: Doc, clip: Omit<AudioClip, 'id'>): { doc: Doc; id: string } {
@@ -400,7 +410,7 @@ export function splitPage(doc: Doc, pageId: string, at: number, min = 0.1): { do
       else c = { ...c, timing: { ...(start ? { start: r2(start) } : {}), ...(end !== undefined ? { end } : {}) } };
     }
     // a clip carries on where the first part stopped (clip time runs with the page: scene clipTime)
-    if (c.type === 'video' && !c.loop) c = { ...c, trimStart: r2((c.trimStart ?? 0) + at) };
+    if (c.type === 'video' && !c.loop) c = { ...c, trimStart: r2((c.trimStart ?? 0) + at * clipSpeed(c)) };
     rest.push(c);
   }
   const second: Page = { ...structuredClone({ ...page, elements: [] }), id: newId('p_'), duration: r2(d - at), elements: rest };

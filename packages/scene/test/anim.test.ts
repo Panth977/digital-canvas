@@ -13,7 +13,8 @@ describe('animations', () => {
   const box = { x: 100, y: 100, w: 200, h: 100 };
 
   it('every type starts changed and ends exactly as designed', () => {
-    for (const { type } of ANIMATIONS) {
+    for (const { type, loop, span, exit } of ANIMATIONS) {
+      if (loop || span || exit) continue; // these last to the end of the page (see anim-depth.test.ts)
       const el = { ...(type === 'typewriter' ? text('Hello', box) : shape('rect', box)), animation: { type } } as Element;
       const d = docWith([el]);
       const page = d.pages[0]!;

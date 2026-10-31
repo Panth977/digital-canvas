@@ -1,5 +1,5 @@
 import type { Canvas, CanvasKit, Image, ImageFilter, Paint, Path, RuntimeEffect, Shader } from 'canvaskit-wasm';
-import { addAdjust, childrenOf, colorEditUniforms, cropOf, duotoneOf, posterOf, effectiveAdjust, hasLook, imageBox, shadowOf, straightenMatrix, stylizeOf, type BlendMode, type ImageAdjust, type ImageShadow, type Doc, type Element, type Fill, type ImageElement, type Page, type PathElement, type ShapeElement, type ShapeKind, type TextElement, type VideoElement } from '@digital-canvas/scene';
+import { addAdjust, childrenOf, colorEditUniforms, cropOf, duotoneOf, movesBox, posterOf, effectiveAdjust, hasLook, imageBox, shadowOf, zoomCrop, type Fx, straightenMatrix, stylizeOf, type BlendMode, type ImageAdjust, type ImageShadow, type Doc, type Element, type Fill, type ImageElement, type Page, type PathElement, type ShapeElement, type ShapeKind, type TextElement, type VideoElement } from '@digital-canvas/scene';
 import { aabb, dashArray, decompose, type Decomposed, type Prim, type PrimText } from '@digital-canvas/scene';
 import { colorMatrix, LOOK_SKSL, lookFloats, needsLookShader, STYLE_ID, type LookUniforms } from './look.ts';
 import { color, FontLibrary } from './fonts.ts';
@@ -99,7 +99,42 @@ export class Renderer {
     return { w: el.w, h: this.textHeight(el) };
   }
 
+  /** The text, or while it animates by line, word or letter, each unit by itself. */
   private drawText(canvas: Canvas, el: TextElement): void {
+    const units = el.live?.units;
+    if (!units) { this.drawTextBody(canvas, el); return; }
+    const ck = this.ck;
+    const rects = this.text.units(el, units.by);
+    const pad = el.style.fontSize * 0.12;
+    const box = (r: { x: number; y: number; w: number; h: number }) => ({ x: el.x + r.x, y: el.y + r.y, w: r.w, h: r.h });
+    const rest: number[][] = [];
+    const moving: { b: ReturnType<typeof box>; fx: Fx }[] = [];
+    rects.forEach((r, i) => {
+      const fx = units.at(i, rects.length, r.w, r.h), b = box(r);
+      if (!fx) rest.push([b.x, b.y - pad, b.x + b.w, b.y - pad, b.x + b.w, b.y + b.h + pad, b.x, b.y + b.h + pad]);
+      else if (fx.alpha !== 0) moving.push({ b, fx });
+    });
+    if (rest.length) {
+      const pb = new ck.PathBuilder();
+      for (const q of rest) pb.addPolygon(q, true);
+      const path = pb.detachAndDelete();
+      canvas.save();
+      canvas.clipPath(path, ck.ClipOp.Intersect, true);
+      this.drawTextBody(canvas, el);
+      canvas.restore();
+      path.delete();
+    }
+    for (const { b, fx } of moving) {
+      this.withFx(canvas, b, fx, () => {
+        canvas.save();
+        canvas.clipRect(ck.XYWHRect(b.x, b.y - pad, b.w, b.h + 2 * pad), ck.ClipOp.Intersect, true);
+        this.drawTextBody(canvas, el);
+        canvas.restore();
+      });
+    }
+  }
+
+  private drawTextBody(canvas: Canvas, el: TextElement): void {
     const ck = this.ck, T = this.text;
     const fs = el.style.fontSize;
     const fx = el.effect;
@@ -212,7 +247,59 @@ export class Renderer {
     canvas.restore();
   }
 
+  /** Draw `draw()` as `fx` says, on the box `b` (page coordinates in the current frame). */
+  private withFx(canvas: Canvas, b: { x: number; y: number; w: number; h: number }, fx: Fx, draw: () => void): void {
+    const ck = this.ck;
+    const rect = (c: { x: number; y: number; w: number; h: number }) => ck.XYWHRect(b.x + c.x * b.w, b.y + c.y * b.h, c.w * b.w, c.h * b.h);
+    canvas.save();
+    if (fx.clip && fx.reveal) canvas.clipRect(rect(fx.clip), ck.ClipOp.Intersect, true);
+    const px = b.x + b.w * (fx.ox ?? 0.5), py = b.y + b.h * (fx.oy ?? 0.5);
+    canvas.translate(px + (fx.tx ?? 0), py + (fx.ty ?? 0));
+    if (fx.r) canvas.rotate(fx.r, 0, 0);
+    if (fx.kx || fx.ky) canvas.skew(Math.tan(((fx.kx ?? 0) * Math.PI) / 180), Math.tan(((fx.ky ?? 0) * Math.PI) / 180));
+    if (fx.sx !== undefined || fx.sy !== undefined) canvas.scale(fx.sx ?? 1, fx.sy ?? 1);
+    canvas.translate(-px, -py);
+    if (fx.clip && !fx.reveal) canvas.clipRect(rect(fx.clip), ck.ClipOp.Intersect, true);
+    const blurred = (sigma: number, alpha: number | undefined, then: () => void) => {
+      const p = new ck.Paint();
+      const f = sigma > 0.01 ? ck.ImageFilter.MakeBlur(sigma, sigma, ck.TileMode.Decal, null) : null;
+      if (f) p.setImageFilter(f);
+      if (alpha !== undefined) p.setAlphaf(Math.max(0, alpha));
+      canvas.saveLayer(p);
+      then();
+      canvas.restore();
+      f?.delete();
+      p.delete();
+    };
+    if (fx.glow && fx.glow > 0.01) blurred(fx.glow, 1, draw);
+    if ((fx.blur && fx.blur > 0.01) || (fx.alpha !== undefined && fx.alpha < 1)) blurred(fx.blur ?? 0, fx.alpha, draw);
+    else draw();
+    canvas.restore();
+    if (fx.block && fx.block.w > 0 && fx.block.h > 0) {
+      this.paint.setStyle(ck.PaintStyle.Fill);
+      this.paint.setPathEffect(null);
+      this.paint.setShader(null);
+      this.paint.setColor(color(ck, fx.block.color));
+      canvas.drawRect(rect(fx.block), this.paint);
+    }
+  }
+
   drawElement(canvas: Canvas, el: Element, skip?: ReadonlySet<string>): void {
+    const live = el.live;
+    if (!live || !movesBox(live)) { this.drawStill(canvas, el, skip); return; }
+    // the recipe moves the box in page axes, and turns, clips and scales it in the element's own axes
+    const cx = el.x + el.w / 2, cy = el.y + el.h / 2;
+    canvas.save();
+    canvas.translate(live.tx ?? 0, live.ty ?? 0);
+    if (el.rotation) canvas.rotate(el.rotation, cx, cy);
+    this.withFx(canvas, el, { ...live, tx: 0, ty: 0 }, () => {
+      if (el.rotation) canvas.rotate(-el.rotation, cx, cy);
+      this.drawStill(canvas, el, skip);
+    });
+    canvas.restore();
+  }
+
+  private drawStill(canvas: Canvas, el: Element, skip?: ReadonlySet<string>): void {
     const ck = this.ck;
     const kids = childrenOf(el);
     if (kids) {
@@ -433,7 +520,7 @@ export class Renderer {
       return;
     }
     const iw = img.width(), ih = img.height();
-    const crop = cropOf(el, iw, ih);
+    const crop = zoomCrop(cropOf(el, iw, ih), el.live?.picture);
     const src = ck.XYWHRect(crop.x * iw, crop.y * ih, crop.w * iw, crop.h * ih);
     if (!hasLook(el)) {
       this.clipFrame(canvas, el, dst);

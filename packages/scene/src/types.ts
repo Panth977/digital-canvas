@@ -47,8 +47,10 @@ export interface ElementBase {
   hidden?: boolean;
   /** How the element mixes with what is under it (absent = normal). */
   blend?: BlendMode;
-  /** Enter animation (presentations, video and GIF export). See anim.ts. */
+  /** Animation (presentations, video and GIF export). See anim.ts. */
   animation?: Animation;
+  /** Only on the page `animateAt` returns: the element's state right now. Never saved. */
+  live?: LiveFx;
   /**
    * Shown only during this part of its page, in seconds from the page's start
    * (captions, timed call-outs). Absent = the whole page. Still views show it.
@@ -58,16 +60,81 @@ export interface ElementBase {
 
 export type BlendMode = 'multiply' | 'screen' | 'overlay' | 'darken' | 'lighten' | 'color-dodge' | 'color-burn' | 'hard-light' | 'soft-light' | 'difference' | 'exclusion' | 'hue' | 'saturation' | 'color' | 'luminosity';
 
-export type AnimationType = 'rise' | 'pan' | 'fade' | 'pop' | 'wipe' | 'typewriter' | 'baseline' | 'drift' | 'tumble';
+/** A name from `ANIMATIONS` (anim.ts), or `custom` with a hand-drawn `path`. */
+export type AnimationType = string;
 export type AnimationDirection = 'left' | 'right' | 'up' | 'down';
+/** Canva's "Animate on": enter, exit, or both. */
+export type AnimationPhase = 'in' | 'out' | 'both';
+/** What moves on its own: the whole element, or each line, word or letter of a text. On a page, `page` moves everything as one. */
+export type AnimationUnit = 'element' | 'line' | 'word' | 'letter' | 'page';
+/** Who goes first: `together` drops the stagger. */
+export type AnimationOrder = 'forward' | 'reverse' | 'center' | 'random' | 'together';
 
-/** Canva's basic animations; they play when the page starts. */
+/** A hand-drawn motion path (Canva's "Create an animation"). */
+export interface MotionPath {
+  /** [dx, dy, t]: page units from the element's place, t = 0..1 along the recording. Starts at 0,0. */
+  points: [number, number, number][];
+  /** original = as drawn; the others go by distance with their own pace. */
+  style?: 'original' | 'smooth' | 'slow' | 'bounce' | 'windup';
+  /** none = stays upright; follow = turns with the path; spin = one full turn. */
+  rotation?: 'none' | 'follow' | 'spin';
+  /** Fade in over the first fifth. */
+  fade?: boolean;
+}
+
+/** An animation: it plays when the page (or the element's timing window) starts and/or ends, or loops. */
 export interface Animation {
   type: AnimationType;
-  /** Seconds (default 0.8). */
+  /** Seconds (default 0.8): one play, or one turn of a loop. */
   duration?: number;
-  /** Where it comes from (pan, wipe, drift). */
+  /** Where it comes from. */
   direction?: AnimationDirection;
+  /** Default: in (exit-only recipes: out). */
+  phase?: AnimationPhase;
+  /** 0..1, default 0.5 = the recipe as written. */
+  intensity?: number;
+  by?: AnimationUnit;
+  order?: AnimationOrder;
+  /** `type: 'custom'`. */
+  path?: MotionPath;
+}
+
+/**
+ * How an element or text unit looks at one moment of its animation. Made by
+ * `animateAt`, read by the renderer, never saved. All fields are optional;
+ * nothing set = as designed. `tx/ty` are page units, angles degrees, `ox/oy`
+ * the pivot as a fraction of the box (default centre).
+ */
+export interface Fx {
+  tx?: number;
+  ty?: number;
+  sx?: number;
+  sy?: number;
+  r?: number;
+  kx?: number;
+  ky?: number;
+  ox?: number;
+  oy?: number;
+  /** Multiplies the opacity. */
+  alpha?: number;
+  /** Blur radius, page units. */
+  blur?: number;
+  /** A blurred copy under it, page units. */
+  glow?: number;
+  /** Show only this part of the box (fractions). */
+  clip?: { x: number; y: number; w: number; h: number };
+  /** The clip stays put while the content moves (a reveal), instead of moving with it. */
+  reveal?: boolean;
+  /** A solid block over the box (fractions). */
+  block?: { x: number; y: number; w: number; h: number; color: Color };
+  /** Photos: the picture moves inside its frame (zoom ≥ 1; dx, dy = fractions of what is hidden, -1..1). */
+  picture?: { zoom: number; dx: number; dy: number };
+}
+
+/** What `animateAt` adds to an element for the renderer. */
+export interface LiveFx extends Fx {
+  /** Text only: each unit moves by itself. `at` returns null for a unit at rest. */
+  units?: { by: 'line' | 'word' | 'letter'; at: (i: number, n: number, w: number, h: number) => Fx | null };
 }
 
 export type ShapeKind = 'rect' | 'ellipse' | 'triangle' | 'diamond' | 'pentagon' | 'hexagon' | 'star' | 'arrow';
@@ -322,6 +389,8 @@ export interface VideoElement extends ElementBase, ImageLook {
   /** Part of the clip to use, in seconds of the file. Absent = the whole clip. */
   trimStart?: number;
   trimEnd?: number;
+  /** Playback speed, 0.25 to 2 (default 1). The sound keeps its pitch. */
+  speed?: number;
   /** Image asset shown before the clip plays (and in still exports). Absent = `<asset>.poster`. */
   poster?: string;
   /** Start again when the clip ends before the page does. */
@@ -464,7 +533,7 @@ export interface Page {
   transition?: Transition;
 }
 
-export type TransitionType = 'dissolve' | 'fade' | 'slide' | 'wipe' | 'zoom';
+export type TransitionType = 'dissolve' | 'fade' | 'slide' | 'wipe' | 'zoom' | 'match' | 'circle' | 'line' | 'stack' | 'chop' | 'flow' | 'colorwipe' | 'iris' | 'clock' | 'doors' | 'checker';
 
 /** A page transition: plays over the first `duration` seconds of the page, over the end of the previous one. */
 export interface Transition {
@@ -473,6 +542,8 @@ export interface Transition {
   duration?: number;
   /** Where the new page comes from (slide, wipe). Default 'right'. */
   direction?: AnimationDirection;
+  /** The colour of a Color wipe. */
+  color?: Color;
 }
 
 /** A sound on the design's timeline (music, voice-over). */
