@@ -139,15 +139,14 @@ test('an open design follows an agent\'s edit', async () => {
   const list = await c.callTool({ name: 'list_designs', arguments: {} }) as { content: { text: string }[] };
   const id = /"id":\s*"([^"]+)"[^}]*Agent poster|Agent poster[^}]*"id":\s*"([^"]+)"/.exec(list.content[0]!.text)!;
   const design_id = id[1] ?? id[2]!;
-  await c.callTool({ name: 'add_elements', arguments: { design_id, elements: [{ type: 'text', text: 'From the agent', x: 100, y: 100, w: 600, h: 120 }] } });
+  const canvas = page.getByTestId('canvas');
+  await page.getByTestId('canvas').click({ position: { x: 5, y: 5 } });
+  const before = await canvas.screenshot();
+  await c.callTool({ name: 'add_elements', arguments: { design_id, elements: [{ type: 'shape', shape: 'rect', x: 0, y: 0, w: 1080, h: 1080, fill: '#ff0000' }] } });
   await c.close();
-  // the editor mounts again on the file's new contents
-  await expect.poll(() => page.evaluate(() => document.querySelector('[data-testid="canvas"]')?.isConnected ?? false), { timeout: 10_000 }).toBe(true);
-  await page.waitForTimeout(1200);
-  await page.getByRole('button', { name: 'Layers' }).first().click().catch(() => {});
-  await expect(page.getByTestId('save-state').or(page.getByTestId('canvas')).first()).toBeVisible();
-  const after = await page.evaluate(() => (window as unknown as { dcDesktop: { call(o: string, a?: unknown): Promise<Uint8Array> } }).dcDesktop.call('store.read', { id: location.hash.split('/').pop() }).then((b) => b.length));
-  expect(after).toBeGreaterThan(100);
+  // the file changed on disk, so the editor mounts again and the page turns red
+  await expect.poll(async () => Buffer.compare(before, await canvas.screenshot()) !== 0, { timeout: 10_000 }).toBe(true);
+  await shot(page, 'live-edit');
 });
 
 test('an upload lands in assets/ and the MCP lists it', async () => {
@@ -195,8 +194,9 @@ test('nothing went to our backend, and the app restarts into the same folder', a
   expect(off.filter((u) => /firebase|googleapis|web\.app|cloudfunctions|firestore|icebase/.test(u))).toEqual([]);
   await app.close();
   app = await launch();
-  page = await app.firstWindow();
-  await expect(page.getByTestId('store-label')).toContainText('My Designs', { timeout: 20_000 });
-  await expect(page.getByTestId('folder-setup')).toHaveCount(0);
+  // Playwright's firstWindow() never fires for a page a service worker already controls, so ask the window itself.
+  const label = () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.webContents.executeJavaScript(
+    `[document.querySelector('[data-testid=store-label]')?.textContent?.trim(), !!document.querySelector('[data-testid=folder-setup]')].join('|')`).catch(() => '') ?? '');
+  await expect.poll(label, { timeout: 20_000 }).toBe('My Designs|false');
   expect(JSON.parse(readFileSync(join(userData, 'settings.json'), 'utf8')).folder).toBe(folder);
 });
