@@ -44,7 +44,8 @@ export const nodePlatform: Platform = {
   get offline() { return !!process.env.DC_OFFLINE; },
   async canvasKit() {
     const require = createRequire(import.meta.url);
-    const init = require('canvaskit-wasm/bin/full/canvaskit.js') as (opts?: { locateFile?: (f: string) => string }) => Promise<CanvasKit>;
+    // DC_CANVASKIT_JS: a bundle that ships the loader beside itself (the desktop app has no node_modules).
+    const init = require(process.env.DC_CANVASKIT_JS ?? 'canvaskit-wasm/bin/full/canvaskit.js') as (opts?: { locateFile?: (f: string) => string }) => Promise<CanvasKit>;
     const wasm = canvasKitWasm();
     return init(wasm ? { locateFile: () => wasm } : undefined);
   },

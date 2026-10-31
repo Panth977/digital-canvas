@@ -11,6 +11,21 @@ import {
 import type { AssetInfo, ExportResult, Workspace } from '../workspace.ts';
 
 /**
+ * Write through a temp name, then rename: the desktop app and an MCP server can
+ * share one folder, and neither may ever read a half-written design.
+ */
+function writeAtomic(path: string, bytes: Uint8Array): void {
+  const tmp = `${path}.${process.pid}.tmp`;
+  writeFileSync(tmp, bytes);
+  try {
+    renameSync(tmp, path);
+  } catch (e) {
+    rmSync(tmp, { force: true });
+    throw e;
+  }
+}
+
+/**
  * Designs as `.dcanvas` files in a folder (same layout as the web app's
  * "folder" store), plus `assets/` for uploads, `Exports/` and `.trash/`.
  */
@@ -44,14 +59,26 @@ export class NodeFolderStore implements ProjectStore {
     return unpack(new Uint8Array(readFileSync(join(this.dir, name))));
   }
 
+  /** The file as it is on disk (the desktop app sends it to its window unopened). */
+  readBytes(id: string): Uint8Array {
+    const name = this.nameOf(id);
+    if (!name) throw new Error(`no design with id "${id}" (call list_designs for ids)`);
+    return new Uint8Array(readFileSync(join(this.dir, name)));
+  }
+
   async save(file: ProjectFile): Promise<void> {
-    const old = this.nameOf(file.doc.id);
-    let name = fileName(file.doc.title);
+    this.saveBytes(file.doc.id, file.doc.title, pack(file));
+  }
+
+  /** Save an already packed `.dcanvas`. */
+  saveBytes(id: string, title: string, bytes: Uint8Array): void {
+    const old = this.nameOf(id);
+    let name = fileName(title);
     if (name !== old) {
       const base = name.slice(0, -EXTENSION.length);
       for (let i = 2; existsSync(join(this.dir, name)); i++) name = `${base} (${i})${EXTENSION}`;
     }
-    writeFileSync(join(this.dir, name), pack(file));
+    writeAtomic(join(this.dir, name), bytes);
     if (old && old !== name) rmSync(join(this.dir, old), { force: true });
   }
 
@@ -61,6 +88,24 @@ export class NodeFolderStore implements ProjectStore {
     if (!name) return;
     mkdirSync(join(this.dir, '.trash'), { recursive: true });
     renameSync(join(this.dir, name), join(this.dir, '.trash', name));
+  }
+
+  /** Back out of `.trash/`, under a free name. */
+  async restore(id: string): Promise<void> {
+    const bin = join(this.dir, '.trash');
+    if (!existsSync(bin)) return;
+    for (const name of readdirSync(bin)) {
+      if (!name.endsWith(EXTENSION)) continue;
+      const from = join(bin, name);
+      try {
+        if (peek(new Uint8Array(readFileSync(from))).doc.id !== id) continue;
+      } catch { continue; }
+      const base = name.slice(0, -EXTENSION.length);
+      let to = name;
+      for (let i = 2; existsSync(join(this.dir, to)); i++) to = `${base} (${i})${EXTENSION}`;
+      renameSync(from, join(this.dir, to));
+      return;
+    }
   }
 
   async loadBrand(): Promise<BrandData | null> {
@@ -90,14 +135,17 @@ export class FolderWorkspace implements Workspace {
   get label() { return `folder ${this.dir}`; }
 
   private get assetsDir() { return join(this.dir, 'assets'); }
-  private index(): Record<string, Omit<AssetInfo, 'id'>> {
+  private index(): Record<string, Omit<AssetInfo, 'id'> & { hidden?: boolean }> {
     const p = join(this.assetsDir, 'index.json');
-    try { return JSON.parse(readFileSync(p, 'utf8')) as Record<string, Omit<AssetInfo, 'id'>>; } catch { return {}; }
+    try { return JSON.parse(readFileSync(p, 'utf8')) as Record<string, Omit<AssetInfo, 'id'> & { hidden?: boolean }>; } catch { return {}; }
+  }
+  private writeIndex(idx: ReturnType<FolderWorkspace['index']>): void {
+    writeAtomic(join(this.assetsDir, 'index.json'), Buffer.from(JSON.stringify(idx, null, 1)));
   }
 
   async listAssets(): Promise<AssetInfo[]> {
     const idx = this.index();
-    return Object.entries(idx).filter(([id]) => existsSync(join(this.assetsDir, id)))
+    return Object.entries(idx).filter(([id, m]) => !m.hidden && existsSync(join(this.assetsDir, id)))
       .map(([id, m]) => ({ id, ...m })).sort((a, b) => (b.createdTime ?? '').localeCompare(a.createdTime ?? ''));
   }
 
@@ -113,8 +161,9 @@ export class FolderWorkspace implements Workspace {
     const p = join(this.assetsDir, id);
     if (!existsSync(p)) writeFileSync(p, bytes);
     const idx = this.index();
-    idx[id] = { ...idx[id], ...extra, mime, ...(name ? { name } : {}), size: bytes.length, createdTime: idx[id]?.createdTime ?? new Date().toISOString() };
-    writeFileSync(join(this.assetsDir, 'index.json'), JSON.stringify(idx, null, 1));
+    const { hidden: _shown, ...was } = idx[id] ?? {};
+    idx[id] = { ...was, ...extra, mime, ...(name ? { name } : {}), size: bytes.length, createdTime: was.createdTime ?? new Date().toISOString() };
+    this.writeIndex(idx);
     return { id, ...idx[id]! };
   }
 
@@ -123,7 +172,15 @@ export class FolderWorkspace implements Workspace {
     const idx = this.index();
     if (!idx[id]) return;
     idx[id] = { ...idx[id]!, ...extra };
-    writeFileSync(join(this.assetsDir, 'index.json'), JSON.stringify(idx, null, 1));
+    this.writeIndex(idx);
+  }
+
+  /** Off the uploads list; the file stays, since designs may still use it. */
+  async hideAsset(id: string): Promise<void> {
+    const idx = this.index();
+    if (!idx[id]) return;
+    idx[id] = { ...idx[id]!, hidden: true };
+    this.writeIndex(idx);
   }
 
   async saveExport(name: string, bytes: Uint8Array, mime: string): Promise<ExportResult> {

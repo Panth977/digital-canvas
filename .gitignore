@@ -9,3 +9,4 @@ playwright-report/
 .DS_Store
 .icebase/
 apps/web/public/_test/
+.fontpack/
