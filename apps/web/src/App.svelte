@@ -19,6 +19,41 @@
   import { bridgeUi } from './lib/bridge/bridgeUi.svelte.ts';
   import BridgeIndicator from './lib/bridge/BridgeIndicator.svelte';
   import AiDialog from './lib/bridge/AiDialog.svelte';
+  import Download from './routes/Download.svelte';
+  import { desktop, isDesktop } from './lib/desktop/desktop.svelte.ts';
+  import FolderSetup from './lib/desktop/FolderSetup.svelte';
+  import DesktopSettings from './lib/desktop/DesktopSettings.svelte';
+  import { syncOpenDesigns } from './lib/desktop/live.ts';
+  import type { DesktopStore } from './lib/desktop/store.ts';
+
+  import { toast } from './lib/toast.svelte.ts';
+
+  const onDesktop = isDesktop();
+  /** Goes up when the open design was replaced on disk, so its editor mounts again. */
+  let editorEpoch = $state(0);
+
+  $effect(() => {
+    if (!onDesktop) return;
+    const dir = desktop.state?.folder;
+    if (dir && untrack(() => (library.localStore as DesktopStore).path !== dir)) library.useDesktopFolder(dir);
+  });
+
+  // A new release: say so once. Nothing installs by itself.
+  let updateTold = false;
+  $effect(() => {
+    const v = desktop.state?.update?.version;
+    if (!v || updateTold) return;
+    updateTold = true;
+    toast.show(`Digital Canvas ${v} is out. See Settings to download it.`);
+  });
+
+  $effect(() => {
+    if (!onDesktop || !library.revision) return;
+    void syncOpenDesigns(untrack(() => library.store)).then((ids) => {
+      const r = untrack(() => router.route);
+      if (r.name === 'editor' && ids.includes(r.id)) editorEpoch++;
+    }).catch(() => {});
+  });
 
   onMount(() => void library.init());
 
@@ -89,14 +124,18 @@
 <div class="shell">
   {#if mode !== 'none'}<TabStrip {mode} />{/if}
   <div class="main">
-    {#if router.route.name === 'view'}
+    {#if onDesktop && library.ready && !desktop.state?.folder}
+      <FolderSetup />
+    {:else if router.route.name === 'download'}
+      <Download />
+    {:else if router.route.name === 'view'}
       {#key router.route.fileId}<PublicView fileId={router.route.fileId} />{/key}
     {:else if !library.ready || openWith.busy}
       <div class="boot">Loading…</div>
     {:else if router.route.name === 'shared' || router.route.name === 'template'}
       {#key `${router.route.name}:${router.route.fileId}`}<SharedOpen fileId={router.route.fileId} template={router.route.name === 'template'} />{/key}
     {:else if router.route.name === 'editor'}
-      {#key `${router.route.id}:${library.store.kind}:${library.store.label}`}
+      {#key `${router.route.id}:${library.store.kind}:${library.store.label}:${editorEpoch}`}
         <Editor id={router.route.id} store={library.store} />
       {/key}
     {:else}
@@ -104,8 +143,10 @@
     {/if}
   </div>
 </div>
-<BridgeIndicator />
-{#if bridgeUi.open}<AiDialog onclose={() => (bridgeUi.open = false)} />{/if}
+{#if !onDesktop}<BridgeIndicator />{/if}
+{#if onDesktop && (bridgeUi.open || desktop.settingsOpen)}
+  <DesktopSettings onclose={() => { bridgeUi.open = false; desktop.settingsOpen = false; }} />
+{:else if bridgeUi.open}<AiDialog onclose={() => (bridgeUi.open = false)} />{/if}
 <Toasts />
 <Tooltips />
 

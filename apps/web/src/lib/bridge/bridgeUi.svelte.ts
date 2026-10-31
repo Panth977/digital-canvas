@@ -5,6 +5,7 @@
  * (Firestore, the device worker) is bridge.svelte.ts, imported on demand.
  */
 import type { DeviceLink, DeviceRow } from '@digital-canvas/mcp/bridge';
+import { isDesktop } from '../desktop/desktop.svelte.ts';
 import { account } from '../account.svelte.ts';
 import { aiSettings } from '../icebase.ts';
 import { isNative, nativePlatform } from '../native/platform.ts';
@@ -80,6 +81,7 @@ class BridgeUi {
 
   /** Start on load / sign-in when it was left on. */
   async resume(): Promise<void> {
+    if (isDesktop()) return; // the desktop app has its own local MCP server, not the cloud relay
     if (!this.enabled || this.status === 'on' || this.status === 'starting' || !account.user) return;
     const m = await import('./bridge.svelte.ts');
     await m.startBridge(this.testLink ?? undefined).catch(() => {});

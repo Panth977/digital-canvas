@@ -1,0 +1,49 @@
+appId: com.panth977.digitalcanvas.desktop
+productName: Digital Canvas
+copyright: Digital Canvas contributors
+electronVersion: 45.2.1
+npmRebuild: false
+nodeGypRebuild: false
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**
+  - package.json
+  - "!**/*.map"
+  - "!dist/web/fontpack/.*"
+asarUnpack: []
+# Fixed names, no version: `releases/latest/download/<name>` is what the download page links to.
+mac:
+  category: public.app-category.graphics-design
+  # Ad-hoc: Apple silicon refuses to run anything with no signature at all. Not a Developer ID.
+  identity: "-"
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+  artifactName: Digital-Canvas-mac-${arch}.${ext}
+dmg:
+  writeUpdateInfo: false
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  artifactName: Digital-Canvas-windows-${arch}.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  differentialPackage: false
+linux:
+  category: Graphics
+  synopsis: Open-source design editor
+  maintainer: Digital Canvas <noreply@users.noreply.github.com>
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
+  artifactName: Digital-Canvas-linux-${arch}.${ext}
+publish: null

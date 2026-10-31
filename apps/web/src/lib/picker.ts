@@ -1,5 +1,6 @@
 import { GOOGLE_APP_ID, PICKER_API_KEY } from '@digital-canvas/backend/google';
 import { pickedFiles, type PickedFile, type PickerDoc } from '@digital-canvas/storage';
+import { desktop, isDesktop } from './desktop/desktop.svelte.ts';
 
 /**
  * Google Picker (https://developers.google.com/drive/picker): Google's own
@@ -93,6 +94,7 @@ const media = <T extends View>(v: T, mimes = MEDIA_MIMES): T => (v.setMimeTypes?
  * Resolves with the usable media picked, or null when the user closed it.
  */
 export async function openPicker(token: string, opts: { phone?: boolean } = {}): Promise<PickedFile[] | null> {
+  if (isDesktop()) return desktop.pick('media') as Promise<PickedFile[] | null>;
   const P = await loadPicker();
   const docs = () => new P.DocsView(P.ViewId.DOCS);
   const views: View[] = [
@@ -136,6 +138,7 @@ export async function openPicker(token: string, opts: { phone?: boolean } = {}):
  * Resolves true when the user picked it, false when they closed the Picker.
  */
 export async function pickSharedFile(token: string, fileId: string): Promise<boolean> {
+  if (isDesktop()) return !!(await desktop.pick('file', fileId));
   const P = await loadPicker();
   const view = new P.DocsView(P.ViewId.DOCS);
   const one = (view.setFileIds?.(fileId) ?? view).setIncludeFolders(false);
@@ -170,6 +173,7 @@ export interface PickedDesign { id: string; name: string; mimeType: string }
  * first). Designs only (`DESIGN_MIMES`). Picking grants the file under drive.file.
  */
 export async function pickDesignFile(token: string, mode: 'shared' | 'import'): Promise<PickedDesign | null> {
+  if (isDesktop()) return desktop.pick('design', mode) as Promise<PickedDesign | null>;
   const P = await loadPicker();
   const docs = () => media(new P.DocsView(P.ViewId.DOCS), DESIGN_MIMES);
   const shared = label(docs().setOwnedByMe(false).setIncludeFolders(true).setSelectFolderEnabled(false), 'Shared with me');

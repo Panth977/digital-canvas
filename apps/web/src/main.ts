@@ -12,6 +12,10 @@ if (isNative()) {
   installNativeFetch();
   void import('./lib/native/links.ts').then((m) => m.installAppLinks());
 }
-if (!bounced) registerServiceWorker();
+if (!bounced && location.pathname !== '/desktop/picker') registerServiceWorker();
 
-export default bounced ? undefined : mount(App, { target: document.getElementById('app')! });
+// Desktop: Google's Picker page, opened in the real browser (nothing else boots there).
+const pickerPage = location.pathname === '/desktop/picker';
+if (pickerPage) void import('./lib/desktop/pickerpage.ts').then((m) => m.runPickerPage());
+
+export default bounced || pickerPage ? undefined : mount(App, { target: document.getElementById('app')! });

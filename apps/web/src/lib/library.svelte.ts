@@ -1,13 +1,17 @@
 import { BrowserStore, DriveStore, FolderStore, browserAssetCache, type ProjectStore } from '@digital-canvas/storage';
 import { account } from './account.svelte.ts';
 import { driveApiKey, knownFiles, setSharedUser } from './sharing.ts';
+import { desktop, isDesktop } from './desktop/desktop.svelte.ts';
+import { DesktopStore } from './desktop/store.ts';
 
 /**
  * Which store the app saves to. Signed in: your Google Drive. Signed out:
  * the remembered folder on this computer if you picked one, else this browser.
  */
 class Library {
-  private local = $state<ProjectStore>(new BrowserStore());
+  private local = $state<ProjectStore>(isDesktop() ? new DesktopStore(desktop.state?.folder ?? '') : new BrowserStore());
+  /** Goes up when something outside the app changed the folder (an agent, Finder). */
+  revision = $state(0);
   private drive: { uid: string; store: DriveStore } | null = null;
   /** A remembered folder that needs a click before we may read it. */
   pendingFolder = $state<FolderStore | null>(null);
@@ -33,6 +37,11 @@ class Library {
   }
 
   async init(): Promise<void> {
+    if (isDesktop()) {
+      this.folderChecked = true;
+      desktop.onFolderChanged(() => this.revision++);
+      return;
+    }
     const remembered = await FolderStore.remembered().catch(() => null);
     if (remembered) {
       if (remembered.needsPermission) this.pendingFolder = remembered.store;
@@ -42,7 +51,12 @@ class Library {
   }
 
   get folderSupported(): boolean {
-    return FolderStore.supported();
+    return !isDesktop() && FolderStore.supported();
+  }
+
+  /** Desktop: the folder changed in Settings or first run. */
+  useDesktopFolder(dir: string): void {
+    this.local = new DesktopStore(dir);
   }
 
   async pickFolder(): Promise<void> {

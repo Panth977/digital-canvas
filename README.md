@@ -77,3 +77,7 @@ Later phases: presentations, whiteboards, video, data-bound designs (live menus)
 ## License
 
 [Apache-2.0](LICENSE). Bundled font: Inter (SIL Open Font License, `apps/web/public/fonts/OFL.txt`).
+
+## Desktop app
+
+`apps/desktop` is Digital Canvas as a standalone app for Mac, Windows and Linux: no account, no server, designs in a folder you choose, and a local MCP server at `http://digital-canvas.localhost:4977/mcp`. Downloads are on the [releases page](https://github.com/Panth977/digital-canvas/releases/latest). To build: `npm run dist:desktop`.

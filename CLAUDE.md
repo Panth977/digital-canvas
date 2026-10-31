@@ -167,3 +167,15 @@ Panth's rule: no generated design content. Templates, stickers, illustrations, f
 - Clip speed: `VideoElement.speed`, `clipTime`/`clipLength` everywhere. Pitch is kept in all three: browser `playbackRate`, ffmpeg `atempo` (chained under 0.5), `stretchAudio` (WSOLA, scene/stretch.ts) in browser exports.
 - Present runs on `ed.player` with `player.quiet` (no stage redraws, no page following) and draws `drawFrameAt` on a CPU surface. The speaker's window is `window.open('')` + `mount(PresenterWindow)`: same JS realm, so plain `$state`, and CSS comes from `presenter.css?inline` because the window has none of the app's. Anything over the stage must stop pointerdown or the stage captures the click (`MotionPathDraw`, `ImageBrush`).
 - e2e: `animate.spec.ts`; `SHOTS=1 SHOTS_DIR=` writes screenshots. `tools/motion-sample.ts` makes a reel through MCP.
+
+## Desktop app (r16-desktop, 2026-10-31)
+
+- `apps/desktop`: Electron 45 around the same web build (no UI fork). `src/main.ts` window, settings, IPC; `src/server-entry.ts` is a **utility process** with the local server (`localserver.ts`) and MCP, because CanvasKit renders block their thread. `guard.ts` Host/Origin/token, `oauth.ts` PKCE + loopback, `drive.ts` tokens in safeStorage. Pure modules have no Electron import and are tested in `apps/desktop/test`.
+- Page side: `lib/desktop/`. `window.dcDesktop` (preload) = desktop. `DesktopStore` crosses IPC as packed bytes to the same `FolderWorkspace` the MCP uses. In the app `account.user` means "Drive connected and active", so every signed-in path works unchanged; `account.signIn/driveToken/signOut` go to the main process.
+- `dc:state` is a sync IPC from the preload: it must always set `returnValue`, or the page hangs for good.
+- Google Picker opens in the system browser at `/desktop/picker` (`pickerpage.ts`) on a one-time nonce; embedded webviews don't get it.
+- MCP video: the utility process asks the window, `videoworker.ts` encodes with WebCodecs. No ffmpeg is bundled (GPL).
+- Font pack: `build.mjs` keeps the template fonts and the font list in `dist/web/fontpack`; `fontGet()` looks there first. Kept across rebuilds via `.fontpack/`.
+- `.env.local` or CI env gives `DC_DESKTOP_GOOGLE_CLIENT_ID` / `_SECRET` at build time (`define`). `npm run build:desktop`, `npm run dist:desktop`. Release: push tag `v*`; artifact names carry no version, the download page links `releases/latest/download/<name>`.
+- e2e: `e2e/desktop.spec.ts` launches `apps/desktop` with `DC_DESKTOP_BLOCK_NETWORK=1`; rebuild first (`--skip-web` is enough for main-process changes). `apps/desktop/package.json` must not have `"type": "module"` (Playwright's Electron loader hangs). `firstWindow()` never fires for a page a service worker already controls: ask `webContents`.
+- `pwa-sw.js` comment: never write `*/` in it, even inside a path glob (that broke the worker from ff259d7 to r16).

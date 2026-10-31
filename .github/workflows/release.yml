@@ -1,0 +1,55 @@
+name: Release
+# Push a tag such as v0.1.0 to build the desktop app for every platform and
+# publish a GitHub Release. The tag sets the version. Builds are unsigned for
+# now; the download page explains the Gatekeeper and SmartScreen steps.
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - name: Set the version from the tag
+        shell: bash
+        run: npm pkg set version="${GITHUB_REF_NAME#v}" -w @digital-canvas/desktop
+      - name: Build the app
+        run: npm run build -w @digital-canvas/desktop
+        env:
+          DC_DESKTOP_GOOGLE_CLIENT_ID: ${{ secrets.DC_DESKTOP_GOOGLE_CLIENT_ID }}
+          DC_DESKTOP_GOOGLE_CLIENT_SECRET: ${{ secrets.DC_DESKTOP_GOOGLE_CLIENT_SECRET }}
+      - name: Package
+        working-directory: apps/desktop
+        run: npx electron-builder --config electron-builder.yml --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.os }}
+          if-no-files-found: error
+          path: |
+            apps/desktop/release/Digital-Canvas-*.dmg
+            apps/desktop/release/Digital-Canvas-*.exe
+            apps/desktop/release/Digital-Canvas-*.AppImage
+            apps/desktop/release/Digital-Canvas-*.deb
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: out, merge-multiple: true }
+      - run: ls -la out
+      - run: gh release create "$GITHUB_REF_NAME" out/* --repo "$GITHUB_REPOSITORY" --title "Digital Canvas ${GITHUB_REF_NAME#v}" --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}

@@ -2,6 +2,7 @@ import { DriveBrowser, DriveStore, assetId, fromDrive, notYetImported, type Libr
 import { account } from './account.svelte.ts';
 import { library } from './library.svelte.ts';
 import { openPicker } from './picker.ts';
+import { DesktopStore } from './desktop/store.ts';
 
 /** A picked Drive file on its way into Uploads. */
 export interface Importing extends PickedFile {
@@ -29,10 +30,10 @@ class DriveLibrary {
   pickError = $state('');
   private browser: { uid: string; b: DriveBrowser } | null = null;
 
-  /** The Drive-backed design store, when signed in. */
-  get store(): DriveStore | null {
+  /** The store with an uploads library: Drive when signed in, the folder in the desktop app. */
+  get store(): DriveStore | DesktopStore | null {
     const s = library.store;
-    return s instanceof DriveStore ? s : null;
+    return s instanceof DriveStore || s instanceof DesktopStore ? s : null;
   }
 
   /** Downloads picked files (drive.file lets the app read exactly those). */
@@ -104,7 +105,7 @@ class DriveLibrary {
 
   async loadUploads(fresh = false): Promise<void> {
     const s = this.store;
-    const key = account.user?.uid ?? '';
+    const key = account.user?.uid ?? (library.store.kind === 'folder' ? library.store.label : '');
     if (!s) {
       this.uploads = [];
       return;
