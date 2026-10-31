@@ -140,14 +140,13 @@ test('an open design follows an agent\'s edit', async () => {
   const list = await c.callTool({ name: 'list_designs', arguments: {} }) as { content: { text: string }[] };
   const id = /"id":\s*"([^"]+)"[^}]*Agent poster|Agent poster[^}]*"id":\s*"([^"]+)"/.exec(list.content[0]!.text)!;
   const design_id = id[1] ?? id[2]!;
-  const canvas = page.getByTestId('canvas');
   await page.getByTestId('canvas').click({ position: { x: 5, y: 5 } });
-  const before = await canvas.screenshot();
+  const count = () => page.evaluate(() => (window as any).__dc?.doc?.pages?.[0]?.elements?.length ?? -1).catch(() => -1); // mid-remount = not yet
+  const before = await count();
   await c.callTool({ name: 'add_elements', arguments: { design_id, elements: [{ type: 'shape', shape: 'rect', x: 0, y: 0, w: 1080, h: 1080, fill: '#ff0000' }] } });
   await c.close();
-  // the file changed on disk, so the editor mounts again and the page turns red
-  // (the canvas can detach mid-screenshot while it remounts: that only means not yet)
-  await expect.poll(async () => Buffer.compare(before, await canvas.screenshot({ timeout: 3000 }).catch(() => before)) !== 0, { timeout: 15_000 }).toBe(true);
+  // the file changed on disk, so the editor mounts again with the agent's element
+  await expect.poll(count, { timeout: 15_000 }).toBeGreaterThan(before);
   await shot(page, 'live-edit');
 });
 
