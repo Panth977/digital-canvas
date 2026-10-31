@@ -4,6 +4,7 @@ import { auth, driveToken, googleSignIn } from './icebase.ts';
 import { getCode, redirectForCode, takeRedirectCode } from './google.ts';
 import { isNative } from './native/platform.ts';
 import { OFFLINE_TOKEN, clearOfflineDrive } from './pwa.ts';
+import { desktop, isDesktop } from './desktop/desktop.svelte.ts';
 
 export interface Account {
   uid: string;
@@ -30,6 +31,15 @@ class AccountState {
   private installDone = $state<Record<string, boolean>>({});
 
   constructor() {
+    if (isDesktop()) {
+      // No Firebase session here: "signed in" means Drive is connected on this machine and is the active store.
+      this.known = true;
+      $effect.root(() => {
+        $effect(() => { this.user = desktop.driveAccount; });
+      });
+      this.user = desktop.driveAccount;
+      return;
+    }
     onAuthStateChanged(auth, (u) => {
       this.user = u ? { uid: u.uid, email: u.email ?? '', name: u.displayName ?? u.email ?? 'You', photo: u.photoURL ?? undefined } : null;
       if (!u) {
@@ -71,6 +81,10 @@ class AccountState {
     this.busy = true;
     this.error = '';
     try {
+      if (isDesktop()) {
+        await desktop.connectDrive();
+        return true;
+      }
       let r = await googleSignIn(await getCode());
       if (!r.driveConnected) {
         // Google only hands out a refresh token with explicit consent.
@@ -142,6 +156,7 @@ class AccountState {
   }
 
   async signOut(): Promise<void> {
+    if (isDesktop()) return desktop.disconnectDrive();
     this.token = null;
     // Designs the service worker kept for offline use belong to this account.
     await clearOfflineDrive();
@@ -150,6 +165,7 @@ class AccountState {
 
   /** A Drive access token, refreshed through the backend a minute before it expires. */
   readonly driveToken = async (force = false): Promise<string> => {
+    if (isDesktop()) return desktop.driveToken(force);
     if (!force && this.token && this.token.expires - 60_000 > Date.now()) return this.token.value;
     try {
       const r = await driveToken({});
@@ -172,5 +188,5 @@ class AccountState {
 }
 
 export const account = new AccountState();
-void account.finishRedirect();
+if (!isDesktop()) void account.finishRedirect();
 if (import.meta.env.DEV) (window as unknown as { __account?: AccountState }).__account = account;

@@ -74,8 +74,8 @@ function onServerMessage(m: { id?: number; ok?: boolean; value?: never; error?: 
   }
 }
 
-async function answerServer(op: string, args: { force?: boolean }): Promise<unknown> {
-  if (op === 'drive.token') return drive.token(args.force);
+async function answerServer(op: string, args?: { force?: boolean }): Promise<unknown> {
+  if (op === 'drive.token') return drive.token(args?.force);
   if (op === 'video.export' || op === 'video.frame') return askWindow(op, args);
   throw new Error(`unknown request ${op}`);
 }

@@ -7,6 +7,7 @@
   import { account } from '../../lib/account.svelte.ts';
   import { driveLib } from '../../lib/drivelib.svelte.ts';
   import { isNative } from '../../lib/native/platform.ts';
+  import { desktop, isDesktop } from '../../lib/desktop/desktop.svelte.ts';
   import { mobile } from '../../lib/mobile.svelte.ts';
 
   let { ed }: { ed: EditorState } = $props();
@@ -279,7 +280,7 @@
 
     {#if lib.uploadsLoading && !entries.length}<p class="hint">Loading your uploads…</p>{/if}
     {#if lib.uploadsError}<p class="err">{lib.uploadsError}</p>{/if}
-    {#if !account.user}<p class="hint small">Sign in to keep your uploads in Google Drive and use them in every design.</p>{/if}
+    {#if !account.user && !isDesktop()}<p class="hint small">Sign in to keep your uploads in Google Drive and use them in every design.</p>{/if}
 
     {#if visuals.length}
       <div class="grid" data-testid="upload-grid">
@@ -318,8 +319,13 @@
     {#if !account.user}
       <div class="connect" data-testid="drive-signin">
         <Icon name="drive" size={28} />
-        <p>Sign in with Google to use photos, videos and sounds from your Drive.</p>
-        <button class="btn primary cta" disabled={account.busy} onclick={() => account.signIn()}>Sign in with Google</button>
+        {#if isDesktop()}
+          <p>Connect Google Drive in Settings to use your photos, videos and sounds from it.</p>
+          <button class="btn primary cta" onclick={() => (desktop.settingsOpen = true)}>Open Settings</button>
+        {:else}
+          <p>Sign in with Google to use photos, videos and sounds from your Drive.</p>
+          <button class="btn primary cta" disabled={account.busy} onclick={() => account.signIn()}>Sign in with Google</button>
+        {/if}
       </div>
     {:else if native}
       <!-- Google no longer shows its Drive picker inside an app's WebView: use the phone's own pickers. -->

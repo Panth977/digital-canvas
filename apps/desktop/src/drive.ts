@@ -51,7 +51,7 @@ export class DriveAuth {
     this.persisted = this.canEncrypt();
     this.enc = this.persisted && this.refresh ? safeStorage.encryptString(this.refresh).toString('base64') : undefined;
     if (!this.persisted) { rmSync(this.file, { force: true }); return; }
-    writeFileSync(this.file, JSON.stringify({ enc: this.enc, account: this.account } satisfies Saved), { mode: 0o600 });
+    writeFileSync(this.file, JSON.stringify({ enc: this.enc, account: this.account! } satisfies Saved), { mode: 0o600 });
   }
 
   async connect(hint?: string): Promise<DriveAccount> {

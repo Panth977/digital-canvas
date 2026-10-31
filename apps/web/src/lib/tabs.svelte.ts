@@ -229,6 +229,17 @@ class Tabs {
     this.count();
   }
 
+  /** Forget the kept editor without saving: the design changed on disk and this copy is out of date. */
+  discard(id: string): void {
+    const s = this.sessions.get(id);
+    const ed = s?.ed;
+    if (!s || !ed) return;
+    s.ed = null;
+    s.view = null;
+    ed.dispose();
+    this.count();
+  }
+
   /** The design has a tab (safe to call from teardown code). */
   isOpen(id: string): boolean {
     return this.openIds.has(id);

@@ -10,3 +10,4 @@ playwright-report/
 .icebase/
 apps/web/public/_test/
 .fontpack/
+apps/desktop/release/

@@ -161,7 +161,7 @@ export class FolderWorkspace implements Workspace {
     const p = join(this.assetsDir, id);
     if (!existsSync(p)) writeFileSync(p, bytes);
     const idx = this.index();
-    const { hidden: _shown, ...was } = idx[id] ?? {};
+    const { hidden: _shown, ...was } = idx[id] ?? ({} as Partial<NonNullable<typeof idx[string]>>);
     idx[id] = { ...was, ...extra, mime, ...(name ? { name } : {}), size: bytes.length, createdTime: was.createdTime ?? new Date().toISOString() };
     this.writeIndex(idx);
     return { id, ...idx[id]! };

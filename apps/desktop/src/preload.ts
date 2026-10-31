@@ -7,8 +7,8 @@ import { contextBridge, ipcRenderer } from 'electron';
 contextBridge.exposeInMainWorld('dcDesktop', {
   initial: ipcRenderer.sendSync('dc:state'),
   call: (op: string, args?: unknown) => ipcRenderer.invoke('dc', op, args),
-  on(event: 'state' | 'changed' | 'request', cb: (data: never) => void) {
-    const listener = (_: unknown, data: never) => cb(data);
+  on(event: 'state' | 'changed' | 'request', cb: (data: unknown) => void) {
+    const listener = (_: unknown, data: unknown) => cb(data);
     ipcRenderer.on(`dc:${event}`, listener);
     return () => ipcRenderer.off(`dc:${event}`, listener);
   },

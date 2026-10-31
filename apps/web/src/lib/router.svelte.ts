@@ -9,11 +9,13 @@ export type Route =
   | { name: 'editor'; id: string }
   | { name: 'shared'; fileId: string }
   | { name: 'view'; fileId: string }
-  | { name: 'template'; fileId: string };
+  | { name: 'template'; fileId: string }
+  | { name: 'download' };
 
 const PATHS = { d: 'shared', view: 'view', template: 'template' } as const;
 
 export function parseRoute(pathname: string, hash: string): Route {
+  if (/^\/download\/?$/.test(pathname)) return { name: 'download' };
   const p = /^\/(d|view|template)\/([\w-]+)\/?$/.exec(pathname);
   if (p) return { name: PATHS[p[1] as keyof typeof PATHS], fileId: p[2]! };
   const m = /^#\/d\/([\w-]+)/.exec(hash);
@@ -31,7 +33,8 @@ class Router {
   }
 
   go(to: Route): void {
-    if (to.name === 'shared' || to.name === 'view' || to.name === 'template') {
+    if (to.name === 'download') history.pushState(null, '', '/download');
+    else if (to.name === 'shared' || to.name === 'view' || to.name === 'template') {
       const seg = to.name === 'shared' ? 'd' : to.name;
       history.pushState(null, '', `/${seg}/${to.fileId}`);
     } else {

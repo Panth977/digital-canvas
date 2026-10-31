@@ -5,6 +5,7 @@
  */
 import type { EmbeddedFont } from '@digital-canvas/scene';
 import { KV, openDb } from '@digital-canvas/storage';
+import { isDesktop } from './desktop/desktop.svelte.ts';
 
 const API = 'https://api.fontsource.org/v1/fonts';
 const CDN = 'https://cdn.jsdelivr.net/fontsource/fonts';
@@ -20,6 +21,15 @@ export interface CatalogFont {
 
 export const CATEGORIES = ['sans-serif', 'serif', 'display', 'handwriting', 'monospace'] as const;
 
+/** The desktop app ships the template fonts and the font list: look there before the network. */
+async function fontGet(url: string): Promise<Response> {
+  if (isDesktop()) {
+    const local = await fetch(`/fontpack/${url.replace(/^https:\/\//, '').replace(/[^\w.-]/g, '_')}`).catch(() => null);
+    if (local?.ok) return local;
+  }
+  return fetch(url);
+}
+
 let catalogLoad: Promise<CatalogFont[]> | null = null;
 const CATALOG_KEY = 'dc.fontCatalog.v1';
 const WEEK = 7 * 86400e3;
@@ -31,7 +41,7 @@ export function catalog(): Promise<CatalogFont[]> {
       const hit = JSON.parse(localStorage.getItem(CATALOG_KEY) ?? 'null') as { at: number; list: CatalogFont[] } | null;
       if (hit && Date.now() - hit.at < WEEK && hit.list.length) return hit.list;
     } catch { /* ignore a broken cache */ }
-    const r = await fetch(API);
+    const r = await fontGet(API);
     if (!r.ok) throw new Error(`font list: HTTP ${r.status}`);
     const raw = (await r.json()) as (CatalogFont & Record<string, unknown>)[];
     const list = raw.map(({ id, family, category, weights, styles, subsets }) => ({ id, family, category, weights, styles, subsets }))
@@ -106,7 +116,7 @@ function closest(have: number[], want: number): number {
  * script subsets the text uses.
  */
 export async function fetchFamily(f: CatalogFont, text: string): Promise<FontFile[]> {
-  const r = await fetch(`${API}/${f.id}`);
+  const r = await fontGet(`${API}/${f.id}`);
   if (!r.ok) throw new Error(`${f.family}: HTTP ${r.status}`);
   const d = (await r.json()) as FontDetail;
   const cps = new Set([...text].map((c) => c.codePointAt(0)!).filter((c) => c > 0x7f));
@@ -120,7 +130,7 @@ export async function fetchFamily(f: CatalogFont, text: string): Promise<FontFil
         const url = d.variants[String(w)]?.[style]?.[sub]?.url.ttf;
         if (!url) continue;
         jobs.push((async () => {
-          const res = await fetch(url);
+          const res = await fontGet(url);
           if (!res.ok) return null;
           return { family: f.family, bytes: new Uint8Array(await res.arrayBuffer()), mime: 'font/ttf', weight: w, italic: style === 'italic', subset: sub, source: `fontsource:${f.id}` };
         })());
