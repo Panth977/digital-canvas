@@ -240,13 +240,13 @@
   function paintStill(c: HTMLCanvasElement, i: AnimationInfo): void {
     const a = stillOf(i), dur = Math.min(animationDuration(a), 1.2);
     const doc = sampleDoc(i.groups.includes('text') || i.groups.includes('writing'), { ...a, duration: dur });
-    const t = i.exit ? 3 - dur * 0.45 : i.loop ? dur * 0.2 : dur * 0.45;
+    const t = i.exit ? 3 - dur * 0.45 : i.loop ? dur * 0.2 : dur * (i.by ? 0.25 : 0.45);
     drawPageAt(c, doc, doc.pages[0]!, t);
     c.classList.add('still');
   }
   function paintTransitionStill(c: HTMLCanvasElement, type: TransitionType): void {
     const s = sampleTransition({ type, duration: 0.8, ...(type === 'colorwipe' ? { color: '#ffb020' } : {}) });
-    paint(c, (canvas) => drawFrameAt(ed.renderer, canvas, s.doc, 1.4), s.doc);
+    paint(c, (canvas) => drawFrameAt(ed.renderer, canvas, s.doc, 1.32), s.doc);
     c.classList.add('still');
   }
   /** Run once when the tile first scrolls into view (the panel holds about a hundred). */
@@ -307,7 +307,8 @@
     if (!playing) queueMicrotask(() => draw(holdTime(ed.page) < pageDuration(ed.page) ? holdTime(ed.page) : 1e6));
   });
   onDestroy(() => cancelAnimationFrame(raf));
-  const hint = $derived(onElements ? 'Plays when the page starts' : current?.by === 'page' ? 'The whole page moves as one' : 'Every element without its own animation moves, one after another');
+  const when = $derived(info?.loop ? 'Loops while it shows' : info?.span ? 'Moves for as long as it shows' : custom ? 'Follows the path, then stays at its end' : phase === 'out' ? 'Plays as the page ends' : phase === 'both' ? 'Plays when the page starts and as it ends' : 'Plays when the page starts');
+  const hint = $derived(onElements ? when : current?.by === 'page' ? 'The whole page moves as one' : 'Every element without its own animation moves, one after another');
   const directionOf = (a: Animation) => a.direction ?? defaultDirection(a.type) ?? 'down';
 </script>
 
