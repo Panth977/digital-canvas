@@ -14,7 +14,7 @@
   import DownloadMenu from '../DownloadMenu.svelte';
   import SharePopover from '../SharePopover.svelte';
   import Present from '../Present.svelte';
-  import type { PresentMode } from '../../lib/present.svelte.ts';
+  import type { PresentMode } from '../../lib/present.ts';
   import ResizeDialog from '../ResizeDialog.svelte';
   import VersionHistory from '../VersionHistory.svelte';
   import MobileSheet from './MobileSheet.svelte';

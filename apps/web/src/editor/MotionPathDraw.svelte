@@ -6,7 +6,8 @@
    */
   import { findElement, MAX_ANIMATION_DURATION, type Animation, type MotionPath } from '@digital-canvas/scene';
   import type { EditorState } from '../lib/editor.svelte.ts';
-  import { motionDraw, pathFromSamples } from '../lib/motionpath.svelte.ts';
+  import { motionDraw } from '../lib/motionpath.svelte.ts';
+  import { pathFromSamples } from '../lib/motionpath.ts';
   import { ui } from '../lib/ui.svelte.ts';
 
   let { ed, left, top, zoom }: { ed: EditorState; left: number; top: number; zoom: number } = $props();

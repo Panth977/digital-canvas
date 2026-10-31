@@ -21,7 +21,7 @@
   import DownloadMenu from './DownloadMenu.svelte';
   import SharePopover from './SharePopover.svelte';
   import Present from './Present.svelte';
-  import type { PresentMode } from '../lib/present.svelte.ts';
+  import type { PresentMode } from '../lib/present.ts';
   import { loadAccess, makeOwnCopy } from '../lib/shared.svelte.ts';
   import VersionHistory from './VersionHistory.svelte';
   import ShortcutsDialog from './ShortcutsDialog.svelte';

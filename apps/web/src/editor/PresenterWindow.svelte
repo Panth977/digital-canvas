@@ -5,7 +5,7 @@
    * which owns all the state; styles come from presenter.css (the window has
    * none of the app's).
    */
-  import type { PresenterActions, PresenterState } from '../lib/present.svelte.ts';
+  import type { PresenterActions, PresenterState } from '../lib/present.ts';
 
   let { s, act }: { s: PresenterState; act: PresenterActions } = $props();
 </script>

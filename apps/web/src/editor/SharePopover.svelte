@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { PresentMode } from '../lib/present.svelte.ts';
+  import type { PresentMode } from '../lib/present.ts';
   import { mobile } from '../lib/mobile.svelte.ts';
   import { onMount } from 'svelte';
   import { qrCode } from '@digital-canvas/scene';

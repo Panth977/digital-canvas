@@ -3,7 +3,7 @@
   import { drawFrameAt } from '@digital-canvas/render';
   import { holdTime, pageDuration, pageStart } from '@digital-canvas/scene';
   import type { EditorState } from '../lib/editor.svelte.ts';
-  import { Stopwatch, clock, nextPage, type PresentMode, type PresenterActions, type PresenterState } from '../lib/present.svelte.ts';
+  import { Stopwatch, clock, nextPage, type PresentMode, type PresenterActions, type PresenterState } from '../lib/present.ts';
   import { mobile } from '../lib/mobile.svelte.ts';
   import Icon from '../lib/Icon.svelte';
   import PresenterWindow from './PresenterWindow.svelte';
