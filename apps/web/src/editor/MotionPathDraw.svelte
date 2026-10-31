@@ -70,7 +70,8 @@
       <div class="ghost idle" style:left="{el.x * zoom}px" style:top="{el.y * zoom}px" style:width="{el.w * zoom}px" style:height="{el.h * zoom}px"></div>
     {/if}
   </div>
-  <div class="bar" role="status">
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="bar" role="status" onpointerdown={(e) => e.stopPropagation()}>
     <span>Drag on the page to draw the path. It plays at the pace you draw.</span>
     <button class="btn" data-testid="motion-cancel" onclick={() => motionDraw.stop()}>Cancel</button>
   </div>
