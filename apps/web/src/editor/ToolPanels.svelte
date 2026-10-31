@@ -15,6 +15,7 @@
   import NumField from './NumField.svelte';
   import FontPanel from './FontPanel.svelte';
   import AnimatePanel from './AnimatePanel.svelte';
+  import FindPanel from './FindPanel.svelte';
   import { colorFromQuery, colorMatches, DEFAULT_GRADIENTS, paletteOf } from '../lib/uiutil.ts';
   import { countUses, recolorDoc } from '../lib/recolor.ts';
   import { untrack } from 'svelte';
@@ -59,7 +60,7 @@
   });
 
   const TITLES: Record<string, string> = {
-    font: 'Font', color: 'Colour', effects: 'Effects', animate: 'Animate', position: 'Position', image: 'Edit image', table: 'Table', chart: 'Chart', qr: 'QR code', frame: 'Frame', audio: 'Sounds',
+    font: 'Font', color: 'Colour', effects: 'Effects', animate: 'Animate', find: 'Find and replace text', position: 'Position', image: 'Edit image', table: 'Table', chart: 'Chart', qr: 'QR code', frame: 'Frame', audio: 'Sounds',
   };
 
   // ---- colour ----
@@ -405,6 +406,9 @@
 
     {:else if ui.panel === 'animate'}
       <div class="scroll-y body"><AnimatePanel {ed} /></div>
+
+    {:else if ui.panel === 'find'}
+      <div class="scroll-y body"><FindPanel {ed} /></div>
 
     {:else if ui.panel === 'position'}
       <div class="tabs" role="tablist">

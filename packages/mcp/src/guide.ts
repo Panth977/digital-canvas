@@ -47,13 +47,23 @@ shadow, lift, hollow, splice, outline, echo, glitch, neon, background (highlight
 
 ## Video & reels
 - assemble_video does clips → pages, trims, transitions, music, captions and title/end cards in one call.
-- Page = scene; page duration = seconds. Clips: trimStart/trimEnd in seconds of the file; loop; muted; volume.
-- Animations (per element or whole page): rise, pan, fade, pop, wipe, typewriter, baseline, drift, tumble (+ direction).
-- Transitions (into a page): dissolve, fade (through black), slide, wipe, zoom (+ direction, duration).
+- Page = scene; page duration = seconds. Clips: trimStart/trimEnd in seconds of the file; speed 0.25 to 2 (the sound keeps its pitch; a 10 s clip at 2 lasts 5 s); loop; muted; volume.
+- Animations (per element, or a whole page): list_animations gives every type with its options. Sets:
+  - Basic: rise, pan, fade, pop, wipe, drift, tumble, baseline, stomp, block, breathe, scale, slide, fadeSlide.
+  - Exaggerate: neon, scrapbook, tectonic, jelly, bounceIn, backIn, flyIn, flipX, flipY, lightSpeed, spinIn, rollIn, jack, zoomIn, slideIn, puff, vanish, boing, twister, foolish, swash, space, tin, swap; exits hinge, magic, hole, bomb.
+  - Photo motion (photos and videos; the frame stays, the picture moves): photoZoomIn, photoZoomOut, photoPan, kenBurns, photoRise, photoFlow, photoTumble.
+  - Text (give by: "letter", "word" or "line"): typewriter, ascend, shift, merge, block, burst, bounce, roll, skate, spread, clarify, tectonic, tumble, neon, scrapbook, stomp, rise, pan, fade, pop, baseline, drift.
+  - Writing: typewriter, write, marker.
+  - Ambient (loops while shown; duration = one turn): pulse, wiggle, flicker, rotate, float, sway, breatheLoop, heartBeat, flash, rubberBand, shake, tremble, headShake, swing, tada, wobble, jello, hop.
+  - Options: duration, direction, phase "in" | "out" | "both", intensity 0..1 (0.5 = as designed), by, order "forward" | "reverse" | "center" | "random" | "together". On a page, by: "page" moves everything as one.
+  - Custom: {type:"custom", duration, path:{points:[[0,0,0],[300,-80,0.5],[600,0,1]], style, rotation, fade}}; the element follows the path and stays at its end.
+  - Exits need a page duration: out plays over the last seconds of the page or of the element's timing window.
+- Transitions (into a page; 0.1 to 2.5 s; apply them to every page but the first): dissolve, fade (through black), slide, wipe, zoom, match (Match & Move: elements with the same name, picture or text travel between the pages), circle, line, stack, chop, flow, colorwipe (+ color), iris, clock, doors, checker. Most take a direction.
 - Captions: add_captions with exact times or a transcript; they show only during their time (element timing).
 - Music: set_audio with fadeIn/fadeOut; keep music around volume 0.6–0.8 under speech 0.3.
 - Reels safe zone: keep text between 11% and 80% of the height.
 - Preview moments with render_page { at: seconds }.
+- find_replace changes text across all pages in one call.
 
 ## Mockups
 See a page on a product before it is printed: list_mockups (id, label, category Apparel/Outdoor/Print/Packaging/Devices/Home, aspect), then render_mockup { design_id, page, mockup_id, color?, format? }. The page is cover-fitted to the print area, so pick a mockup whose aspect is close to the page's (or keep important content away from the edges). Products marked with colours can be recoloured (#rrggbb). save: true puts the mockup image in Exports too.

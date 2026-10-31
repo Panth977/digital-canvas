@@ -17,6 +17,8 @@
   import CanvasMenu from './CanvasMenu.svelte';
   import CropBar from './CropBar.svelte';
   import ImageBrush from './ImageBrush.svelte';
+  import MotionPathDraw from './MotionPathDraw.svelte';
+  import { motionDraw } from '../lib/motionpath.svelte.ts';
   import { brush } from '../lib/vision/brush.svelte.ts';
   import Rulers, { RULER } from './Rulers.svelte';
   import { ui } from '../lib/ui.svelte.ts';
@@ -1774,6 +1776,11 @@
   {#if brushEl}
     {@const p = toScreen(brushEl.el.x, brushEl.el.y + pageTop(brushEl.i))}
     <ImageBrush {ed} left={p.x} top={p.y} {zoom} />
+  {/if}
+
+  {#if motionDraw.id}
+    {@const p = toScreen(0, pageTop(ed.pageIndex))}
+    <MotionPathDraw {ed} left={p.x} top={p.y} {zoom} />
   {/if}
 
   {#if editing}

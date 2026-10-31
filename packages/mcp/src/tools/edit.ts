@@ -3,14 +3,14 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import {
   aabb, addPage, arrange, distribute, duplicatePage, findElement, groupElements, looseFill, movePage, newId, removeElements, removePage,
-  ungroupElements, updateElements, updatePage, walk, mapLists, fitGroup, type Doc, type Element, type Page, type Transition,
+  ungroupElements, updateElements, updatePage, walk, mapLists, fitGroup, ANIMATIONS, ANIMATION_GROUPS, TRANSITIONS, animationDuration, clipSpeed, findMatches, replaceMatches, type Animation, type Doc, type Element, type Page, type Transition,
 } from '@digital-canvas/scene';
 import { ToolError, round, type Context } from '../context.ts';
 import { buildElements, fitTexts, patchElement } from '../build.ts';
 import { embedFonts } from '../fonts.ts';
 import { applyBrand, fitPages, loadTemplate, loadTemplateAssets, mergeAssets, replaceTexts, searchTemplates, templateThumb } from '../library.ts';
 import { elementOutline, pageOutline } from '../outline.ts';
-import { animation, elementPatch, elementSpec, fill as fillSchema, pageRef } from '../schemas.ts';
+import { animation, transition as transitionSchema, elementPatch, elementSpec, fill as fillSchema, pageRef } from '../schemas.ts';
 import { json, pageOf, safe } from './util.ts';
 import { isVideo } from '@digital-canvas/scene';
 
@@ -36,9 +36,9 @@ export function registerEditTools(server: McpServer, ctx: Context): void {
       '• text {text, fontFamily (any Google Font), fontSize, color, bold, align, lineHeight, letterSpacing, uppercase, effect, runs, autoFit} — height is measured; leave w out to hug the text.',
       '• shape {shape: rect|ellipse|triangle|diamond|pentagon|hexagon|star|arrow, fill (colour or {colors,angle} gradient), stroke, radius} — also semi-transparent overlays on photos ("#00000080").',
       '• line / arrow {x1,y1,x2,y2,color,strokeWidth,startMarker,endMarker}',
-      '• image / video {asset | url | driveFileId, fit cover|contain, focus, mask, radius, filter, adjust, effect; video: trimStart, trimEnd, loop, muted, volume}',
+      '• image / video {asset | url | driveFileId, fit cover|contain, focus, mask, radius, filter, adjust, effect; video: trimStart, trimEnd, speed, loop, muted, volume}',
       '• icon {icon: "mdi:instagram", color} (Iconify, vector) • qr {text} • chart {chart, labels, series} • table {rows} • path {d, viewBox, fill} • group {children}.',
-      'Common: x, y, w, h (px, top-left origin; default centred), rotation, opacity, name, animation {type: rise|pan|fade|pop|wipe|typewriter|baseline|drift|tumble}, timing {start,end} (video).',
+      'Common: x, y, w, h (px, top-left origin; default centred), rotation, opacity, name, animation {type (see list_animations), duration, direction, phase in|out|both, intensity, by line|word|letter, order, path}, timing {start,end} (video).',
       'Returns the new ids and their measured boxes. Then render_page to look at the result.',
     ].join('\n'),
     inputSchema: {
@@ -57,7 +57,7 @@ export function registerEditTools(server: McpServer, ctx: Context): void {
       // the page lasts as long as its longest clip (like the editor)
       const clips = built.elements.flatMap((e) => [...walk([e])]).filter((e) => e.type === 'video');
       if (clips.length) {
-        const need = Math.max(...clips.map((c) => (c.type === 'video' ? Math.min(c.trimEnd ?? file.doc.assets[c.asset]?.duration ?? 5, file.doc.assets[c.asset]?.duration ?? Infinity) - (c.trimStart ?? 0) : 0)));
+        const need = Math.max(...clips.map((c) => (c.type === 'video' ? (Math.min(c.trimEnd ?? file.doc.assets[c.asset]?.duration ?? 5, file.doc.assets[c.asset]?.duration ?? Infinity) - (c.trimStart ?? 0)) / clipSpeed(c) : 0)));
         const cur = file.doc.pages.find((p) => p.id === pg.id)!;
         if (cur.duration === undefined || (cur.duration < need && need < 600)) file.doc = updatePage(file.doc, pg.id, { duration: round(Math.max(need, 0.5), 2) });
       }
@@ -67,6 +67,43 @@ export function registerEditTools(server: McpServer, ctx: Context): void {
       return { ids: built.elements.map((e) => e.id) };
     });
     return json({ added: brief((await ctx.open(design_id)).doc, out.ids), ...(warnings.length ? { warnings } : {}) });
+  }));
+
+  server.registerTool('list_animations', {
+    title: 'List animations',
+    description: 'Every animation and page transition with its set, options and default seconds. Use `type` in animation / transition fields.',
+    inputSchema: {},
+  }, safe(async () => json({
+    sets: ANIMATION_GROUPS.map((g) => ({
+      set: g.label,
+      animations: ANIMATIONS.filter((x) => x.groups.includes(g.id)).map((x) => ({
+        type: x.type, label: x.label, seconds: animationDuration({ type: x.type }),
+        ...(x.directional ? { directions: x.dirs ?? ['left', 'right', 'up', 'down'] } : {}),
+        ...(x.loop ? { loop: true } : {}), ...(x.span ? { spans_the_page: true } : {}), ...(x.exit ? { exit: true } : {}), ...(x.photo ? { photos_only: true } : {}), ...(x.by ? { by: x.by } : {}),
+      })),
+    })),
+    transitions: TRANSITIONS.map((t) => ({ type: t.type, label: t.label, ...(t.directional ? { directional: true } : {}), ...(t.color ? { color: true } : {}) })),
+  })));
+
+  server.registerTool('find_replace', {
+    title: 'Find and replace text',
+    description: 'Find text across every page (text boxes, groups, table cells). Without `replace` it only lists the matches; with it, every match is replaced and text boxes re-measure.',
+    inputSchema: { design_id: z.string(), find: z.string().min(1), replace: z.string().optional(), match_case: z.boolean().optional(), whole_word: z.boolean().optional() },
+  }, safe(async ({ design_id, find, replace, match_case, whole_word }) => {
+    const opts = { matchCase: match_case, wholeWord: whole_word };
+    if (replace === undefined) {
+      const doc = (await ctx.open(design_id)).doc;
+      const found = findMatches(doc, find, opts);
+      return json({ count: found.length, matches: found.slice(0, 100).map((m) => ({ page: doc.pages.findIndex((p) => p.id === m.pageId) + 1, element: m.elementId, text: `${m.before}[${m.match}]${m.after}` })) });
+    }
+    let count = 0;
+    await ctx.edit(design_id, async (file) => {
+      const r = replaceMatches(file.doc, find, replace, opts);
+      file.doc = r.doc;
+      count = r.count;
+      await fitTexts(file, new Map(r.changed.map((id) => [id, { autoW: false, autoH: true, shrink: false, centreX: false }])));
+    });
+    return json({ replaced: count });
   }));
 
   server.registerTool('update_elements', {
@@ -252,7 +289,7 @@ export function registerEditTools(server: McpServer, ctx: Context): void {
 
   server.registerTool('set_page', {
     title: 'Page settings',
-    description: 'Set a page\'s background (colour/gradient, or a photo/video that covers the page with an optional tint overlay for legible text), its duration in seconds (video), its transition from the previous page (dissolve, fade through black, slide, wipe, zoom), a whole-page animation, name or notes.',
+    description: 'Set a page\'s background (colour/gradient, or a photo/video that covers the page with an optional tint overlay for legible text), its duration in seconds (video), its transition from the previous page (dissolve, fade, slide, wipe, zoom, match, circle, line, stack, chop, flow, colorwipe, iris, clock, doors, checker), a whole-page animation, name or notes.',
     inputSchema: {
       design_id: z.string(), page: pageRef.optional().describe('Default page 1. Use "all" for every page.').or(z.literal('all')),
       background: fillSchema.optional(),
@@ -260,10 +297,10 @@ export function registerEditTools(server: McpServer, ctx: Context): void {
         asset: z.string().optional(), url: z.string().optional(), driveFileId: z.string().optional(),
         overlay: z.string().optional().describe('A colour with alpha laid over it, e.g. "#00000066" to darken for white text.'),
         focus: z.object({ x: z.number(), y: z.number() }).optional(),
-        trimStart: z.number().optional(), trimEnd: z.number().optional(), loop: z.boolean().optional(), muted: z.boolean().optional(),
+        trimStart: z.number().optional(), trimEnd: z.number().optional(), speed: z.number().min(0.25).max(2).optional(), loop: z.boolean().optional(), muted: z.boolean().optional(),
       }).optional().describe('A photo or video filling the page, behind everything.'),
       duration: z.number().positive().optional().describe('Seconds this page shows (video).'),
-      transition: z.object({ type: z.enum(['dissolve', 'fade', 'slide', 'wipe', 'zoom']), duration: z.number().positive().optional(), direction: z.enum(['left', 'right', 'up', 'down']).optional() }).nullable().optional().describe('How this page comes in after the previous one (video). null removes it.'),
+      transition: transitionSchema.nullable().optional().describe('How this page comes in after the previous one (video). null removes it.'),
       animation: animation.nullable().optional().describe('Animate every element of the page in, staggered (elements with their own animation keep it).'),
       name: z.string().optional(), notes: z.string().optional(),
     },
@@ -277,8 +314,8 @@ export function registerEditTools(server: McpServer, ctx: Context): void {
         if (a.duration) patch.duration = a.duration;
         if (a.name !== undefined) patch.name = a.name;
         if (a.notes !== undefined) patch.notes = a.notes;
-        if (a.animation) patch.animation = { type: a.animation.type, ...(a.animation.duration ? { duration: a.animation.duration } : {}), ...(a.animation.direction ? { direction: a.animation.direction } : {}) };
-        if (a.transition) patch.transition = a.transition;
+        if (a.animation) patch.animation = Object.fromEntries(Object.entries(a.animation).filter(([, v]) => v !== undefined)) as unknown as Animation;
+        if (a.transition) patch.transition = a.transition as Transition;
         file.doc = updatePage(file.doc, id, patch);
         if (a.transition === null || a.animation === null) {
           file.doc = { ...file.doc, pages: file.doc.pages.map((p) => {
@@ -294,13 +331,13 @@ export function registerEditTools(server: McpServer, ctx: Context): void {
           const { id: asset, info } = await ctx.attach(file, m);
           if (info.kind === 'audio') throw new ToolError('that file is a sound', 'use set_audio for music');
           const els: Element[] = [];
-          const built = await buildElements(ctx, file, [{ type: info.kind, asset, x: 0, y: 0, w: file.doc.width, h: file.doc.height, name: 'Background', ...(m.focus ? { focus: m.focus } : {}), ...(info.kind === 'video' ? { trimStart: m.trimStart, trimEnd: m.trimEnd, loop: m.loop, muted: m.muted } : {}) } as never], warnings);
+          const built = await buildElements(ctx, file, [{ type: info.kind, asset, x: 0, y: 0, w: file.doc.width, h: file.doc.height, name: 'Background', ...(m.focus ? { focus: m.focus } : {}), ...(info.kind === 'video' ? { trimStart: m.trimStart, trimEnd: m.trimEnd, speed: m.speed, loop: m.loop, muted: m.muted } : {}) } as never], warnings);
           els.push(...built.elements);
           if (m.overlay) els.push({ id: newId('e_'), type: 'shape', shape: 'rect', name: 'Background tint', x: 0, y: 0, w: file.doc.width, h: file.doc.height, rotation: 0, opacity: 1, fill: looseFill(m.overlay), stroke: null, radius: 0 });
           file.doc = { ...file.doc, pages: file.doc.pages.map((p) => (p.id === id ? { ...p, elements: [...els, ...p.elements.filter((e) => e.name !== 'Background' && e.name !== 'Background tint')] } : p)) };
           if (info.kind === 'video' && info.duration && !a.duration) {
             const p = file.doc.pages.find((x) => x.id === id)!;
-            const len = Math.min(m.trimEnd ?? info.duration, info.duration) - (m.trimStart ?? 0);
+            const len = (Math.min(m.trimEnd ?? info.duration, info.duration) - (m.trimStart ?? 0)) / (m.speed ?? 1);
             if (p.duration === undefined) file.doc = updatePage(file.doc, id, { duration: round(len, 2) });
           }
         }

@@ -11,7 +11,7 @@ import * as gifencModule from 'gifenc';
 const gifenc = (typeof (gifencModule as { GIFEncoder?: unknown }).GIFEncoder === 'function' ? gifencModule : (gifencModule as unknown as { default: typeof gifencModule }).default);
 const { GIFEncoder, applyPalette, quantize } = gifenc;
 import {
-  animateAt, animationEnd, clipTime, frameAt, isVideo, pageDuration, walk,
+  animateAt, animationEnd, animationFillsPage, clipTime, frameAt, isVideo, pageDuration, walk,
   type Doc, type Page,
 } from '@digital-canvas/scene';
 import { drawFrameAt, type Renderer } from '@digital-canvas/render';
@@ -46,7 +46,7 @@ export async function exportGif(file: ProjectFile, opts: { pages?: string[]; max
   const scale = Math.min(1, (opts.maxSide ?? 800) / Math.max(doc.width, doc.height));
   const W = Math.max(1, Math.round(doc.width * scale)), H = Math.max(1, Math.round(doc.height * scale));
   const video = isVideo(doc);
-  const frames = gifFrames(pages.map((p) => ({ duration: gifPageDuration(video, pageDuration(p), animationEnd(p)), animEnd: animationEnd(p) })), fps);
+  const frames = gifFrames(pages.map((p) => ({ duration: gifPageDuration(video, pageDuration(p), animationEnd(p), animationFillsPage(p)), animEnd: animationEnd(p) })), fps);
   const still = frames.length === 1;
   return withRenderer(file, (r, eng) => {
     const ck = eng.ck;

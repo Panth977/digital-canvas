@@ -151,6 +151,14 @@
     const k = pps;
     track(e, (dx) => ed.update({ timing: dragTiming(w, part, dx / k, len) } as Partial<Element>, `timing:${el.id}`, [el.id]), () => ed.seal(), 0);
   }
+  /** Every element of the scene gets a bar (Canva's Show timing). */
+  const sceneEls = $derived([...ed.page.elements].reverse());
+  const curLen = $derived(pageDuration(ed.page));
+  function elTimingDown(e: PointerEvent, el: Element, part: 'start' | 'end' | 'move'): void {
+    if (e.button !== 0) return;
+    const w = timingOf(el, curLen), len = curLen, k = pps;
+    track(e, (dx) => ed.update({ timing: dragTiming(w, part, dx / k, len) } as Partial<Element>, `timing:${el.id}`, [el.id]), () => ed.seal(), 0);
+  }
   const KIND: Record<string, string> = { text: 'Text', image: 'Image', video: 'Video', shape: 'Shape', line: 'Line', group: 'Group', table: 'Table', chart: 'Chart', path: 'Graphic' };
 
   // ---- sounds ----
@@ -291,6 +299,7 @@
         oninput={(e) => zoomTo(Number((e.currentTarget as HTMLInputElement).value))} />
       <button class="hb" aria-label="Zoom in timeline" onclick={() => zoomTo(ui.timelineZoom * 1.5)}><Icon name="plus" size={14} /></button>
     {/if}
+    <button class="hb" class:on={ui.timelineElements} aria-pressed={ui.timelineElements} title="Show element timing" aria-label="Show element timing" data-testid="tl-show-timing" onclick={() => (ui.timelineElements = !ui.timelineElements)}><Icon name="clock" size={18} /></button>
     <button class="hb" aria-label={open ? 'Hide timeline' : 'Show timeline'} title={open ? 'Hide timeline' : 'Show timeline'} aria-expanded={open} data-testid="tl-collapse" onclick={() => (ui.timelineOpen = !open)}>
       <Icon name={open ? 'down' : 'up'} size={16} />
     </button>
@@ -352,6 +361,27 @@
               <!-- svelte-ignore a11y_no_static_element_interactions -->
               <i class="h r" data-testid="tl-timing-end" onpointerdown={(e) => timingDown(e, 'end')}></i>
             </div>
+          </div>
+        {/if}
+
+        {#if ui.timelineElements && cur}
+          {@const k = pps}
+          <div class="els" data-testid="tl-elements">
+            {#each sceneEls as el (el.id)}
+              {@const w = timingOf(el, curLen)}
+              <div class="lane timing" data-testid="tl-el-lane">
+                <i class="span" style="left:{PAD + cur.x}px;width:{cur.w}px"></i>
+                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                <div class="tbar" class:sel={ed.selection.includes(el.id)} style="left:{PAD + cur.x + w.start * k}px;width:{Math.max(6, (w.end - w.start) * k)}px" data-testid="tl-el-timing" data-id={el.id}
+                  data-start={w.start} data-end={w.end} title="{w.start.toFixed(1)}–{w.end.toFixed(1)} s" onpointerdown={(e) => { ed.select([el.id], ed.pageId); elTimingDown(e, el, 'move'); }}>
+                  <!-- svelte-ignore a11y_no_static_element_interactions -->
+                  <i class="h l" onpointerdown={(e) => { e.stopPropagation(); elTimingDown(e, el, 'start'); }}></i>
+                  {#if (w.end - w.start) * k > 90}<span>{el.name ?? (el.type === 'text' ? el.text.slice(0, 24) : KIND[el.type] ?? 'Element')} · {w.start.toFixed(1)}–{w.end.toFixed(1)}s</span>{/if}
+                  <!-- svelte-ignore a11y_no_static_element_interactions -->
+                  <i class="h r" onpointerdown={(e) => { e.stopPropagation(); elTimingDown(e, el, 'end'); }}></i>
+                </div>
+              </div>
+            {/each}
           </div>
         {/if}
 
@@ -463,6 +493,7 @@
   .h { position: absolute; top: 0; bottom: 0; width: 8px; cursor: ew-resize; touch-action: none; }
   .h.l { left: 0; }
   .h.r { right: 0; }
+  .tbar.sel { background: var(--accent); color: #fff; }
   .tbar .h { background: var(--accent); width: 5px; }
   .sound { position: absolute; box-sizing: border-box; border-radius: 6px; background: rgba(48,164,108,.16); border: 1px solid #3fae74; overflow: hidden; cursor: grab; touch-action: none; }
   .sound.on { border-width: 2px; border-color: #2a9a5f; }

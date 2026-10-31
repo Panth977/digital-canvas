@@ -14,6 +14,7 @@
   import DownloadMenu from '../DownloadMenu.svelte';
   import SharePopover from '../SharePopover.svelte';
   import Present from '../Present.svelte';
+  import type { PresentMode } from '../../lib/present.ts';
   import ResizeDialog from '../ResizeDialog.svelte';
   import VersionHistory from '../VersionHistory.svelte';
   import MobileSheet from './MobileSheet.svelte';
@@ -30,7 +31,7 @@
 
   let zoom = $state(1);
   let showVersions = $state(false);
-  let presenting = $state(false);
+  let presenting = $state<PresentMode | false>(false);
   let size = $state<'auto' | 'half' | 'full'>('half');
 
   const RAIL_TITLES: Record<RailTab, string> = {
@@ -119,7 +120,7 @@
         {:else if mobile.sheet === 'download'}
           <div class="host"><DownloadMenu {ed} onclose={close} /></div>
         {:else if mobile.sheet === 'share'}
-          <div class="host"><SharePopover {ed} onclose={close} ondownload={() => (mobile.sheet = 'download')} onpresent={() => (presenting = true)} /></div>
+          <div class="host"><SharePopover {ed} onclose={close} ondownload={() => (mobile.sheet = 'download')} onpresent={(m) => (presenting = m)} /></div>
         {:else if mobile.sheet === 'resize'}
           <div class="host"><ResizeDialog {ed} onclose={close} /></div>
         {:else if mobile.sheet === 'menu'}
@@ -128,6 +129,7 @@
             <button onclick={() => (mobile.sheet = 'download')}><Icon name="download" size={20} /> Download / share</button>
             <button onclick={() => (mobile.sheet = 'resize')}><Icon name="resize" size={20} /> Resize</button>
             <button onclick={() => (mobile.sheet = 'pages')}><Icon name="pages" size={20} /> Pages</button>
+            <button data-testid="m-find" onclick={() => { close(); ui.open('find', false); }}><Icon name="search" size={20} /> Find and replace text</button>
             <button onclick={() => { close(); showVersions = true; }}><Icon name="cloud" size={20} /> Version history</button>
             <button onclick={() => { close(); void ed.save(); }}><Icon name="cloudok" size={20} /> Save now</button>
             <button data-testid="m-ai-devices" onclick={() => { close(); bridgeUi.open = true; }}><Icon name="ai" size={20} /> AI and devices</button>
@@ -142,7 +144,7 @@
   <MobileToolbar {ed} />
 
   {#if showVersions}<VersionHistory {ed} onclose={() => (showVersions = false)} />{/if}
-  {#if presenting}<Present {ed} start={ed.pageIndex} onclose={() => (presenting = false)} />{/if}
+  {#if presenting}<Present {ed} start={ed.pageIndex} mode={presenting} onclose={() => (presenting = false)} />{/if}
 </div>
 
 <style>

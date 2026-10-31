@@ -106,6 +106,8 @@ export function listIndent(el: TextElement): number {
   return el.style.fontSize * (el.list === 'number' ? 1.8 : 1.3);
 }
 
+export interface UnitRect { x: number; y: number; w: number; h: number }
+
 export class TextLayouts {
   private cache = new Map<string, { sig: string; layout: TextLayout }>();
   private segmenter = typeof Intl !== 'undefined' && 'Segmenter' in Intl ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
@@ -276,6 +278,50 @@ export class TextLayouts {
     const layout = this.make(el, pass);
     this.cache.set(key, { sig, layout });
     return layout;
+  }
+
+  private unitCache = new Map<string, { sig: string; rects: UnitRect[] }>();
+
+  /** The text's lines, words or letters as boxes (box coordinates), in reading order. Spaces are skipped. */
+  units(el: TextElement, by: 'line' | 'word' | 'letter'): UnitRect[] {
+    const L = this.layout(el);
+    const key = `${el.id}|${by}`, sig = `${el.text}|${el.w}|${L.height}|${this.fonts.version}|${JSON.stringify(el.style)}|${el.runs ? JSON.stringify(el.runs) : ''}`;
+    const hit = this.unitCache.get(key);
+    if (hit?.sig === sig) return hit.rects;
+    const ck = this.ck;
+    const rects: UnitRect[] = [];
+    for (const b of L.blocks) {
+      const text = (b.src?.runs ?? []).map((r) => r.text).join('');
+      const add = (from: number, to: number) => {
+        const got = b.p.getRectsForRange(from, to, ck.RectHeightStyle.Max, ck.RectWidthStyle.Tight);
+        const boxes = got.map((g) => g.rect);
+        if (!boxes.length) return;
+        const x0 = Math.min(...boxes.map((r) => r[0]!)), y0 = Math.min(...boxes.map((r) => r[1]!));
+        const x1 = Math.max(...boxes.map((r) => r[2]!)), y1 = Math.max(...boxes.map((r) => r[3]!));
+        if (x1 > x0) rects.push({ x: b.x + x0, y: b.y + y0, w: x1 - x0, h: y1 - y0 });
+      };
+      const first = rects.length;
+      if (by === 'line') {
+        const lines = new Map<number, { x0: number; x1: number; y0: number; y1: number }>();
+        for (const g of b.p.getRectsForRange(0, text.length, ck.RectHeightStyle.Max, ck.RectWidthStyle.Tight)) {
+          const r = g.rect, k = Math.round(r[1]!);
+          const o = lines.get(k);
+          if (o) { o.x0 = Math.min(o.x0, r[0]!); o.x1 = Math.max(o.x1, r[2]!); o.y1 = Math.max(o.y1, r[3]!); }
+          else lines.set(k, { x0: r[0]!, x1: r[2]!, y0: r[1]!, y1: r[3]! });
+        }
+        for (const o of [...lines.keys()].sort((p, q) => p - q).map((k) => lines.get(k)!)) if (o.x1 > o.x0) rects.push({ x: b.x + o.x0, y: b.y + o.y0, w: o.x1 - o.x0, h: o.y1 - o.y0 });
+      } else if (by === 'word') {
+        for (const m of text.matchAll(/\S+/g)) add(m.index, m.index + m[0].length);
+      } else {
+        const parts = this.segmenter ? [...this.segmenter.segment(text)].map((s) => ({ i: s.index, t: s.segment })) : [...text].map((t, i) => ({ i, t }));
+        for (const { i, t } of parts) if (t.trim()) add(i, i + t.length);
+      }
+      // a list's marker travels with the first unit of its line
+      const r0 = rects[first];
+      if (b.marker && r0) { r0.w += r0.x - b.marker.x; r0.x = b.marker.x; }
+    }
+    this.unitCache.set(key, { sig, rects });
+    return rects;
   }
 
   /** Draw one pass of the text at the box's local origin, offset by (dx, dy). */

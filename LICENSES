@@ -37,6 +37,15 @@ Tailwind CSS colours by Tailwind Labs. MIT. https://tailwindcss.com/docs/colors 
 uiGradients by Indrashish Ghosh and contributors. MIT. https://uigradients.com (382 gradients)
 Hero Patterns by Steve Schoger. CC BY 4.0. https://heropatterns.com (87 patterns; the credit stays on the picture)
 
+Motion
+------
+Keyframes and geometry behind the Animate panel and page transitions, reviewed and reimplemented. Canva’s animation names are used so people can find them; the recipes under those names are our own.
+Animate.css 4.1.1 by Daniel Eden. MIT. https://www.npmjs.com/package/animate.css/v/4.1.1 (keyframes, as data. Pinned: the project’s main branch has since moved to the Hippocratic License)
+magic.css 1.4.8 by Christian Pucci. MIT. https://github.com/miniMAC/magic (keyframes, as data)
+gl-transitions by its contributors. MIT. https://github.com/gl-transitions/gl-transitions (circle, iris, clock, doors and checkerboard geometry (CircleOpen, RectangleIris, ClockWipe, HorizontalOpen, Chessboard), redrawn as clips)
+Robert Penner’s easing equations by Robert Penner. BSD-3-Clause. http://robertpenner.com/easing/ (easing curves)
+Motion by Motion B.V.. MIT. https://motion.dev (spring maths and stagger ideas, from its docs)
+
 Avatars
 -------
 DiceBear’s code is MIT; each style has its own licence (dicebear.com/licenses). Styles under the artist’s own terms are left out.

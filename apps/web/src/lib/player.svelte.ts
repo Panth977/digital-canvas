@@ -1,4 +1,4 @@
-import { clipTime, frameAt, totalDuration, walk, type AudioClip, type VideoElement } from '@digital-canvas/scene';
+import { clipSpeed, clipTime, frameAt, totalDuration, walk, type AudioClip, type VideoElement } from '@digital-canvas/scene';
 import type { EditorState } from './editor.svelte.ts';
 
 /** A sound's loudness at `t` on the timeline: its volume with its fade in / out (0 outside it). */
@@ -26,6 +26,8 @@ export class Player {
   playing = $state(false);
   /** The playhead is being dragged: the canvas shows the frame at `time`. */
   scrubbing = $state(false);
+  /** Someone else shows the picture (a presentation): the stage and the current page stay still. */
+  quiet = false;
 
   private videos = new Map<string, HTMLVideoElement>();
   private audios = new Map<string, HTMLAudioElement>();
@@ -90,6 +92,7 @@ export class Player {
 
   /** The scene showing at the playhead becomes the current page (Canva's stage follows the playhead). */
   private follow(): void {
+    if (this.quiet) return;
     const { page } = frameAt(this.ed.doc, this.time);
     if (this.ed.pageId === page.id) return;
     if (this.ed.selection.length || this.ed.editingTextId || this.ed.croppingId) this.ed.select([], page.id);
@@ -120,7 +123,7 @@ export class Player {
       if (token !== this.seekToken) return;
       this.grab(el.asset, v);
     }
-    this.ed.frame++;
+    if (!this.quiet) this.ed.frame++;
   }
 
   /** Fetch the clip pictures again for the current time (media added, export done); the page stays. */
@@ -150,7 +153,7 @@ export class Player {
         return;
       }
       this.syncMedia(false);
-      this.ed.frame++;
+      if (!this.quiet) this.ed.frame++;
       this.raf = requestAnimationFrame(tick);
     };
     this.raf = requestAnimationFrame(tick);
@@ -182,6 +185,7 @@ export class Player {
       active.add(el.asset);
       v.muted = !!el.muted;
       v.volume = el.volume ?? 1;
+      v.playbackRate = clipSpeed(el); // the browser keeps the pitch, like the exports
       if (hard || Math.abs(v.currentTime - ct) > 0.25) v.currentTime = ct;
       if (v.paused) void v.play().catch(() => {});
       this.grab(el.asset, v);

@@ -4,12 +4,13 @@ import { z } from 'zod';
 import {
   addAudio, createDoc, isVideo, newId, pageDuration, pageStart, removeAudio, removeElements, totalDuration, updateAudio, walk,
   type Doc, type Element, type Page, type TextElement,
+  type Transition,
 } from '@digital-canvas/scene';
 import { ToolError, round, type Context, type MediaRef } from '../context.ts';
 import { buildElements, fitTexts } from '../build.ts';
 import { embedFonts } from '../fonts.ts';
 import { designOutline } from '../outline.ts';
-import { animation, color, fill as fillSchema, textEffect } from '../schemas.ts';
+import { animation, transition as transitionSchema, color, fill as fillSchema, textEffect } from '../schemas.ts';
 import { sizeFrom } from './designs.ts';
 import { json, safe } from './util.ts';
 
@@ -85,14 +86,14 @@ export function registerVideoTools(server: McpServer, ctx: Context): void {
       preset: z.string().optional().describe('Default "instagram-reel" (1080×1920). Also youtube-shorts, tiktok-video, video (1920×1080), video-square…'),
       clips: z.array(z.object({
         ...media,
-        trimStart: z.number().min(0).optional(), trimEnd: z.number().min(0).optional(),
+        trimStart: z.number().min(0).optional(), trimEnd: z.number().min(0).optional(), speed: z.number().min(0.25).max(2).optional(),
         duration: z.number().positive().optional().describe('Seconds on screen (photos: default 3; videos: the trimmed length).'),
         text: z.string().optional().describe('On-screen text for this clip (lower third).'),
         focus: z.object({ x: z.number(), y: z.number() }).optional().describe('Which point of the picture to keep in frame (0..1).'),
         muted: z.boolean().optional(),
         animation: animation.optional().describe('For photos, e.g. {type:"fade"} or {type:"pop"}.'),
       })).min(1).max(60),
-      transition: z.object({ type: z.enum(['dissolve', 'fade', 'slide', 'wipe', 'zoom']), duration: z.number().positive().optional(), direction: z.enum(['left', 'right', 'up', 'down']).optional() }).optional().describe('Between every two clips.'),
+      transition: transitionSchema.optional().describe('Between every two clips.'),
       title_card: z.object({ text: z.string(), subtitle: z.string().optional(), background: fillSchema.optional(), color: color.optional(), fontFamily: z.string().optional(), duration: z.number().positive().optional() }).optional(),
       end_card: z.object({ text: z.string(), subtitle: z.string().optional(), background: fillSchema.optional(), color: color.optional(), fontFamily: z.string().optional(), duration: z.number().positive().optional() }).optional(),
       music: z.object({ ...media, offset: z.number().min(0).optional().describe('Start this far into the song.'), volume: z.number().min(0).max(1).optional(), fadeIn: z.number().min(0).optional(), fadeOut: z.number().min(0).optional() }).optional(),
@@ -115,18 +116,18 @@ export function registerVideoTools(server: McpServer, ctx: Context): void {
       ];
       const built = await buildElements(ctx, file as never, specs, warnings, fit);
       const { looseFill } = await import('@digital-canvas/scene');
-      file.doc.pages.push({ id: newId('p_'), name, background: looseFill(c.background ?? '#111111') ?? { type: 'solid', color: '#111111' }, duration: c.duration ?? 2.5, elements: built.elements, ...(file.doc.pages.length && a.transition ? { transition: a.transition } : {}) });
+      file.doc.pages.push({ id: newId('p_'), name, background: looseFill(c.background ?? '#111111') ?? { type: 'solid', color: '#111111' }, duration: c.duration ?? 2.5, elements: built.elements, ...(file.doc.pages.length && a.transition ? { transition: a.transition as Transition } : {}) });
     };
     if (a.title_card) await card(a.title_card, 'Title card');
     for (const [i, c] of a.clips.entries()) {
       const { id, info } = await ctx.attach(file as never, { asset: c.asset, url: c.url, driveFileId: c.driveFileId });
       if (info.kind === 'audio') throw new ToolError(`clip ${i + 1} is a sound file`, 'put music in `music`');
       const specs: never[] = [{ type: info.kind, asset: id, x: 0, y: 0, w: W, h: H, name: `Clip ${i + 1}`, ...(c.focus ? { focus: c.focus } : {}),
-        ...(info.kind === 'video' ? { trimStart: c.trimStart, trimEnd: c.trimEnd, muted: c.muted ?? a.mute_clips } : {}), ...(c.animation ? { animation: c.animation } : {}) } as never];
+        ...(info.kind === 'video' ? { trimStart: c.trimStart, trimEnd: c.trimEnd, speed: c.speed, muted: c.muted ?? a.mute_clips } : {}), ...(c.animation ? { animation: c.animation } : {}) } as never];
       if (c.text) specs.push({ type: 'text', name: 'Clip text', text: c.text, x: W * 0.08, y: H * (a.transcript ? 0.16 : 0.6), w: W * 0.84, fontFamily: a.text_style?.fontFamily ?? 'Montserrat', fontSize: a.text_style?.fontSize ?? Math.round(W * 0.07), bold: true, color: a.text_style?.color ?? '#ffffff', align: 'center', effect: { type: 'shadow', offset: 20, blur: 40, transparency: 40, color: '#000000' }, animation: { type: 'rise' } } as never);
       const built = await buildElements(ctx, file as never, specs, warnings, fit);
-      const len = info.kind === 'video' ? Math.max(0.3, Math.min(c.trimEnd ?? info.duration ?? 5, info.duration ?? Infinity) - (c.trimStart ?? 0)) : 3;
-      file.doc.pages.push({ id: newId('p_'), background: { type: 'solid', color: '#000000' }, duration: round(c.duration ?? len, 2), elements: built.elements, ...(file.doc.pages.length && a.transition ? { transition: a.transition } : {}) });
+      const len = info.kind === 'video' ? Math.max(0.3, (Math.min(c.trimEnd ?? info.duration ?? 5, info.duration ?? Infinity) - (c.trimStart ?? 0)) / (c.speed ?? 1)) : 3;
+      file.doc.pages.push({ id: newId('p_'), background: { type: 'solid', color: '#000000' }, duration: round(c.duration ?? len, 2), elements: built.elements, ...(file.doc.pages.length && a.transition ? { transition: a.transition as Transition } : {}) });
     }
     if (a.end_card) await card(a.end_card, 'End card');
     doc = file.doc as Doc;

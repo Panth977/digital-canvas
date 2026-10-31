@@ -48,6 +48,12 @@ const SECTIONS: { title: string; intro?: string; rows: Row[] }[] = [
     row('Tailwind CSS colours', 'https://tailwindcss.com/docs/colors', 'Tailwind Labs', L.MIT, `palettes (${pal} with Open Color)`),
     row('uiGradients', 'https://uigradients.com', 'Indrashish Ghosh and contributors', L.MIT, `${grad} gradients`),
     row('Hero Patterns', 'https://heropatterns.com', 'Steve Schoger', L.BY, `${pats} patterns; the credit stays on the picture`) ] },
+  { title: 'Motion', intro: 'Keyframes and geometry behind the Animate panel and page transitions, reviewed and reimplemented. Canva’s animation names are used so people can find them; the recipes under those names are our own.', rows: [
+    row('Animate.css 4.1.1', 'https://www.npmjs.com/package/animate.css/v/4.1.1', 'Daniel Eden', L.MIT, 'keyframes, as data. Pinned: the project’s main branch has since moved to the Hippocratic License'),
+    row('magic.css 1.4.8', 'https://github.com/miniMAC/magic', 'Christian Pucci', L.MIT, 'keyframes, as data'),
+    row('gl-transitions', 'https://github.com/gl-transitions/gl-transitions', 'its contributors', L.MIT, 'circle, iris, clock, doors and checkerboard geometry (CircleOpen, RectangleIris, ClockWipe, HorizontalOpen, Chessboard), redrawn as clips'),
+    row('Robert Penner’s easing equations', 'http://robertpenner.com/easing/', 'Robert Penner', ['BSD-3-Clause', 'https://opensource.org/license/bsd-3-clause'], 'easing curves'),
+    row('Motion', 'https://motion.dev', 'Motion B.V.', L.MIT, 'spring maths and stagger ideas, from its docs') ] },
   { title: 'Avatars', intro: 'DiceBear’s code is MIT; each style has its own licence (dicebear.com/licenses). Styles under the artist’s own terms are left out.', rows: [
     ...[['Notionists', 'Zoish', L.CC0], ['Open Peeps', 'Pablo Stanley', L.CC0], ['Lorelei', 'Lisa Wischofsky', L.CC0], ['Adventurer', 'Lisa Wischofsky', L.BY], ['Micah', 'Micah Lanier', L.BY], ['Personas', 'Draftbit', L.BY], ['Big Smile', 'Ashley Seo', L.BY], ['Fun Emoji', 'Davis Uche', L.BY], ['Pixel Art', 'DiceBear', L.CC0], ['Thumbs', 'DiceBear', L.CC0]]
       .map(([n, by, l]) => row(`DiceBear ${n}`, 'https://www.dicebear.com/licenses/', by as string, l as readonly [string, string])) ] },

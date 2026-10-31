@@ -9,14 +9,14 @@ import {
   AudioSample, AudioSampleSource, BufferSource, BufferTarget, CanvasSource, Input, ALL_FORMATS, Mp4OutputFormat, Output, QUALITY_HIGH, VideoSampleSink,
   getFirstEncodableAudioCodec, getFirstEncodableVideoCodec, type VideoSample,
 } from 'mediabunny';
-import { clipTime, frameAt, pageDuration, pageStart, totalDuration, walk, type Doc, type Page, type VideoElement } from '@digital-canvas/scene';
+import { clipLength, clipSpeed, clipTime, frameAt, pageDuration, pageStart, stretchAudio, totalDuration, walk, type Doc, type Page, type VideoElement } from '@digital-canvas/scene';
 import type { ProjectFile } from '@digital-canvas/storage';
 import { withRenderer } from '../engine.ts';
 import type { VideoExportOptions } from '../platform.ts';
 import { drawAt, even, snapshot } from '../video.ts';
 import { RATE, decodeStereo, samplePixels } from './media.ts';
 
-interface Sound { asset: string; at: number; offset: number; dur: number; volume: number; loop?: boolean; fadeIn?: number; fadeOut?: number }
+interface Sound { asset: string; at: number; offset: number; dur: number; volume: number; loop?: boolean; fadeIn?: number; fadeOut?: number; speed?: number; end?: number }
 
 function sounds(doc: Doc, assets: Map<string, Uint8Array>): Sound[] {
   const out: Sound[] = (doc.audio ?? []).filter((a) => assets.has(a.asset)).map((a) => ({ asset: a.asset, at: a.start, offset: a.offset, dur: a.duration, volume: a.volume ?? 1, fadeIn: a.fadeIn, fadeOut: a.fadeOut }));
@@ -26,7 +26,7 @@ function sounds(doc: Doc, assets: Map<string, Uint8Array>): Sound[] {
       if (e.type !== 'video' || e.muted || e.hidden || (e.volume ?? 1) === 0 || !assets.has(e.asset)) continue;
       const fileDur = doc.assets[e.asset]?.duration ?? pageDuration(p);
       const a = e.trimStart ?? 0, b = Math.min(e.trimEnd ?? fileDur, fileDur);
-      out.push({ asset: e.asset, at: pageStart(doc, p.id), offset: a, dur: Math.min(pageDuration(p), e.loop ? pageDuration(p) : b - a), volume: e.volume ?? 1, loop: e.loop });
+      out.push({ asset: e.asset, at: pageStart(doc, p.id), offset: a, dur: Math.min(pageDuration(p), e.loop ? pageDuration(p) : clipLength(e, fileDur)), volume: e.volume ?? 1, loop: e.loop, speed: clipSpeed(e), end: b });
     }
   }
   return out;
@@ -44,7 +44,12 @@ export async function mixSounds(file: ProjectFile, total: number): Promise<[Floa
     const dur = Math.max(0.05, Math.min(s.dur, total - s.at));
     let src: [Float32Array, Float32Array] | null;
     let base = 0;
-    if (s.loop) {
+    const speed = s.speed ?? 1;
+    if (speed !== 1) {
+      // the clip's part at its speed, keeping its pitch (like playback and ffmpeg's atempo)
+      const part = await decodeStereo(file.assets.get(s.asset)!, s.offset, s.loop ? (s.end ?? s.offset + dur) : s.offset + dur * speed);
+      src = part ? (stretchAudio(part, speed, RATE) as [Float32Array, Float32Array]) : null;
+    } else if (s.loop) {
       if (!whole.has(s.asset)) whole.set(s.asset, await decodeStereo(file.assets.get(s.asset)!));
       src = whole.get(s.asset)!;
       base = Math.round(s.offset * RATE);

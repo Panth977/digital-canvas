@@ -21,7 +21,7 @@ export function elementOutline(e: Element, doc: Doc, depth = 0): Record<string, 
   if (e.opacity !== 1) o.opacity = r(e.opacity);
   if (e.hidden) o.hidden = true;
   if (e.locked) o.locked = true;
-  if (e.animation) o.animation = e.animation.type + (e.animation.direction ? `-${e.animation.direction}` : '');
+  if (e.animation) o.animation = e.animation.type + (e.animation.direction ? `-${e.animation.direction}` : '') + (e.animation.phase && e.animation.phase !== 'in' ? ` (${e.animation.phase})` : '') + (e.animation.by ? ` by ${e.animation.by}` : '');
   if (e.timing) o.timing = [e.timing.start ?? 0, e.timing.end ?? null];
   switch (e.type) {
     case 'text': {
@@ -53,6 +53,7 @@ export function elementOutline(e: Element, doc: Doc, depth = 0): Record<string, 
       if (e.blend) o.blend = e.blend;
       if (e.type === 'video') {
         o.clip = [e.trimStart ?? 0, e.trimEnd ?? (m?.duration !== undefined ? r(m.duration) : null)];
+        if (e.speed && e.speed !== 1) o.speed = e.speed;
         if (e.loop) o.loop = true;
         if (e.muted) o.muted = true;
       }

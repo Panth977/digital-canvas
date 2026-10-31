@@ -26,7 +26,7 @@ const KEYS: Record<string, string[]> = {
   shape: ['shape', 'fill', 'stroke', 'radius'],
   line: ['x1', 'y1', 'x2', 'y2', 'color', 'strokeWidth', 'stroke', 'startMarker', 'endMarker', 'route'],
   image: ['asset', 'url', 'driveFileId', 'fit', 'focus', 'mask', ...LOOK, 'radius'],
-  video: ['asset', 'url', 'driveFileId', 'fit', 'focus', 'mask', ...LOOK, 'radius', 'trimStart', 'trimEnd', 'loop', 'muted', 'volume'],
+  video: ['asset', 'url', 'driveFileId', 'fit', 'focus', 'mask', ...LOOK, 'radius', 'trimStart', 'trimEnd', 'speed', 'loop', 'muted', 'volume'],
   icon: ['icon', 'color'],
   qr: ['text', 'color', 'background'],
   chart: ['chart', 'labels', 'series', 'colors', 'legend', 'grid', 'fontFamily', 'fontSize', 'color'],
@@ -44,7 +44,7 @@ function unknownKeys(spec: Obj, type: string): string[] {
 function cleanAnimation(a: unknown): Animation | undefined {
   if (!a || typeof a !== 'object') return undefined;
   const o = a as Obj;
-  return { type: o.type as Animation['type'], ...(typeof o.duration === 'number' ? { duration: o.duration } : {}), ...(typeof o.direction === 'string' ? { direction: o.direction as Animation['direction'] } : {}) };
+  return Object.fromEntries(Object.entries({ type: o.type, duration: o.duration, direction: o.direction, phase: o.phase, intensity: o.intensity, by: o.by, order: o.order, path: o.path }).filter(([, v]) => v !== undefined)) as unknown as Animation;
 }
 
 function textEffect(v: Obj): TextEffect {
@@ -162,7 +162,7 @@ export async function buildElements(ctx: Context, file: ProjectFile, specs: Elem
         const crop = focusCrop(iw, ih, w!, h!, spec.focus as { x: number; y: number } | undefined);
         const pic: ImageElement | VideoElement = spec.type === 'image'
           ? { ...base, type: 'image', ...(spec.mask ? { mask: shapeKind(String(spec.mask)) } : {}) }
-          : { ...base, type: 'video', ...(spec.trimStart !== undefined ? { trimStart: spec.trimStart as number } : {}), ...(spec.trimEnd !== undefined ? { trimEnd: spec.trimEnd as number } : {}),
+          : { ...base, type: 'video', ...(spec.trimStart !== undefined ? { trimStart: spec.trimStart as number } : {}), ...(spec.trimEnd !== undefined ? { trimEnd: spec.trimEnd as number } : {}), ...(spec.speed !== undefined ? { speed: spec.speed as number } : {}),
             ...(spec.loop ? { loop: true } : {}), ...(spec.muted ? { muted: true } : {}), ...(spec.volume !== undefined ? { volume: spec.volume as number } : {}) };
         if (crop) pic.crop = crop;
         if (spec.mask && spec.type === 'video') warnings.push(`${where}: masks apply to images only`);
@@ -389,7 +389,7 @@ export async function patchElement(ctx: Context, file: ProjectFile, el: Element,
       }
       if (p.radius !== undefined) o.radius = p.radius;
       if (p.mask !== undefined && el.type === 'image') o.mask = shapeKind(String(p.mask));
-      for (const k of ['trimStart', 'trimEnd', 'loop', 'muted', 'volume'] as const) if (p[k] !== undefined && el.type === 'video') o[k] = p[k];
+      for (const k of ['trimStart', 'trimEnd', 'speed', 'loop', 'muted', 'volume'] as const) if (p[k] !== undefined && el.type === 'video') o[k] = p[k];
       lookOf(o as unknown as ImageElement, p, warnings, where);
       break;
     }
