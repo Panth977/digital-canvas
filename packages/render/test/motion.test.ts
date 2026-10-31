@@ -1,9 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type { CanvasKit, Surface } from 'canvaskit-wasm';
 import { ANIMATIONS, TRANSITIONS, addElements, addPage, animateAt, createDoc, shape, text, updatePage, type Animation, type Doc, type Element } from '@digital-canvas/scene';
 import { FontLibrary, Renderer, drawFrameAt } from '../src/index.ts';
+
+// real CanvasKit renders, many per test; slow on CI
+vi.setConfig({ testTimeout: 30_000 });
 
 const require = createRequire(import.meta.url);
 const fontDir = new URL('../../../apps/web/public/fonts/', import.meta.url);
