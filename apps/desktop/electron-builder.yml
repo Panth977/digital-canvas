@@ -37,6 +37,7 @@ nsis:
   allowToChangeInstallationDirectory: true
   differentialPackage: false
 linux:
+  executableName: digital-canvas
   category: Graphics
   synopsis: Open-source design editor
   maintainer: Digital Canvas <noreply@users.noreply.github.com>
