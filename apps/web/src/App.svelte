@@ -26,6 +26,8 @@
   import { syncOpenDesigns } from './lib/desktop/live.ts';
   import type { DesktopStore } from './lib/desktop/store.ts';
 
+  import { toast } from './lib/toast.svelte.ts';
+
   const onDesktop = isDesktop();
   /** Goes up when the open design was replaced on disk, so its editor mounts again. */
   let editorEpoch = $state(0);
@@ -34,6 +36,15 @@
     if (!onDesktop) return;
     const dir = desktop.state?.folder;
     if (dir && untrack(() => (library.localStore as DesktopStore).path !== dir)) library.useDesktopFolder(dir);
+  });
+
+  // A new release: say so once. Nothing installs by itself.
+  let updateTold = false;
+  $effect(() => {
+    const v = desktop.state?.update?.version;
+    if (!v || updateTold) return;
+    updateTold = true;
+    toast.show(`Digital Canvas ${v} is out. See Settings to download it.`);
   });
 
   $effect(() => {

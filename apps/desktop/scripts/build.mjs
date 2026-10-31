@@ -87,4 +87,8 @@ try {
   if (process.env.CI) throw e;
   console.warn(`font pack incomplete (${e.message}): those fonts will download on first use`);
 }
+// SIL OFL 1.1 asks for the licence to travel with the fonts.
+writeFileSync(join(packDir, 'LICENSE.txt'), `The fonts in this folder come from Fontsource (Google Fonts) under the SIL Open Font License 1.1:
+https://openfontlicense.org. Source Sans 3, Inter, Playfair Display, Abhaya Libre, Ms Madi, Plus Jakarta Sans, DM Sans.
+Copyright belongs to their authors; each font's copyright notice is in its name table.\n`);
 console.log(`built ${out}${skipWeb ? ' (web reused)' : ''}`);

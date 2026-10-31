@@ -309,7 +309,7 @@
         </button>
       {/if}
       {#if !onDesktop && !isNative()}
-        <a class="btn ghost" href="/download" onclick={(e) => { e.preventDefault(); router.go({ name: 'download' }); }} data-testid="download-app"><Icon name="download" size={16} /> Get the app</a>
+        <a class="btn ghost getapp" href="/download" onclick={(e) => { e.preventDefault(); router.go({ name: 'download' }); }} data-testid="download-app"><Icon name="download" size={16} /> Get the app</a>
       {/if}
       <div class="create-wrap">
         <button class="btn primary create" class:open={showCreate} data-testid="create-design" aria-expanded={showCreate}
@@ -697,4 +697,5 @@
     .presets { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
     .row-head { flex-wrap: wrap; gap: 8px; }
   }
+  @media (max-width: 767px) { .getapp { display: none; } } /* the download page is for computers */
 </style>

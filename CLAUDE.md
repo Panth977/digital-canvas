@@ -155,3 +155,15 @@ Panth's rule: no generated design content. Templates, stickers, illustrations, f
 - `lib/vision/tools.svelte.ts` = the tools (`busy` for progress and errors; results are new assets, the first stays in `original`). `lib/vision/brush.svelte.ts` + `editor/ImageBrush.svelte` = the mask brush over the element, in element space; the bar stops pointerdown so the stage doesn't capture the pointer. Pure maths: `lib/vision/matte.ts`.
 - Injectable for tests: `ed.bgRemover`, `ed.inpainter`, `ed.ocr`, `ed.imageEditor`. `Provider.editImage` exists on OpenAI (real mask) and Gemini (mask as a second image); the result is always cut by our mask, so only the painted part can change.
 - e2e: `image-panel.spec.ts`, `image-mobile.spec.ts`. `DC_REAL_MODELS=1` runs the real models (downloads them); page.route can't fulfil 100 MB bodies, it hangs the page. `SHOTS=` / `SHOTS_DIR=` write the audit screenshots.
+
+## Desktop app (r16-desktop, 2026-10-31)
+
+- `apps/desktop`: Electron 45 around the same web build (no UI fork). `src/main.ts` window, settings, IPC; `src/server-entry.ts` is a **utility process** with the local server (`localserver.ts`) and MCP, because CanvasKit renders block their thread. `guard.ts` Host/Origin/token, `oauth.ts` PKCE + loopback, `drive.ts` tokens in safeStorage. Pure modules have no Electron import and are tested in `apps/desktop/test`.
+- Page side: `lib/desktop/`. `window.dcDesktop` (preload) = desktop. `DesktopStore` crosses IPC as packed bytes to the same `FolderWorkspace` the MCP uses. In the app `account.user` means "Drive connected and active", so every signed-in path works unchanged; `account.signIn/driveToken/signOut` go to the main process.
+- `dc:state` is a sync IPC from the preload: it must always set `returnValue`, or the page hangs for good.
+- Google Picker opens in the system browser at `/desktop/picker` (`pickerpage.ts`) on a one-time nonce; embedded webviews don't get it.
+- MCP video: the utility process asks the window, `videoworker.ts` encodes with WebCodecs. No ffmpeg is bundled (GPL).
+- Font pack: `build.mjs` keeps the template fonts and the font list in `dist/web/fontpack`; `fontGet()` looks there first. Kept across rebuilds via `.fontpack/`.
+- `.env.local` or CI env gives `DC_DESKTOP_GOOGLE_CLIENT_ID` / `_SECRET` at build time (`define`). `npm run build:desktop`, `npm run dist:desktop`. Release: push tag `v*`; artifact names carry no version, the download page links `releases/latest/download/<name>`.
+- e2e: `e2e/desktop.spec.ts` launches `apps/desktop` with `DC_DESKTOP_BLOCK_NETWORK=1`; rebuild first (`--skip-web` is enough for main-process changes). `apps/desktop/package.json` must not have `"type": "module"` (Playwright's Electron loader hangs). `firstWindow()` never fires for a page a service worker already controls: ask `webContents`.
+- `pwa-sw.js` comment: never write `*/` in it, even inside a path glob (that broke the worker from ff259d7 to r16).

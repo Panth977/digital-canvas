@@ -321,7 +321,10 @@ app.on('before-quit', () => { quitting = true; server?.kill(); });
 app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); } });
 // On a Mac the app (and its MCP server) stays up with no window, as Mac apps do.
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
-app.on('activate', () => { if (!win && local) void createWindow(); });
+app.on('activate', () => {
+  if (win) win.show(); // the hidden window a video export started
+  else if (local) void createWindow();
+});
 void app.whenReady().then(async () => {
   settings = loadSettings();
   saveSettings();
