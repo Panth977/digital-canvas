@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { PRESET_CATEGORIES, PRESETS, createDoc, formatLength, newId, searchPresets, walk, type Doc, type Preset, type PresetCategory, type Unit } from '@digital-canvas/scene';
   import { assetId, type ProjectMeta } from '@digital-canvas/storage';
   import { importer, importFromDevice, importFromDrive } from '../lib/importdesign.svelte.ts';

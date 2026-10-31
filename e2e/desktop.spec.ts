@@ -145,7 +145,8 @@ test('an open design follows an agent\'s edit', async () => {
   await c.callTool({ name: 'add_elements', arguments: { design_id, elements: [{ type: 'shape', shape: 'rect', x: 0, y: 0, w: 1080, h: 1080, fill: '#ff0000' }] } });
   await c.close();
   // the file changed on disk, so the editor mounts again and the page turns red
-  await expect.poll(async () => Buffer.compare(before, await canvas.screenshot()) !== 0, { timeout: 10_000 }).toBe(true);
+  // (the canvas can detach mid-screenshot while it remounts: that only means not yet)
+  await expect.poll(async () => Buffer.compare(before, await canvas.screenshot({ timeout: 3000 }).catch(() => before)) !== 0, { timeout: 15_000 }).toBe(true);
   await shot(page, 'live-edit');
 });
 
