@@ -101,7 +101,8 @@ test('settings show the URL, the configs and the switch', async () => {
   await expect(s.getByTestId('client-config')).toContainText(`claude mcp add --transport http digital-canvas ${url}`);
   await s.getByTestId('client-cursor').click();
   await expect(s.getByTestId('client-config')).toContainText('"mcpServers"');
-  await expect(s.getByTestId('connect-drive')).toBeVisible();
+  // plain CI builds have no OAuth client; release builds and local .env.local ones do
+  if (!process.env.CI) await expect(s.getByTestId('connect-drive')).toBeVisible();
   await shot(page, 'settings');
   await s.getByTestId('mcp-switch').uncheck();
   await expect.poll(async () => (await fetch(url, { method: 'POST' })).status).toBe(503);
