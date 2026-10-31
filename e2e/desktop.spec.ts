@@ -7,17 +7,19 @@
 import { execSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
-const APP = resolve(__dirname, '../apps/desktop');
+const ROOT = fileURLToPath(new URL('..', import.meta.url));
+const APP = join(ROOT, 'apps/desktop');
 const SHOTS = process.env.DC_DESKTOP_SHOTS;
 const shot = async (page: Page, name: string) => { if (SHOTS) await page.screenshot({ path: join(SHOTS, `r16-desktop-${name}.png`) }); };
 
 test.describe.configure({ mode: 'serial' });
-test.skip(({ browserName }, info) => info.project.name !== 'chromium' || (process.platform === 'linux' && !process.env.DISPLAY), 'Electron, once');
+test.skip(process.platform === 'linux' && !process.env.DISPLAY, 'Electron needs a display (CI: xvfb-run)');
 
 let app: ElectronApplication, page: Page, dir: string, folder: string, userData: string;
 let url = '', token = '';
@@ -38,7 +40,7 @@ const launch = () => electron.launch({ args: [APP], env: { ...process.env, DC_DE
 
 test.beforeAll(async () => {
   test.setTimeout(300_000);
-  if (!existsSync(join(APP, 'dist/main.cjs'))) execSync('npm run build:desktop', { cwd: resolve(__dirname, '..'), stdio: 'inherit' });
+  if (!existsSync(join(APP, 'dist/main.cjs'))) execSync('npm run build:desktop', { cwd: ROOT, stdio: 'inherit' });
   dir = mkdtempSync(join(tmpdir(), 'dc-r16-'));
   folder = join(dir, 'My Designs');
   userData = join(dir, 'userdata');
@@ -116,7 +118,7 @@ test('an agent\'s design shows up on Home by itself', async () => {
 });
 
 test('a template opens offline, with its fonts from the app', async () => {
-  await page.locator('[data-testid^="template-"]').first().click();
+  await page.locator('[data-testid^="home-template-"]').first().click();
   await expect(page).toHaveURL(/#\/d\//, { timeout: 20_000 });
   await expect(page.locator('canvas').first()).toBeVisible();
   await page.evaluate(() => { location.hash = '#/'; });

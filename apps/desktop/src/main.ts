@@ -116,10 +116,13 @@ const broadcast = () => win?.webContents.send('dc:state', appState());
 
 // ---- what the page may do
 
-const isOurs = (e: IpcMainInvokeEvent | Electron.IpcMainEvent) => {
+/** A top-level frame of our window on our origin. A frame's URL is empty until its first load commits. */
+function isOurs(e: IpcMainInvokeEvent | Electron.IpcMainEvent, loading = false): boolean {
   const f = e.senderFrame;
-  return !!f && !f.parent && !!local && new URL(f.url).origin === local.url;
-};
+  if (!f || f.parent || !local || e.sender !== win?.webContents) return false;
+  if (loading && !f.url) return true;
+  try { return new URL(f.url).origin === local.url; } catch { return false; }
+}
 
 async function chooseFolder(): Promise<string | null> {
   const opts: Electron.OpenDialogOptions = { title: 'Choose a folder for your designs', properties: ['openDirectory', 'createDirectory'], defaultPath: settings.folder ?? homedir(), buttonLabel: 'Use this folder' };
@@ -215,7 +218,8 @@ const handlers: Record<string, (a: never) => unknown> = {
 };
 
 function installIpc(): void {
-  ipcMain.on('dc:state', (e) => { e.returnValue = isOurs(e) ? appState() : null; });
+  // Synchronous, from the preload: it must always answer, or the page hangs on it for good.
+  ipcMain.on('dc:state', (e) => { e.returnValue = isOurs(e, true) ? appState() : null; });
   ipcMain.handle('dc', (e, op: string, args: unknown) => {
     if (!isOurs(e)) throw new Error('not allowed');
     if (op.startsWith('store.')) return rpc(op, args);
@@ -318,7 +322,6 @@ app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(
 // On a Mac the app (and its MCP server) stays up with no window, as Mac apps do.
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (!win && local) void createWindow(); });
-
 void app.whenReady().then(async () => {
   settings = loadSettings();
   saveSettings();

@@ -5,7 +5,7 @@
  *  - App shell (index.html, hashed JS/CSS, CanvasKit wasm, fonts, icons): precached
  *    per build, served cache-first; a new build gets a new cache.
  *  - Page loads: network first, the cached index.html when offline.
- *  - /templates/*.png, /mockups/*/thumb.jpg and Fontsource fonts: stale-while-revalidate.
+ *  - /templates/*.png, mockup thumbs and Fontsource fonts: stale-while-revalidate.
  *  - Google Drive reads (file lists, file bodies, thumbnails): network first, kept in
  *    a small cache so recently opened designs open offline. Only GETs; the token
  *    is never stored (the cache key is the URL).

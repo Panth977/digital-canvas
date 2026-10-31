@@ -2,7 +2,6 @@
   "name": "@digital-canvas/desktop",
   "version": "0.1.0",
   "private": true,
-  "type": "module",
   "license": "Apache-2.0",
   "description": "Digital Canvas as a standalone desktop app: no account, no server, your files in a folder.",
   "author": "Digital Canvas",
