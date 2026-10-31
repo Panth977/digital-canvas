@@ -113,7 +113,7 @@
     {#if missing}<div class="warn" data-testid="view-missing">{missing} picture{missing === 1 ? '' : 's'} or clip{missing === 1 ? '' : 's'} could not be loaded.</div>{/if}
     <main class="work"><Canvas {ed} /></main>
   </div>
-  {#if presenting}<Present {ed} onclose={() => (presenting = false)} />{/if}
+  {#if presenting}<Present {ed} presenter={false} onclose={() => (presenting = false)} />{/if}
 {/if}
 
 <style>

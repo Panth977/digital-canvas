@@ -3,6 +3,7 @@
  * document format): every field is optional except what an element can't do
  * without, unknown fields are reported back as warnings, never fatal.
  */
+import { ANIMATION_TYPES as ANIMATION_LIST, TRANSITIONS, TRANSITION_MAX, TRANSITION_MIN } from '@digital-canvas/scene';
 import { z } from 'zod';
 
 export const color = z.string().describe('Colour: "#rrggbb", "#rrggbbaa" (alpha), "#rgb" or a basic name ("white", "black", "navy", "gold", "transparent").');
@@ -16,12 +17,31 @@ export const fill = z.union([
   }),
 ]).describe('A colour, or a linear gradient { angle, colors: [..] }.');
 
-export const ANIMATION_TYPES = ['rise', 'pan', 'fade', 'pop', 'wipe', 'typewriter', 'baseline', 'drift', 'tumble'] as const;
+const ANIM = ANIMATION_LIST as unknown as [string, ...string[]];
+export const motionPath = z.object({
+  points: z.array(z.tuple([z.number(), z.number(), z.number()])).min(2).max(200).describe('[dx, dy, t]: page px from the element\'s place (start at 0,0), t = 0..1 along the path.'),
+  style: z.enum(['original', 'smooth', 'slow', 'bounce', 'windup']).optional(),
+  rotation: z.enum(['none', 'follow', 'spin']).optional(),
+  fade: z.boolean().optional(),
+}).describe('Hand-drawn motion path (type "custom"). The element stays at the end of it.');
 export const animation = z.object({
-  type: z.enum(ANIMATION_TYPES).describe('rise (slides up + fades), pan, fade, pop (scales up), wipe, typewriter (text appears letter by letter), baseline (text rises from its baseline), drift, tumble.'),
-  duration: z.number().positive().optional().describe('Seconds (default 0.8).'),
-  direction: z.enum(['left', 'right', 'up', 'down']).optional().describe('Where it comes from (pan, wipe, drift).'),
-}).describe('Enter animation, plays when the page starts (or when the element\'s timing window opens). Shown in video/GIF exports.');
+  type: z.enum(ANIM).describe('See list_animations or the guide: Basic (rise, pan, fade, pop, wipe, drift, tumble, baseline, stomp, block…), Exaggerate (neon, scrapbook, tectonic, jelly, bounceIn, flipX…), Photo motion (photoZoomIn, kenBurns…), Text (ascend, shift, merge, burst, bounce, roll, skate, spread, clarify…), Writing (typewriter, write, marker), Ambient loops (pulse, wiggle, flicker, rotate…), custom (with `path`).'),
+  duration: z.number().positive().optional().describe('Seconds for one play or one turn of a loop (default 0.8; up to 10 for custom).'),
+  direction: z.enum(['left', 'right', 'up', 'down']).optional().describe('Where it comes from (directional animations).'),
+  phase: z.enum(['in', 'out', 'both']).optional().describe('Animate on enter, exit or both (default in).'),
+  intensity: z.number().min(0).max(1).optional().describe('How far it goes; 0.5 = as designed.'),
+  by: z.enum(['element', 'line', 'word', 'letter', 'page']).optional().describe('Text: move each line, word or letter. Page animation: "page" moves everything as one.'),
+  order: z.enum(['forward', 'reverse', 'center', 'random', 'together']).optional().describe('Who goes first, for units of a text or the elements of a page.'),
+  path: motionPath.optional(),
+}).describe('Animation, plays when the page starts (or ends, with phase) or the element\'s timing window opens. Shown in video/GIF exports and presentations.');
+
+const TRANSITION_TYPES = TRANSITIONS.map((t) => t.type) as unknown as [string, ...string[]];
+export const transition = z.object({
+  type: z.enum(TRANSITION_TYPES).describe('dissolve, fade (through black), slide, wipe, zoom, match (Match & Move: elements with the same name, picture or text travel), circle, line, stack, chop, flow, colorwipe, iris, clock, doors, checker.'),
+  duration: z.number().min(TRANSITION_MIN).max(TRANSITION_MAX).optional().describe('Seconds (0.1 to 2.5, default 0.5).'),
+  direction: z.enum(['left', 'right', 'up', 'down']).optional(),
+  color: z.string().optional().describe('colorwipe: the colour.'),
+});
 
 export const timing = z.object({
   start: z.number().min(0).optional().describe('Seconds from the page start when it appears.'),
@@ -121,6 +141,7 @@ const props = {
   ...lookFields,
   trimStart: z.number().min(0).optional().describe('video: start of the part to use, seconds into the file.'),
   trimEnd: z.number().min(0).optional().describe('video: end of the part to use, seconds into the file.'),
+  speed: z.number().min(0.25).max(2).optional().describe('video: playback speed, 0.25 to 2. Sound keeps its pitch. The clip then lasts (trimEnd - trimStart) / speed.'),
   loop: z.boolean().optional().describe('video: start again when the clip ends before the page does.'),
   muted: z.boolean().optional(),
   volume: z.number().min(0).max(1).optional(),

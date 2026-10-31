@@ -21,6 +21,7 @@
   import DownloadMenu from './DownloadMenu.svelte';
   import SharePopover from './SharePopover.svelte';
   import Present from './Present.svelte';
+  import type { PresentMode } from '../lib/present.svelte.ts';
   import { loadAccess, makeOwnCopy } from '../lib/shared.svelte.ts';
   import VersionHistory from './VersionHistory.svelte';
   import ShortcutsDialog from './ShortcutsDialog.svelte';
@@ -43,7 +44,7 @@
   let showVersions = $state(false);
   let showShortcuts = $state(false);
   let showShare = $state(false);
-  let presenting = $state(false);
+  let presenting = $state<PresentMode | false>(false);
 
   function adopt(e: EditorState): void {
     tabs.adopt(id, e);
@@ -119,6 +120,7 @@
   }
 
   function onKeydown(e: KeyboardEvent): void {
+    if (ed && !presenting && !ed.readOnly && (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'f') { e.preventDefault(); ui.open('find', false); return; }
     if (!ed || typing(e.target) || presenting) return;
     if (ed.readOnly && !viewKey(e)) return;
     const mod = e.metaKey || e.ctrlKey;
@@ -271,7 +273,7 @@
         {/if}
         <div class="dl-wrap">
           <button class="share" class:open={showShare} aria-haspopup="dialog" aria-expanded={showShare} onclick={(e) => { e.stopPropagation(); showFile = false; showResize = false; showDownload = false; showShare = !showShare; }} data-testid="share"><Icon name="share" size={18} /> Share</button>
-          {#if showShare}<SharePopover {ed} onclose={() => (showShare = false)} ondownload={() => (showDownload = true)} onpresent={() => (presenting = true)} />{/if}
+          {#if showShare}<SharePopover {ed} onclose={() => (showShare = false)} ondownload={() => (showDownload = true)} onpresent={(m) => (presenting = m)} />{/if}
         </div>
         <div class="dl-wrap">
           <button class="share" class:open={showDownload} aria-haspopup="dialog" aria-expanded={showDownload} onclick={(e) => { e.stopPropagation(); showFile = false; showResize = false; showShare = false; showDownload = !showDownload; }} data-testid="download"><Icon name="download" size={18} /> Download</button>
@@ -281,7 +283,7 @@
     </header>
     {#if showVersions}<VersionHistory {ed} onclose={() => (showVersions = false)} />{/if}
     {#if showShortcuts}<ShortcutsDialog onclose={() => (showShortcuts = false)} />{/if}
-    {#if presenting}<Present {ed} start={ed.pageIndex} onclose={() => (presenting = false)} />{/if}
+    {#if presenting}<Present {ed} start={ed.pageIndex} mode={presenting} onclose={() => (presenting = false)} />{/if}
 
     <div class="body">
       {#if !ed.readOnly}<SidePanel {ed} />{/if}

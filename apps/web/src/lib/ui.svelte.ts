@@ -6,7 +6,7 @@
  */
 
 export type RailTab = 'ai' | 'templates' | 'elements' | 'mockups' | 'text' | 'brand' | 'uploads' | 'draw' | 'projects' | 'apps' | 'photos' | 'videos' | 'sounds';
-export type ToolPanel = 'font' | 'color' | 'effects' | 'animate' | 'position' | 'image' | 'table' | 'chart' | 'qr' | 'frame' | 'audio';
+export type ToolPanel = 'font' | 'color' | 'effects' | 'animate' | 'find' | 'position' | 'image' | 'table' | 'chart' | 'qr' | 'frame' | 'audio';
 export type Panel = RailTab | ToolPanel;
 
 export const RAIL_TABS: readonly RailTab[] = ['ai', 'templates', 'elements', 'mockups', 'text', 'brand', 'uploads', 'draw', 'projects', 'apps', 'photos', 'videos', 'sounds'];
@@ -27,6 +27,8 @@ import { mobile } from './mobile.svelte.ts';
 
 class UI {
   panel = $state<Panel | null>('elements');
+  /** Timeline: a timing bar for every element of the scene. */
+  timelineElements = $state(false);
   /** The rail section to go back to when a contextual panel closes. */
   lastRail = $state<RailTab>('elements');
   color = $state.raw<ColorTarget | null>(null);

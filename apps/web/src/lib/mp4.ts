@@ -9,7 +9,7 @@ import {
   ALL_FORMATS, AudioBufferSource, BlobSource, BufferTarget, CanvasSource, Input, Mp3OutputFormat, Mp4OutputFormat, Output, QUALITY_HIGH,
   VideoSampleSink, canEncodeAudio, getFirstEncodableAudioCodec, getFirstEncodableVideoCodec,
 } from 'mediabunny';
-import { clipTime, frameAt, pageDuration, pageStart, totalDuration, walk, type Doc, type Page, type VideoElement } from '@digital-canvas/scene';
+import { clipLength, clipSpeed, clipTime, frameAt, pageDuration, pageStart, stretchAudio, totalDuration, walk, type Doc, type Page, type VideoElement } from '@digital-canvas/scene';
 import { drawFrameAt } from '@digital-canvas/render';
 import type { EditorState } from './editor.svelte.ts';
 import { soundDuration, videoSize } from './exportutil.ts';
@@ -30,15 +30,15 @@ const RATE = 48000;
 
 /** Mix every sound of the design (timeline sounds and the clips' own sound) into one buffer. */
 export async function mixAudio(doc: Doc, assets: Map<string, Uint8Array>, total: number): Promise<AudioBuffer | null> {
-  type Src = { asset: string; at: number; offset: number; dur: number; volume: number; loop?: boolean; fadeIn?: number; fadeOut?: number };
+  type Src = { asset: string; at: number; offset: number; dur: number; volume: number; loop?: boolean; fadeIn?: number; fadeOut?: number; speed?: number; loopEnd?: number };
   const srcs: Src[] = (doc.audio ?? []).map((a) => ({ asset: a.asset, at: a.start, offset: a.offset, dur: a.duration, volume: a.volume ?? 1, fadeIn: a.fadeIn, fadeOut: a.fadeOut }));
   for (const p of doc.pages) {
     if (p.hidden) continue;
     for (const e of walk(p.elements)) {
       if (e.type !== 'video' || e.muted || e.hidden || (e.volume ?? 1) === 0) continue;
       const fileDur = doc.assets[e.asset]?.duration ?? 0;
-      const a = e.trimStart ?? 0, b = Math.min(e.trimEnd ?? fileDur, fileDur);
-      srcs.push({ asset: e.asset, at: pageStart(doc, p.id), offset: a, dur: Math.min(pageDuration(p), e.loop ? pageDuration(p) : b - a), volume: e.volume ?? 1, loop: e.loop });
+      const a = e.trimStart ?? 0, b = Math.min(e.trimEnd ?? fileDur, fileDur), speed = clipSpeed(e);
+      srcs.push({ asset: e.asset, at: pageStart(doc, p.id), offset: a, dur: Math.min(pageDuration(p), e.loop ? pageDuration(p) : clipLength(e, fileDur)), volume: e.volume ?? 1, loop: e.loop, speed, loopEnd: b });
     }
   }
   if (!srcs.length) return null;
@@ -52,8 +52,18 @@ export async function mixAudio(doc: Doc, assets: Map<string, Uint8Array>, total:
       if (bytes) try { buf = await ctx.decodeAudioData(bytes.slice().buffer as ArrayBuffer); } catch { buf = null; }
       decoded.set(s.asset, buf);
     }
-    const buf = decoded.get(s.asset);
+    let buf = decoded.get(s.asset) ?? null;
     if (!buf || s.at >= total) continue;
+    if (s.speed && s.speed !== 1) {
+      // the clip's part, at its speed and with its pitch (playback and ffmpeg keep it too)
+      const end = Math.min(buf.duration, s.loopEnd ?? buf.duration), from = Math.floor(s.offset * buf.sampleRate), to = Math.ceil(end * buf.sampleRate);
+      const parts = Array.from({ length: buf.numberOfChannels }, (_, c) => buf!.getChannelData(c).subarray(from, to));
+      const out = stretchAudio(parts, s.speed, buf.sampleRate);
+      const stretched = ctx.createBuffer(out.length, Math.max(1, out[0]!.length), buf.sampleRate);
+      out.forEach((c, i) => stretched.copyToChannel(c as Float32Array<ArrayBuffer>, i));
+      buf = stretched;
+      s.offset = 0;
+    }
     const node = ctx.createBufferSource();
     node.buffer = buf;
     if (s.loop) { node.loop = true; node.loopStart = s.offset; node.loopEnd = s.offset + Math.max(0.01, Math.min(buf.duration - s.offset, s.dur)); }

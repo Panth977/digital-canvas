@@ -20,8 +20,9 @@ export interface GifFrame {
 }
 
 /** Seconds a page shows in a GIF: its own duration in a video, else ~3 s (longer if its animation needs it). */
-export function gifPageDuration(isVideo: boolean, pageDuration: number, animEnd: number): number {
-  if (isVideo) return pageDuration;
+export function gifPageDuration(isVideo: boolean, pageDuration: number, animEnd: number, fills = false): number {
+  // a loop or an exit plays to the end of the page: no hold after it
+  if (isVideo || fills) return pageDuration;
   return Math.max(3, animEnd > 0 ? animEnd + 1 : 0);
 }
 

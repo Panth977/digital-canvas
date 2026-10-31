@@ -205,7 +205,7 @@ export async function checkDesign(file: ProjectFile, opts: { pages?: number[] } 
           else if ((e.type === 'image' || e.type === 'video') && !file.assets.has(e.asset)) add('error', 'missing_asset', `The ${e.type} file ${e.asset} is missing.`, 'replace it (update_elements { id, asset | url })', e.id);
           if (e.type === 'video') {
             const m = doc.assets[e.asset];
-            const len = (Math.min(e.trimEnd ?? m?.duration ?? Infinity, m?.duration ?? Infinity) - (e.trimStart ?? 0));
+            const len = (Math.min(e.trimEnd ?? m?.duration ?? Infinity, m?.duration ?? Infinity) - (e.trimStart ?? 0)) / (e.speed ?? 1);
             if (m?.duration !== undefined && (e.trimStart ?? 0) >= m.duration) add('error', 'bad_trim', `trimStart ${e.trimStart}s is past the end of the clip (${r1(m.duration)}s).`, 'lower trimStart', e.id);
             else if (Number.isFinite(len) && len + 0.05 < pageDuration(p) && !e.loop) add('info', 'clip_ends_early', `The clip lasts ${r1(len)}s but the page lasts ${r1(pageDuration(p))}s; its last frame (poster) shows after it ends.`, `set_page { duration: ${r1(len)} } or update_elements { id, loop: true }`, e.id);
           }

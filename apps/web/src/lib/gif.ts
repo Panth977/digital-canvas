@@ -4,7 +4,7 @@
  * one-frame GIF. Frames are drawn with the CanvasKit renderer like the MP4 export.
  */
 import { GIFEncoder, applyPalette, quantize } from 'gifenc';
-import { animateAt, animationEnd, isVideo, pageDuration } from '@digital-canvas/scene';
+import { animateAt, animationEnd, animationFillsPage, isVideo, pageDuration } from '@digital-canvas/scene';
 import type { EditorState } from './editor.svelte.ts';
 import { gifFrames, gifPageDuration } from './giftime.ts';
 
@@ -30,7 +30,7 @@ export async function exportGif(ed: EditorState, opts: GifOptions): Promise<Uint
   const video = isVideo(doc);
   const frames = gifFrames(pages.map((p) => {
     const animEnd = animationEnd(p);
-    return { duration: gifPageDuration(video, pageDuration(p), animEnd), animEnd };
+    return { duration: gifPageDuration(video, pageDuration(p), animEnd, animationFillsPage(p)), animEnd };
   }), fps);
   // one static page: a still GIF
   const still = frames.length === 1;

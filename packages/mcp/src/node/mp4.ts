@@ -8,7 +8,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Image } from 'canvaskit-wasm';
 import { ALL_FORMATS, BufferSource, Input } from 'mediabunny';
-import { clipTime, frameAt, pageDuration, pageStart, totalDuration, walk, type Page, type VideoElement } from '@digital-canvas/scene';
+import { clipLength, clipSpeed, clipTime, frameAt, pageDuration, pageStart, totalDuration, walk, type Page, type VideoElement } from '@digital-canvas/scene';
 import type { ProjectFile } from '@digital-canvas/storage';
 import { withRenderer } from '../engine.ts';
 import type { VideoExportOptions } from '../platform.ts';
@@ -16,6 +16,16 @@ import { drawAt, even, snapshot } from '../video.ts';
 import { ffmpeg, withTemp } from './ffmpeg.ts';
 
 /** Frames of one clip, read in order from an ffmpeg pipe. */
+/** ffmpeg's `atempo` keeps the pitch but only takes 0.5 to 2 at a time: chain it for slower. */
+function atempo(speed: number): string[] {
+  if (speed === 1) return [];
+  const out: string[] = [];
+  let left = speed;
+  while (left < 0.5) { out.push('atempo=0.5'); left /= 0.5; }
+  out.push(`atempo=${left}`);
+  return out;
+}
+
 class ClipReader {
   private proc: ChildProcess;
   private buf: Buffer[] = [];
@@ -94,7 +104,7 @@ export async function exportMp4Ffmpeg(file: ProjectFile, opts: VideoExportOption
       return path.get(asset)!;
     };
     // ---- sound
-    type Src = { asset: string; at: number; offset: number; dur: number; volume: number; loop?: boolean; fadeIn?: number; fadeOut?: number };
+    type Src = { asset: string; at: number; offset: number; dur: number; volume: number; loop?: boolean; fadeIn?: number; fadeOut?: number; speed?: number };
     const srcs: Src[] = (doc.audio ?? []).filter((a) => file.assets.has(a.asset)).map((a) => ({ asset: a.asset, at: a.start, offset: a.offset, dur: a.duration, volume: a.volume ?? 1, fadeIn: a.fadeIn, fadeOut: a.fadeOut }));
     for (const p of doc.pages) {
       if (p.hidden) continue;
@@ -102,8 +112,7 @@ export async function exportMp4Ffmpeg(file: ProjectFile, opts: VideoExportOption
         if (e.type !== 'video' || e.muted || e.hidden || (e.volume ?? 1) === 0 || !file.assets.has(e.asset)) continue;
         if (!(await hasAudioTrack(file.assets.get(e.asset)!))) continue;
         const fileDur = doc.assets[e.asset]?.duration ?? pageDuration(p);
-        const a = e.trimStart ?? 0, b = Math.min(e.trimEnd ?? fileDur, fileDur);
-        srcs.push({ asset: e.asset, at: pageStart(doc, p.id), offset: a, dur: Math.min(pageDuration(p), e.loop ? pageDuration(p) : b - a), volume: e.volume ?? 1, loop: e.loop });
+        srcs.push({ asset: e.asset, at: pageStart(doc, p.id), offset: e.trimStart ?? 0, dur: Math.min(pageDuration(p), e.loop ? pageDuration(p) : clipLength(e, fileDur)), volume: e.volume ?? 1, loop: e.loop, speed: clipSpeed(e) });
       }
     }
     const audioArgs: string[] = [];
@@ -112,7 +121,8 @@ export async function exportMp4Ffmpeg(file: ProjectFile, opts: VideoExportOption
       if (s.at >= total) return;
       audioArgs.push(...(s.loop ? ['-stream_loop', '-1'] : []), '-i', fileOf(s.asset));
       const dur = Math.max(0.05, Math.min(s.dur, total - s.at));
-      const chain = [`atrim=start=${s.offset}:duration=${dur}`, 'asetpts=PTS-STARTPTS', `volume=${s.volume}`];
+      const speed = s.speed ?? 1;
+      const chain = [`atrim=start=${s.offset}:duration=${dur * speed}`, 'asetpts=PTS-STARTPTS', ...atempo(speed), `volume=${s.volume}`];
       if (s.fadeIn) chain.push(`afade=t=in:st=0:d=${Math.min(s.fadeIn, dur)}`);
       if (s.fadeOut) chain.push(`afade=t=out:st=${Math.max(0, dur - s.fadeOut)}:d=${Math.min(s.fadeOut, dur)}`);
       const ms = Math.round(s.at * 1000);
@@ -149,11 +159,11 @@ export async function exportMp4Ffmpeg(file: ProjectFile, opts: VideoExportOption
             if (!rd) {
               const m = doc.assets[el.asset];
               const fileDur = m?.duration ?? pageDuration(page);
-              const a = el.trimStart ?? 0, b = Math.min(el.trimEnd ?? fileDur, fileDur);
-              const len = el.loop ? pageDuration(page) : Math.min(pageDuration(page), b - a);
+              const a = el.trimStart ?? 0, b = Math.min(el.trimEnd ?? fileDur, fileDur), speed = clipSpeed(el);
+              const len = (el.loop ? pageDuration(page) : Math.min(pageDuration(page), clipLength(el, fileDur))) * speed;
               const iw = m?.width ?? el.w, ih = m?.height ?? el.h;
               const k = Math.min(1, Math.max((el.w * scale) / iw, (el.h * scale) / ih) * 1.25);
-              rd = new ClipReader(bin, fileOf(el.asset), a, len, !!el.loop && b - a < pageDuration(page), fps, even(iw * k), even(ih * k));
+              rd = new ClipReader(bin, fileOf(el.asset), a, len, !!el.loop && b - a < pageDuration(page) * speed, fps / speed, even(iw * k), even(ih * k));
               readers.set(key, rd);
             }
             return rd;

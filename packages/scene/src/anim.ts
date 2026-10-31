@@ -493,6 +493,7 @@ function strengthen(fx: Fx, intensity: number | undefined): Fx {
   return n;
 }
 
+export const defaultDirection = (type: string): AnimationDirection | undefined => DEFAULT_DIR[type];
 const DEFAULT_DIR: Record<string, AnimationDirection> = { pan: 'left', wipe: 'left', drift: 'left', slide: 'left', block: 'left', shift: 'right', skate: 'right', photoPan: 'left', photoFlow: 'left' };
 
 /** The recipe of `a` at `p`. */

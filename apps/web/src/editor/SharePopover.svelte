@@ -1,4 +1,6 @@
 <script lang="ts">
+  import type { PresentMode } from '../lib/present.svelte.ts';
+  import { mobile } from '../lib/mobile.svelte.ts';
   import { onMount } from 'svelte';
   import { qrCode } from '@digital-canvas/scene';
   import {
@@ -16,7 +18,7 @@
    * link access, Copy link, and quick actions (Download, Public view link, Present,
    * Template link, QR code, Email). Permissions are Drive permissions on the design file.
    */
-  let { ed, onclose, ondownload, onpresent }: { ed: EditorState; onclose: () => void; ondownload: () => void; onpresent: () => void } = $props();
+  let { ed, onclose, ondownload, onpresent }: { ed: EditorState; onclose: () => void; ondownload: () => void; onpresent: (mode: PresentMode) => void } = $props();
 
   const drive = $derived(ed.store.kind === 'drive' ? (ed.store as DriveStore) : null);
   let fileId = $state<string | null>(null);
@@ -284,7 +286,9 @@
     <div class="quick" data-testid="share-quick">
       <button onclick={() => { onclose(); ondownload(); }} data-testid="share-download"><span><Icon name="download" size={20} /></span>Download</button>
       <button disabled={!viewLink || !canShare && link === 'restricted'} onclick={() => void publicView()} data-testid="share-public" data-link={viewLink}><span><Icon name="globe" size={20} /></span>Public view link</button>
-      <button onclick={() => { onclose(); onpresent(); }} data-testid="share-present"><span><Icon name="play" size={20} /></span>Present</button>
+      <button onclick={() => { onclose(); onpresent('standard'); }} data-testid="share-present"><span><Icon name="play" size={20} /></span>Present</button>
+      {#if !mobile.on}<button onclick={() => { onclose(); onpresent('presenter'); }} data-testid="share-presenter"><span><Icon name="notes" size={20} /></span>Presenter view</button>{/if}
+      <button onclick={() => { onclose(); onpresent('auto'); }} data-testid="share-autoplay"><span><Icon name="clock" size={20} /></span>Autoplay</button>
       <button disabled={!templateLink} onclick={() => copy(templateLink, 'Template link copied: people who open it get their own copy')} data-testid="share-template" data-link={templateLink}><span><Icon name="templates" size={20} /></span>Template link</button>
       <button disabled={!editLink} onclick={() => (view = 'qr')} data-testid="share-qr-open"><span><Icon name="qr" size={20} /></span>QR code</button>
       <a class:off={!editLink} href={editLink ? mailtoLink(ed.doc.title, link === 'restricted' ? editLink : viewLink, account.user?.name) : undefined} data-testid="share-email-link"><span><Icon name="send" size={20} /></span>Email</a>

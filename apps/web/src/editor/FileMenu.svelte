@@ -8,6 +8,7 @@
   import { IMAGE_TYPES, pickFiles } from '../lib/files.ts';
   import { AUDIO_TYPES, VIDEO_TYPES } from '../lib/media.ts';
   import Icon from '../lib/Icon.svelte';
+  import { ui } from '../lib/ui.svelte.ts';
   import { bridgeUi } from '../lib/bridge/bridgeUi.svelte.ts';
 
   /**
@@ -111,6 +112,7 @@
     {/if}
   </div>
   <hr />
+  {#if !ed.readOnly}<button role="menuitem" data-testid="file-find" onclick={() => { onclose(); ui.open('find', false); }}><Icon name="search" size={18} /> Find and replace text <kbd>⌘F</kbd></button>{/if}
   <button role="menuitem" data-testid="file-save" onclick={() => { void ed.save(); onclose(); }}><Icon name="cloud" size={18} /> Save <kbd>{ed.saveState === 'saved' ? 'All changes saved' : '⌘S'}</kbd></button>
   <button role="menuitem" data-testid="file-copy" onclick={copy}><Icon name="copy" size={18} /> Make a copy</button>
   <button role="menuitem" data-testid="file-download" onclick={ondownload}><Icon name="download" size={18} /> Download</button>

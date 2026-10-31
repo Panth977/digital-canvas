@@ -1,6 +1,6 @@
 <script lang="ts">
   import {
-    isVideo, pageDuration, formatLength, TRANSITIONS, type TransitionType,
+    isVideo, pageDuration, formatLength, TRANSITIONS, type TransitionType, SPEED_MAX, SPEED_MIN, clipLength, clipSpeed, updateElements, updatePage,
     type BlendMode, type Element, type ImageElement, type LineElement, type LineMarker, type LineRoute, type ShapeElement, type Stroke, type TextAlign, type TextElement, type VideoElement,
   } from '@digital-canvas/scene';
   import type { EditorState } from '../lib/editor.svelte.ts';
@@ -212,6 +212,19 @@
   // a new kind of selection measures again
   $effect(() => { void kind; void sel.length; void editingSel; untrack(() => { level = 0; need = []; again(); }); });
 
+  /** Canva: a page cut to its clip stays cut to it when the clip's speed changes. */
+  function setSpeed(v: number): void {
+    if (!v0) return;
+    const file = ed.doc.assets[v0.asset]?.duration ?? 0;
+    const fitted = !!file && Math.abs(pageDuration(ed.page) - clipLength(v0, file)) < 0.15;
+    const speed = Math.round(v * 100) / 100;
+    const ids = ed.selection;
+    const next = updateElements(ed.doc, ids, (e) => (e.type === 'video' ? { speed: speed === 1 ? undefined : speed } : {}));
+    const page = fitted ? Math.round((clipLength({ ...v0, speed }, file) || 1) * 10) / 10 : 0;
+    ed.commit(page ? updatePage(next, ed.pageId, { duration: page }) : next, key('speed'));
+    void ed.player.refresh();
+  }
+
   const animated = $derived(sel.length ? sel.some((e) => e.animation) : !!ed.page.animation);
 
   const TITLES: Record<Kind, string> = { page: 'Page', text: 'Text', image: 'Image', video: 'Video', frame: 'Frame', shape: 'Shape', line: 'Line', table: 'Table', chart: 'Chart', graphic: 'Graphic', qr: 'QR code', group: 'Group', multi: 'Selection' };
@@ -347,6 +360,17 @@
                 onchange={(v) => ed.update((e) => (e.type === 'video' ? { trimEnd: v } : {}), key('te'))} onend={end} />
             </div>
             <p class="hint">Clip length {formatTime(v0dur, true)}. It plays from the start of its page.</p>
+          </div>
+        {/if}
+      </div>
+      <div class="pw">
+        <button class="tb" class:on={ui.pop === 'speed'} title="Video speed" data-testid="speed-btn" onclick={() => togglePop('speed')}>{clipSpeed(v0)}×</button>
+        {#if ui.pop === 'speed'}
+          <div class="pop" data-testid="speed-pop">
+            <label class="speed">Video speed · {clipSpeed(v0)}×
+              <input type="range" min={SPEED_MIN} max={SPEED_MAX} step="0.05" value={clipSpeed(v0)} data-testid="clip-speed" oninput={(e) => setSpeed(Number((e.currentTarget as HTMLInputElement).value))} onchange={end} />
+            </label>
+            <p class="hint">0.25× to 2×. The sound keeps its pitch.</p>
           </div>
         {/if}
       </div>

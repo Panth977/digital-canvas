@@ -14,6 +14,7 @@
   import DownloadMenu from '../DownloadMenu.svelte';
   import SharePopover from '../SharePopover.svelte';
   import Present from '../Present.svelte';
+  import type { PresentMode } from '../../lib/present.svelte.ts';
   import ResizeDialog from '../ResizeDialog.svelte';
   import VersionHistory from '../VersionHistory.svelte';
   import MobileSheet from './MobileSheet.svelte';
@@ -30,7 +31,7 @@
 
   let zoom = $state(1);
   let showVersions = $state(false);
-  let presenting = $state(false);
+  let presenting = $state<PresentMode | false>(false);
   let size = $state<'auto' | 'half' | 'full'>('half');
 
   const RAIL_TITLES: Record<RailTab, string> = {
@@ -119,7 +120,7 @@
         {:else if mobile.sheet === 'download'}
           <div class="host"><DownloadMenu {ed} onclose={close} /></div>
         {:else if mobile.sheet === 'share'}
-          <div class="host"><SharePopover {ed} onclose={close} ondownload={() => (mobile.sheet = 'download')} onpresent={() => (presenting = true)} /></div>
+          <div class="host"><SharePopover {ed} onclose={close} ondownload={() => (mobile.sheet = 'download')} onpresent={(m) => (presenting = m)} /></div>
         {:else if mobile.sheet === 'resize'}
           <div class="host"><ResizeDialog {ed} onclose={close} /></div>
         {:else if mobile.sheet === 'menu'}
@@ -142,7 +143,7 @@
   <MobileToolbar {ed} />
 
   {#if showVersions}<VersionHistory {ed} onclose={() => (showVersions = false)} />{/if}
-  {#if presenting}<Present {ed} start={ed.pageIndex} onclose={() => (presenting = false)} />{/if}
+  {#if presenting}<Present {ed} start={ed.pageIndex} mode={presenting} onclose={() => (presenting = false)} />{/if}
 </div>
 
 <style>
