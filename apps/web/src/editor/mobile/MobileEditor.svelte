@@ -129,6 +129,7 @@
             <button onclick={() => (mobile.sheet = 'download')}><Icon name="download" size={20} /> Download / share</button>
             <button onclick={() => (mobile.sheet = 'resize')}><Icon name="resize" size={20} /> Resize</button>
             <button onclick={() => (mobile.sheet = 'pages')}><Icon name="pages" size={20} /> Pages</button>
+            <button data-testid="m-find" onclick={() => { close(); ui.open('find', false); }}><Icon name="search" size={20} /> Find and replace text</button>
             <button onclick={() => { close(); showVersions = true; }}><Icon name="cloud" size={20} /> Version history</button>
             <button onclick={() => { close(); void ed.save(); }}><Icon name="cloudok" size={20} /> Save now</button>
             <button data-testid="m-ai-devices" onclick={() => { close(); bridgeUi.open = true; }}><Icon name="ai" size={20} /> AI and devices</button>

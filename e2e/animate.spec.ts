@@ -120,6 +120,8 @@ test.describe('Animate panel', () => {
     await tile.hover();
     await expect(page.getByTestId('anim-preview')).toHaveAttribute('data-playing', 'true');
     await expect(page.getByTestId('tile-bounceIn')).toBeVisible();
+    await expect.poll(() => page.getByTestId('tile-rollIn').evaluate((c: HTMLCanvasElement) => c.className)).toContain('still');
+    expect(await tilePixels(page, 'tile-rollIn')).not.toBe(await tilePixels(page, 'tile-flipX'));
     const seen = new Set<number>(), big = new Set<number>();
     for (let i = 0; i < 8; i++) {
       seen.add(await tilePixels(page, 'tile-bounceIn'));
@@ -130,7 +132,7 @@ test.describe('Animate panel', () => {
     expect(big.size).toBeGreaterThan(2);
     if (shoot) await page.screenshot({ path: `${SHOTS}/r16-anim-hover.png` });
     await page.mouse.move(800, 40);
-    await expect(page.getByTestId('tile-bounceIn')).toBeHidden();
+    await expect(page.getByTestId('anim-preview')).toHaveAttribute('data-playing', 'false');
     expect(JSON.stringify((await doc(page)).pages[0])).toBe(before);
     expect(await animation(page, id)).toBeUndefined();
   });
@@ -211,6 +213,14 @@ test.describe('Animate panel', () => {
     expect(await tr(0)).toBeUndefined();
     await page.keyboard.press('ControlOrMeta+z');
     expect(await tr(1)).toBeUndefined();
+    // tiles at rest each show their own moment
+    const rest: number[] = [];
+    for (const t of ['slide', 'circle', 'clock', 'checker']) {
+      await page.getByTestId(`tr-${t}`).scrollIntoViewIfNeeded();
+      await expect(page.getByTestId(`tile-tr-${t}`)).toHaveClass(/still/);
+      rest.push(await tilePixels(page, `tile-tr-${t}`));
+    }
+    expect(new Set(rest).size).toBe(4);
     // hover plays it on the tile
     await page.getByTestId('tr-chop').hover();
     await expect(page.getByTestId('tile-tr-chop')).toBeVisible();

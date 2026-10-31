@@ -228,6 +228,34 @@
     return updatePage(addElements(d, id, [el as never]), id, { duration: 3, background: { type: 'solid', color: '#ffffff' } });
   }
 
+  /** Two pages in two colours, for transition tiles. */
+  function sampleTransition(t: Transition): { doc: Doc; pageId: string } {
+    let s = createDoc({ width: 100, height: 100 });
+    s = updatePage(s, s.pages[0]!.id, { duration: 1, background: { type: 'solid', color: '#c9b6f2' } });
+    const r = addPage(s);
+    return { doc: updatePage(r.doc, r.pageId, { duration: 2, background: { type: 'solid', color: '#7d2ae8' }, transition: t }), pageId: r.pageId };
+  }
+  const stillOf = (i: AnimationInfo): Animation => ({ type: i.type, ...(i.exit ? { phase: 'out' as const } : {}), ...(i.by ? { by: i.by } : {}) });
+  /** A tile at rest: its own frozen moment of the real motion. */
+  function paintStill(c: HTMLCanvasElement, i: AnimationInfo): void {
+    const a = stillOf(i), dur = Math.min(animationDuration(a), 1.2);
+    const doc = sampleDoc(i.groups.includes('text') || i.groups.includes('writing'), { ...a, duration: dur });
+    const t = i.exit ? 3 - dur * 0.45 : i.loop ? dur * 0.2 : dur * 0.45;
+    drawPageAt(c, doc, doc.pages[0]!, t);
+    c.classList.add('still');
+  }
+  function paintTransitionStill(c: HTMLCanvasElement, type: TransitionType): void {
+    const s = sampleTransition({ type, duration: 0.8, ...(type === 'colorwipe' ? { color: '#ffb020' } : {}) });
+    paint(c, (canvas) => drawFrameAt(ed.renderer, canvas, s.doc, 1.4), s.doc);
+    c.classList.add('still');
+  }
+  /** Run once when the tile first scrolls into view (the panel holds about a hundred). */
+  function whenSeen(c: HTMLCanvasElement, run: () => void): { destroy(): void } {
+    const io = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) { io.disconnect(); run(); } });
+    io.observe(c);
+    return { destroy: () => io.disconnect() };
+  }
+
   function hoverIn(e: PointerEvent, i: AnimationInfo, group: AnimationGroup): void {
     if (e.pointerType === 'touch') return;
     hover = i.type;
@@ -255,20 +283,19 @@
     const meta = TRANSITIONS.find((t) => t.type === type);
     const t: Transition = { type, duration: tr?.duration ?? 0.8, ...(meta?.directional && tr?.direction ? { direction: tr.direction } : {}), ...(meta?.color ? { color: tr?.color ?? '#7d2ae8' } : {}) };
     // the tile: two colours; the big preview: this page and the one before it
-    let s = createDoc({ width: 100, height: 100 });
-    const a = s.pages[0]!.id;
-    s = updatePage(s, a, { duration: 1, background: { type: 'solid', color: '#c9b6f2' } });
-    const r = addPage(s);
-    s = updatePage(r.doc, r.pageId, { duration: 2, background: { type: 'solid', color: '#7d2ae8' }, transition: t });
-    const sample = s, c = tileCv;
+    const { doc: sample, pageId: samplePage } = sampleTransition(t);
+    const c = tileCv;
     const offset = first ? 0 : pageStart(ed.doc, ed.pageId) - 1;
     const doc = first ? sample : updatePage(ed.doc, ed.pageId, { transition: t });
     playing = true;
-    runTransition(doc, first ? r.pageId : ed.pageId, (at) => { if (c) paint(c, (canvas) => drawFrameAt(ed.renderer, canvas, sample, at - offset), sample); });
+    runTransition(doc, first ? samplePage : ed.pageId, (at) => { if (c) paint(c, (canvas) => drawFrameAt(ed.renderer, canvas, sample, at - offset), sample); });
   }
   function hoverOut(): void {
+    const c = tileCv, was = hover;
     hover = null;
     tileCv = null;
+    if (c && was?.startsWith('tr:')) paintTransitionStill(c, was.slice(3) as TransitionType);
+    else if (c && was) { const i = animationInfo(was); if (i && !i.photo) paintStill(c, i); }
     cancelAnimationFrame(raf);
     playing = false;
     draw(1e6);
@@ -304,7 +331,7 @@
       </button>
       {#each TRANSITIONS as t (t.type)}
         <button class="tile" class:on={tr?.type === t.type} data-testid="tr-{t.type}" disabled={first} onclick={() => pickTransition(t.type)} onpointerenter={(e) => hoverTransition(e, t.type)} onpointerleave={hoverOut}>
-          <span class="demo"><canvas width="96" height="96" class:show={hover === `tr:${t.type}`} data-testid="tile-tr-{t.type}"></canvas><i class="dot tr"></i></span>
+          <span class="demo"><canvas width="96" height="96" class:show={hover === `tr:${t.type}`} data-testid="tile-tr-{t.type}" {@attach (c) => { const w = whenSeen(c, () => paintTransitionStill(c, t.type)); return w.destroy; }}></canvas><i class="dot tr"></i></span>
           <span>{t.label}</span>
         </button>
       {/each}
@@ -418,7 +445,7 @@
           {@const textual = a.groups.includes('text') || a.groups.includes('writing')}
           <button class="tile" class:on={current?.type === a.type} data-testid={g.id === a.groups[0] ? `anim-${a.type}` : `anim-${g.id}-${a.type}`} data-kind={a.loop ? 'loop' : a.exit ? 'exit' : a.photo ? 'photo' : 'enter'}
             onclick={() => pick(a, g.id)} onpointerenter={(e) => hoverIn(e, a, g.id)} onpointerleave={hoverOut}>
-            <span class="demo"><canvas width="96" height="96" class:show={hover === a.type} data-testid="tile-{a.type}"></canvas><i class="dot" class:ab={textual}>{textual ? 'Abc' : a.photo ? '' : ''}</i></span>
+            <span class="demo"><canvas width="96" height="96" class:show={hover === a.type} data-testid="tile-{a.type}" {@attach (c) => { if (a.photo) return; const w = whenSeen(c, () => paintStill(c, a)); return w.destroy; }}></canvas><i class="dot" class:ab={textual}>{textual ? 'Abc' : a.photo ? '' : ''}</i></span>
             <span>{a.label}</span>
           </button>
         {/each}
@@ -443,7 +470,7 @@
   .tile:disabled { opacity: .5; }
   .demo { position: relative; width: 100%; aspect-ratio: 1; display: grid; place-items: center; border-radius: 8px; background: var(--chip); border: 2px solid transparent; overflow: hidden; color: var(--muted); }
   .demo canvas { position: absolute; inset: 0; width: 100%; height: 100%; visibility: hidden; }
-  .demo canvas.show { visibility: visible; }
+  .demo canvas.show, .demo :global(canvas.still) { visibility: visible; }
   .tile.on .demo { border-color: var(--accent); }
   .tile:hover .demo { background: var(--hover); }
   .dot { width: 34%; aspect-ratio: 1; border-radius: 6px; background: var(--accent); display: grid; place-items: center; color: #fff; font-style: normal; font-weight: 700; font-size: 13px; }
