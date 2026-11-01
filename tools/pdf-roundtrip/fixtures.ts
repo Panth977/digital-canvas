@@ -14,7 +14,8 @@ export async function roundtripPdf(): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
   pdf.registerFontkit(fontkit);
   pdf.setTitle('Round trip fixture');
-  const inter = await pdf.embedFont(readFileSync(new URL('../../apps/web/public/fonts/Inter-Regular.ttf', import.meta.url)), { subset: true });
+  // pdf-lib's subsetter drops glyphs of Inter (see CLAUDE.md), so not that one
+  const inter = await pdf.embedFont(readFileSync(new URL('../../node_modules/pdfjs-dist/standard_fonts/LiberationSans-Regular.ttf', import.meta.url)), { subset: true });
   const helv = await pdf.embedFont(StandardFonts.Helvetica);
   const page = pdf.addPage([400, 300]);
   page.drawText('Hello from the fixture', { x: 30, y: 250, size: 20, font: inter, color: rgb(0.1, 0.2, 0.6) });

@@ -25,7 +25,7 @@ const DPI = 150;
 const args = process.argv.slice(2);
 const flag = (n: string, d: string) => { const i = args.indexOf(n); if (i < 0) return d; const v = args[i + 1]!; args.splice(i, 2); return v; };
 /** Corpus files that need a password to open. */
-const PASSWORDS: Record<string, string> = { 'pdfjs-encrypted': 'user' };
+const PASSWORDS: Record<string, string> = { 'password-fixture': 'secret' };
 const out = flag('--out', '/tmp/orch27-rw/r18-pdf-report.html');
 const maxPages = Number(flag('--max-pages', '12'));
 const only = flag('--only', '');

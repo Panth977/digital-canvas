@@ -651,7 +651,10 @@ class PageWalker {
       if (this.maskDepth) {
         this.always.add(i);
         if (fn === OPS.beginGroup) { this.groups.push({ flat: false, mask: true }); this.maskDepth++; }
-        else if (fn === OPS.endGroup) { this.groups.pop(); this.maskDepth--; }
+        else if (fn === OPS.endGroup) {
+          this.groups.pop();
+          if (--this.maskDepth === 0 && this.stack.length) this.st = this.stack.pop()!; // beginGroup saved once for the whole mask
+        }
         continue;
       }
       const st = this.st;
