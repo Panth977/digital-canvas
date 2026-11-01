@@ -276,8 +276,11 @@ export function pruneAssets(doc: Doc): Doc {
       if (e.type === 'image' && e.original) used.add(e.original);
       if (e.type === 'image' || e.type === 'video') for (const a of lookAssets(e)) used.add(a);
       if (e.type === 'video' && e.poster) used.add(e.poster);
+      if (e.type === 'text' && e.exact?.picture) used.add(e.exact.picture.asset);
     }
   }
+  if (doc.pdf?.source) used.add(doc.pdf.source);
+  for (const f of Object.values(doc.pdf?.fonts ?? {})) if (f.asset) used.add(f.asset);
   for (const a of doc.audio ?? []) used.add(a.asset);
   for (const k of [...used]) used.add(`${k}.poster`); // a video's poster frame
   for (const f of doc.fonts ?? []) used.add(f.asset);
@@ -300,7 +303,8 @@ export function pruneFonts(doc: Doc): Doc {
     used.add(e.style.fontFamily);
     for (const r of e.runs ?? []) if (r.style?.fontFamily) used.add(r.style.fontFamily);
   }
-  const fonts = doc.fonts.filter((f) => !f.source || used.has(f.family));
+  // an imported font stays with the file: its glyphs may be drawn exactly, whatever the box says now
+  const fonts = doc.fonts.filter((f) => !f.source || f.source === 'pdf' || used.has(f.family));
   return fonts.length === doc.fonts.length ? doc : { ...doc, fonts };
 }
 

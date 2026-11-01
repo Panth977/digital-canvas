@@ -1,6 +1,6 @@
-import type { Canvas, CanvasKit, Image, ImageFilter, Paint, Path, RuntimeEffect, Shader } from 'canvaskit-wasm';
+import type { Canvas, CanvasKit, Font, Image, ImageFilter, Paint, Path, RuntimeEffect, Shader, Typeface } from 'canvaskit-wasm';
 import { addAdjust, childrenOf, colorEditUniforms, cropOf, duotoneOf, movesBox, posterOf, effectiveAdjust, hasLook, imageBox, shadowOf, zoomCrop, type Fx, straightenMatrix, stylizeOf, type BlendMode, type ImageAdjust, type ImageShadow, type Doc, type Element, type Fill, type ImageElement, type Page, type PathElement, type ShapeElement, type ShapeKind, type TextElement, type VideoElement } from '@digital-canvas/scene';
-import { aabb, dashArray, decompose, type Decomposed, type Prim, type PrimText } from '@digital-canvas/scene';
+import { aabb, clipOf, dashArray, decompose, exactPart, exactText, placeGlyphs, type Decomposed, type PathPart, type PdfSource, type Prim, type PrimText, type TextExact } from '@digital-canvas/scene';
 import { colorMatrix, LOOK_SKSL, lookFloats, needsLookShader, STYLE_ID, type LookUniforms } from './look.ts';
 import { color, FontLibrary } from './fonts.ts';
 import { listIndent, TextLayouts, type TextPiece } from './text.ts';
@@ -134,7 +134,77 @@ export class Renderer {
     }
   }
 
+  /** Fonts of the design being drawn (imported PDFs). */
+  private pdf: PdfSource | undefined;
+  private typefaces = new Map<string, Typeface | null>();
+
+  private typeface(family: string): Typeface | null {
+    if (this.typefaces.has(family)) return this.typefaces.get(family)!;
+    const face = this.fonts.faces.find((f) => f.family === family);
+    let tf: Typeface | null = null;
+    if (face) {
+      const b = face.bytes;
+      tf = this.ck.Typeface.MakeTypefaceFromData(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer);
+    }
+    this.typefaces.set(family, tf);
+    return tf;
+  }
+
+  /** The exact glyphs of an imported text box, where the PDF put them. */
+  private drawExact(canvas: Canvas, el: TextElement, x: TextExact): void {
+    const ck = this.ck;
+    canvas.save();
+    canvas.translate(el.x, el.y);
+    canvas.scale(x.w > 0 ? el.w / x.w : 1, x.h > 0 ? el.h / x.h : 1);
+    const recolor = el.style.color !== x.color ? el.style.color : null;
+    if (x.picture) {
+      const img = this.images.get(x.picture.asset);
+      if (img) canvas.drawImageRectOptions(img, ck.XYWHRect(0, 0, img.width(), img.height()), ck.XYWHRect(x.picture.x, x.picture.y, x.picture.w, x.picture.h), ck.FilterMode.Linear, ck.MipmapMode.Linear, this.paint);
+    }
+    for (const run of x.runs) {
+      const mode = run.mode ?? 0;
+      if (mode === 3) continue;
+      const info = this.pdf?.fonts[run.font];
+      const tf = info?.family ? this.typeface(info.family) : null;
+      if (!info || !tf) continue;
+      const { glyphs } = placeGlyphs(run, info.widths, info.bytes, info.scale ?? 1);
+      if (!glyphs.length) continue;
+      const ids = new Uint16Array(glyphs.length), pos = new Float32Array(glyphs.length * 2);
+      const sgn = run.size < 0 ? -1 : 1;
+      glyphs.forEach((g, i) => { ids[i] = info.gids[g.code] ?? 0; pos[i * 2] = g.x * sgn; });
+      const font: Font = new ck.Font(tf, Math.abs(run.size));
+      font.setHinting(ck.FontHinting.None);
+      font.setSubpixel(true);
+      font.setLinearMetrics(true);
+      font.setEdging(ck.FontEdging.AntiAlias);
+      canvas.save();
+      const m = run.m;
+      canvas.concat([m[0], m[2], m[4], m[1], m[3], m[5], 0, 0, 1]);
+      if (run.rise) canvas.translate(0, run.rise);
+      canvas.scale((run.th ?? 1) * sgn, -sgn);
+      const p = new ck.Paint();
+      p.setAntiAlias(true);
+      if (mode === 0 || mode === 2) {
+        p.setStyle(ck.PaintStyle.Fill);
+        p.setColor(color(ck, recolor ?? run.color));
+        canvas.drawGlyphs(ids, pos, 0, 0, font, p);
+      }
+      if ((mode === 1 || mode === 2) && run.stroke) {
+        p.setStyle(ck.PaintStyle.Stroke);
+        p.setStrokeWidth(run.lw ?? 1);
+        p.setColor(color(ck, run.stroke));
+        canvas.drawGlyphs(ids, pos, 0, 0, font, p);
+      }
+      p.delete();
+      font.delete();
+      canvas.restore();
+    }
+    canvas.restore();
+  }
+
   private drawTextBody(canvas: Canvas, el: TextElement): void {
+    const exact = exactText(el);
+    if (exact) { this.drawExact(canvas, el, exact); return; }
     const ck = this.ck, T = this.text;
     const fs = el.style.fontSize;
     const fx = el.effect;
@@ -237,6 +307,7 @@ export class Renderer {
   drawPage(canvas: Canvas, doc: Doc, page: Page, opts: DrawOptions = {}, background = true): void {
     const ck = this.ck;
     const b = opts.bleed ?? 0;
+    this.pdf = doc.pdf;
     canvas.save();
     canvas.clipRect(ck.XYWHRect(-b, -b, doc.width + 2 * b, doc.height + 2 * b), ck.ClipOp.Intersect, true);
     if (background) this.fillRect(canvas, page.background, -b, -b, doc.width + 2 * b, doc.height + 2 * b);
@@ -318,6 +389,18 @@ export class Renderer {
       return;
     }
     canvas.save();
+    const cl = clipOf(el);
+    if (cl) {
+      const m = cl.m;
+      for (const c of cl.clip.paths) {
+        const raw = ck.Path.MakeFromSVGString(c.d);
+        if (!raw) continue;
+        const path = transformPath(ck, raw, [m[0], m[2], m[4], m[1], m[3], m[5], 0, 0, 1]);
+        path.setFillType(c.evenOdd ? ck.FillType.EvenOdd : ck.FillType.Winding);
+        canvas.clipPath(path, ck.ClipOp.Intersect, true);
+        path.delete();
+      }
+    }
     this.transform(canvas, el);
     const layered = el.opacity < 1 || !!el.blend;
     if (layered) {
@@ -387,6 +470,8 @@ export class Renderer {
       }
       if (!path) continue;
       path.setFillType(part.evenOdd ? ck.FillType.EvenOdd : ck.FillType.Winding);
+      const ex = exactPart(part);
+      if (ex) { this.drawExactPart(canvas, path, part, ex); continue; }
       if (part.fill) {
         // gradients are laid out in viewBox units
         this.setFill(part.fill, vb.x, vb.y, vb.w, vb.h);
@@ -404,6 +489,52 @@ export class Renderer {
       }
     }
     canvas.restore();
+  }
+
+  /** A path part as the PDF drew it: its own stroke settings, shading and space. */
+  private drawExactPart(canvas: Canvas, path: Path, part: PathPart, ex: NonNullable<ReturnType<typeof exactPart>>): void {
+    const ck = this.ck;
+    const p = new ck.Paint();
+    p.setAntiAlias(true);
+    canvas.save();
+    if (ex.ctm) canvas.concat([ex.ctm[0], ex.ctm[2], ex.ctm[4], ex.ctm[1], ex.ctm[3], ex.ctm[5], 0, 0, 1]);
+    if (part.fill?.type === 'solid') {
+      p.setStyle(ck.PaintStyle.Fill);
+      const c = color(ck, part.fill.color);
+      if (ex.shade) {
+        const s = ex.shade, m = s.matrix;
+        const local = [m[0], m[2], m[4], m[1], m[3], m[5], 0, 0, 1];
+        const cols = s.stops.map((t) => color(ck, t.color)), pos = s.stops.map((t) => Math.min(1, Math.max(0, t.offset)));
+        const tile = s.extend[0] || s.extend[1] ? ck.TileMode.Clamp : ck.TileMode.Decal;
+        const v = s.coords;
+        const shader = s.kind === 'axial'
+          ? ck.Shader.MakeLinearGradient([v[0]!, v[1]!], [v[2]!, v[3]!], cols, pos, tile, local)
+          : ck.Shader.MakeTwoPointConicalGradient([v[0]!, v[1]!], v[2]!, [v[3]!, v[4]!], v[5]!, cols, pos, tile, local);
+        p.setColor(ck.Color4f(1, 1, 1, c[3]!));
+        p.setShader(shader);
+        canvas.drawPath(path, p);
+        p.setShader(null);
+        shader.delete();
+      } else {
+        p.setColor(c);
+        canvas.drawPath(path, p);
+      }
+    }
+    if (part.stroke) {
+      p.setStyle(ck.PaintStyle.Stroke);
+      p.setStrokeWidth(ex.width ?? part.stroke.width);
+      p.setStrokeCap([ck.StrokeCap.Butt, ck.StrokeCap.Round, ck.StrokeCap.Square][ex.cap ?? 0]!);
+      p.setStrokeJoin([ck.StrokeJoin.Miter, ck.StrokeJoin.Round, ck.StrokeJoin.Bevel][ex.join ?? 0]!);
+      p.setStrokeMiter(ex.miter ?? 10);
+      p.setColor(color(ck, part.stroke.color));
+      const dash = ex.dash && ex.dash.array.length ? ck.PathEffect.MakeDash(ex.dash.array.length % 2 ? [...ex.dash.array, ...ex.dash.array] : ex.dash.array, ex.dash.phase) : null;
+      p.setPathEffect(dash);
+      canvas.drawPath(path, p);
+      p.setPathEffect(null);
+      dash?.delete();
+    }
+    canvas.restore();
+    p.delete();
   }
 
   private drawShape(canvas: Canvas, el: ShapeElement): void {
@@ -939,6 +1070,8 @@ export class Renderer {
     this.text.dispose();
     for (const p of this.svgPaths.values()) p?.delete();
     this.svgPaths.clear();
+    for (const t of this.typefaces.values()) t?.delete();
+    this.typefaces.clear();
     for (const img of this.images.values()) img.delete();
     for (const img of this.frames.values()) img.delete();
     this.frames.clear();

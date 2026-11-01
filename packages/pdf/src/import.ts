@@ -936,8 +936,9 @@ function rectContains(c: PdfClipPath, b: [number, number, number, number]): bool
   return axis && Math.min(...xs) <= b[0] && Math.max(...xs) >= b[2] && Math.min(...ys) <= b[1] && Math.max(...ys) >= b[3];
 }
 
-function textElement(line: Chunk[], b: Builder, ascents: Map<string, [number, number]>): TextElement {
+function textElement(line: Chunk[], b: Builder, ascents: Map<string, [number, number]>): Element {
   const first = line[0]!, m0 = first.m;
+  if (!invert(m0)) return { id: newId(), type: 'text', x: NaN, y: 0, w: 0, h: 0, rotation: 0, opacity: 1, text: '', style: DEFAULT_TEXT_STYLE };
   const th0 = first.run.th ?? 1;
   const inv0 = invert(m0)!;
   // the line's reach along its own baseline, in the first run's text units
@@ -1130,7 +1131,11 @@ function alignLists(opt: number[], raw: number[]): Int32Array {
 function finishPage(out: Out[], b: Builder): Element[] {
   const els: Element[] = [];
   for (const o of out) {
-    if (!isFlat(o)) { els.push(o); continue; }
+    if (!isFlat(o)) {
+      // text at size 0 and other degenerate matrices draw nothing
+      if (Number.isFinite(o.x + o.y + o.w + o.h + o.rotation)) els.push(o);
+      continue;
+    }
     const made = (o as Flat & { made?: { id: string; x: number; y: number; w: number; h: number } }).made;
     if (made) {
       const el: ImageElement = { id: newId(), type: 'image', name: `PDF region (${o.why})`, x: made.x, y: made.y, w: made.w, h: made.h, rotation: 0, opacity: 1, asset: made.id, radius: 0, crop: { x: 0, y: 0, w: 1, h: 1 } };

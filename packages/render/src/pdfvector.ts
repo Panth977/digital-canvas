@@ -1,5 +1,5 @@
 import {
-  appendBezierCurve, clip, closePath, cmyk, concatTransformationMatrix, drawObject, endPath, LineCapStyle, LineJoinStyle, lineTo, moveTo, PDFDocument, PDFOperator,
+  appendBezierCurve, clip, clipEvenOdd, closePath, cmyk, concatTransformationMatrix, drawObject, endPath, LineCapStyle, LineJoinStyle, lineTo, moveTo, PDFDocument, PDFOperator,
   PDFOperatorNames, popGraphicsState, pushGraphicsState, rgb, setCharacterSpacing, setCharacterSqueeze, setDashPattern, setFillingCmykColor, setFillingRgbColor,
   setGraphicsState, setLineCap, setLineJoin, setLineWidth, setStrokingCmykColor, setStrokingRgbColor, StandardFonts, type Color as PdfColor, type PDFFont,
   type PDFName, type PDFPage, type PDFRef,
@@ -7,7 +7,8 @@ import {
 import fontkit from '@pdf-lib/fontkit';
 import type { Path } from 'canvaskit-wasm';
 import type { Color, Doc, Element, Fill, ImageElement, Page, PathElement, ShapeElement, Stroke, TextElement, VideoElement } from '@digital-canvas/scene';
-import { dashArray, posterOf, walk, type Decomposed } from '@digital-canvas/scene';
+import { clipOf, dashArray, exactPart, exactText, posterOf, walk, type Decomposed, type Matrix, type PathPart, type TextExact } from '@digital-canvas/scene';
+import { addLinks, cm, colorOps, exactWriter, strokeOps, textStateOps, tjOp, type ExactWriter } from './pdfexact.ts';
 import type { FontFace } from './fonts.ts';
 import { shapePath, transformPath, type Renderer } from './renderer.ts';
 import { loadPicture, pictureNeedsRaster, textNeedsRaster, type VectorExportOptions } from './svgexport.ts';
@@ -34,7 +35,7 @@ const isLinear = (f: Fill | null | undefined) => f?.type === 'linear';
 
 /** Elements vector PDF draws as an image: text effects, curved or gradient text, gradient fills, images with a look. */
 function needsRaster(el: Element): boolean {
-  if (el.type === 'text') return textNeedsRaster(el) || !!el.gradient;
+  if (el.type === 'text') return !exactText(el) && (textNeedsRaster(el) || !!el.gradient);
   if (el.type === 'shape') return isLinear(el.fill);
   if (el.type === 'path') return el.paths.some((p) => isLinear(p.fill));
   if (el.type === 'image' || el.type === 'video') return pictureNeedsRaster(el);
@@ -94,6 +95,8 @@ export async function exportVectorPdf(renderer: Renderer, doc: Doc, opts: Vector
     }
     return e;
   };
+  const exact: ExactWriter | null = doc.pdf ? await exactWriter(pdf, doc, opts.assets) : null;
+  const pendingLinks: { page: PDFPage; links: NonNullable<Page['links']>; toSheet: (x: number, y: number) => [number, number] }[] = [];
   const images = new Map<string, PDFRef | null>();
   const embedImage = async (key: string, bytes: Uint8Array, mime: string): Promise<PDFRef | null> => {
     if (images.has(key)) return images.get(key)!;
@@ -117,12 +120,26 @@ export async function exportVectorPdf(renderer: Renderer, doc: Doc, opts: Vector
   };
 
   for (const page of pages) {
-    const p = pdf.addPage([wPt, hPt]);
+    // an imported page gets its own size back; `box` also moves it off the letterbox
+    const box = !opts.print ? page.pdfPage : undefined;
+    const sheetW = box ? box.w : wPt, sheetH = box ? box.h : hPt;
+    const p = pdf.addPage([sheetW, sheetH]);
     if (opts.print) {
       // PDF boxes are y-up points; the layout is symmetric, so y = x
       p.setBleedBox(lay.bleed.x * 0.75, lay.bleed.y * 0.75, lay.bleed.w * 0.75, lay.bleed.h * 0.75);
       p.setTrimBox(lay.trim.x * 0.75, lay.trim.y * 0.75, lay.trim.w * 0.75, lay.trim.h * 0.75);
     }
+    const blends = new Map<string, PDFName>();
+    /** A blend mode, for elements of imported pages. */
+    const blendOp = (b: string): PDFOperator => {
+      let name = blends.get(b);
+      if (!name) {
+        const bm = b.split('-').map((w) => w[0]!.toUpperCase() + w.slice(1)).join('');
+        name = p.node.newExtGState('BM', pdf.context.obj({ Type: 'ExtGState', BM: bm }));
+        blends.set(b, name);
+      }
+      return setGraphicsState(name);
+    };
     const states = new Map<string, PDFName>();
     /** Named graphics state for fill/stroke alpha. */
     const alpha = (ca: number, CA: number): PDFOperator[] => {
@@ -169,7 +186,37 @@ export async function exportVectorPdf(renderer: Renderer, doc: Doc, opts: Vector
       ops(pushGraphicsState(), ...alpha(opacity, opacity), concatTransformationMatrix(w, 0, 0, -h, x, y + h), drawObject(name), popGraphicsState());
     };
 
+    /** The exact glyphs of an imported text box. */
+    const exactRuns = (el: TextElement, x: TextExact, w: ExactWriter) => {
+      const sx = x.w > 0 ? el.w / x.w : 1, sy = x.h > 0 ? el.h / x.h : 1;
+      const recolor = el.style.color !== x.color ? el.style.color : null;
+      ops(pushGraphicsState(), concatTransformationMatrix(sx, 0, 0, sy, el.x, el.y));
+      for (const run of x.runs) {
+        const f = w.font(p, run.font);
+        const info = doc.pdf!.fonts[run.font]!;
+        if (!f) {
+          if (run.mode === 3) continue;
+          continue;
+        }
+        const fill = rgba(recolor ?? run.color), st = run.stroke ? rgba(run.stroke) : null;
+        const o: PDFOperator[] = [pushGraphicsState(), ...alpha(el.opacity * fill.a, el.opacity * (st?.a ?? 1)), cm(run.m as Matrix)];
+        const fillSrc = !recolor && run.colorSrc ? colorOps(w, p, run.colorSrc, false) : null;
+        o.push(...(fillSrc ?? [fillOp(fill)]));
+        if (st) {
+          o.push(...((run.strokeSrc ? colorOps(w, p, run.strokeSrc, true) : null) ?? [strokeOp(st)]));
+          if (run.lw !== undefined) o.push(setLineWidth(run.lw));
+        }
+        o.push(...textStateOps(run, f.name), tjOp(run, info.bytes, f.gidCodes ? (c) => info.gids[c] ?? 0 : null), PDFOperator.of(PDFOperatorNames.EndText), popGraphicsState());
+        ops(...o);
+      }
+      ops(popGraphicsState());
+    };
+
     const text = async (el: TextElement, opacity: number) => {
+      const x = exact ? exactText(el) : null;
+      if (x && exact) {
+        if (x.runs.every((r) => exact.ok(r))) { exactRuns(el, x, exact); return; }
+      }
       for (const piece of renderer.textPieces(el)) {
         const st = piece.style;
         const chain = [...pickFaces(renderer.fonts.faces, st.fontFamily, st.bold, st.italic), ...pickFaces(renderer.fonts.faces, 'Inter', st.bold, st.italic)];
@@ -230,21 +277,60 @@ export async function exportVectorPdf(renderer: Renderer, doc: Doc, opts: Vector
       path.delete();
     };
 
+    /** A part as the PDF drew it, in viewBox units. */
+    const exactPartOps = (part: PathPart, ex: NonNullable<ReturnType<typeof exactPart>>, w: ExactWriter, opacity: number) => {
+      const raw = ck.Path.MakeFromSVGString(part.d);
+      if (!raw) return;
+      const cmds = pathOps(pathCmds(ck, raw));
+      raw.delete();
+      const fill = part.fill?.type === 'solid' ? rgba(part.fill.color) : null;
+      const st = part.stroke ? rgba(part.stroke.color) : null;
+      const o: PDFOperator[] = [pushGraphicsState(), ...alpha(opacity * (fill?.a ?? 1), opacity * (st?.a ?? 1))];
+      if (ex.ctm) o.push(cm(ex.ctm));
+      if (ex.shade) {
+        const name = w.shading(p, ex.shade);
+        ops(...o, pushGraphicsState(), ...cmds, part.evenOdd ? clipEvenOdd() : clip(), endPath(), cm(ex.shade.matrix), PDFOperator.of(PDFOperatorNames.ShadingFill, [name]), popGraphicsState());
+        o.length = 0;
+        if (st) o.push(...strokeOps(ex), ...((ex.strokeSrc ? colorOps(w, p, ex.strokeSrc, true) : null) ?? [strokeOp(st)]), ...cmds, PDFOperator.of(PDFOperatorNames.StrokePath));
+        ops(...o, popGraphicsState());
+        return;
+      }
+      if (fill) o.push(...((ex.fillSrc ? colorOps(w, p, ex.fillSrc, false) : null) ?? [fillOp(fill)]));
+      if (st) o.push(...strokeOps(ex), ...((ex.strokeSrc ? colorOps(w, p, ex.strokeSrc, true) : null) ?? [strokeOp(st)]));
+      o.push(...cmds);
+      const eo = part.evenOdd;
+      o.push(PDFOperator.of(fill && st ? (eo ? PDFOperatorNames.FillEvenOddAndStroke : PDFOperatorNames.FillNonZeroAndStroke) : fill ? (eo ? PDFOperatorNames.FillEvenOdd : PDFOperatorNames.FillNonZero) : PDFOperatorNames.StrokePath), popGraphicsState());
+      ops(...o);
+    };
+
     const vectorPath = (el: PathElement) => {
       const vb = el.viewBox;
       if (vb.w <= 0 || vb.h <= 0) return;
       const sx = el.w / vb.w, sy = el.h / vb.h;
+      if (exact && el.paths.some((q) => q.exact)) ops(pushGraphicsState(), concatTransformationMatrix(sx, 0, 0, sy, el.x - vb.x * sx, el.y - vb.y * sy));
       for (const part of el.paths) {
+        const ex = exact ? exactPart(part) : null;
+        if (ex && exact) { exactPartOps(part, ex, exact, el.opacity); continue; }
         const raw = ck.Path.MakeFromSVGString(part.d);
         if (!raw) continue;
         const path = transformPath(ck, raw, [sx, 0, el.x - vb.x * sx, 0, sy, el.y - vb.y * sy, 0, 0, 1]);
         paint(path, { fill: solid(part.fill), stroke: part.stroke ? { ...part.stroke, cap: 'round', dashes: null } : null, evenOdd: part.evenOdd }, el.opacity);
         path.delete();
       }
+      if (exact && el.paths.some((q) => q.exact)) ops(popGraphicsState());
     };
 
     const picture = async (el: ImageElement | VideoElement) => {
       const assetId = el.type === 'video' ? posterOf(el) : el.asset;
+      if (el.type === 'image' && exact && el.pdfImage?.asset === el.asset) {
+        const ref = exact.image(el.pdfImage.obj);
+        if (ref) {
+          const sc = el.pdfImage.stencil;
+          if (sc) ops(...(colorOps(exact, p, sc, false) ?? [fillOp(rgba(sc.rgb))]));
+          placeImage(ref, el.x, el.y, el.w, el.h, el.opacity);
+          return;
+        }
+      }
       const bytes = assetId ? opts.assets.get(assetId) : undefined;
       const size = bytes ? renderer.setImage(assetId, bytes) : null;
       const clipPath = (el.type === 'image' ? renderer.maskPath(el) : null) ?? shapePath(ck, 'rect', el.x, el.y, el.w, el.h, el.radius);
@@ -254,7 +340,9 @@ export async function exportVectorPdf(renderer: Renderer, doc: Doc, opts: Vector
         clipPath.delete();
         return;
       }
-      ops(pushGraphicsState(), ...pathOps(pathCmds(ck, clipPath)), clip(), endPath());
+      const full = el.crop && el.crop.x === 0 && el.crop.y === 0 && el.crop.w === 1 && el.crop.h === 1 && exact && el.radius === 0;
+      ops(pushGraphicsState());
+      if (!full) ops(...pathOps(pathCmds(ck, clipPath)), clip(), endPath());
       clipPath.delete();
       let crop = el.crop;
       if (!crop) {
@@ -268,11 +356,16 @@ export async function exportVectorPdf(renderer: Renderer, doc: Doc, opts: Vector
     };
 
     // sheet px (y down) → PDF points (y up); then page px (0,0 = the trim's top-left)
-    ops(pushGraphicsState(), concatTransformationMatrix(0.75, 0, 0, -0.75, 0, hPt), concatTransformationMatrix(1, 0, 0, 1, lay.trim.x, lay.trim.y));
+    const pt = box ? 1 / box.scale : 0.75;
+    ops(pushGraphicsState(), concatTransformationMatrix(pt, 0, 0, -pt, 0, sheetH), concatTransformationMatrix(1, 0, 0, 1, box ? -box.x : lay.trim.x, box ? -box.y : lay.trim.y));
+    if (page.links?.length) {
+      const ox = box ? box.x : -lay.trim.x, oy = box ? box.y : -lay.trim.y;
+      pendingLinks.push({ page: p, links: page.links, toSheet: (x, y) => [(x - ox) * pt, sheetH - (y - oy) * pt] });
+    }
     // artwork stops at the bleed (the marks' slug stays clean)
-    ops(...pathOps([{ op: 'M', x: -bl, y: -bl }, { op: 'L', x: doc.width + bl, y: -bl }, { op: 'L', x: doc.width + bl, y: doc.height + bl }, { op: 'L', x: -bl, y: doc.height + bl }, { op: 'Z' }]), clip(), endPath());
+    if (!doc.pdf) ops(...pathOps([{ op: 'M', x: -bl, y: -bl }, { op: 'L', x: doc.width + bl, y: -bl }, { op: 'L', x: doc.width + bl, y: doc.height + bl }, { op: 'L', x: -bl, y: doc.height + bl }, { op: 'Z' }]), clip(), endPath());
     // a blend mixes with what's under it, which vectors drawn one by one can't do: draw the page whole
-    const blended = [...walk(page.elements)].some((e) => e.blend);
+    const blended = !doc.pdf && [...walk(page.elements)].some((e) => e.blend);
     if (opts.flatten || blended) {
       // the whole page as one picture (bleed included)
       const scale = (opts.flatten?.dpi ?? 300) / 96;
@@ -284,7 +377,8 @@ export async function exportVectorPdf(renderer: Renderer, doc: Doc, opts: Vector
       await notesPage(page);
       continue;
     }
-    if (page.background.type === 'solid') {
+    const plain = doc.pdf && page.background.type === 'solid' && /^#fff(fff)?$/i.test(page.background.color);
+    if (plain) { /* paper is white: an imported page adds nothing under its own content */ } else if (page.background.type === 'solid') {
       const b = new ck.PathBuilder();
       b.addRect(ck.XYWHRect(-bl, -bl, doc.width + 2 * bl, doc.height + 2 * bl));
       const path = b.detachAndDelete();
@@ -303,6 +397,18 @@ export async function exportVectorPdf(renderer: Renderer, doc: Doc, opts: Vector
         continue;
       }
       ops(pushGraphicsState());
+      if (el.blend && doc.pdf) ops(blendOp(el.blend));
+      const cl = clipOf(el);
+      if (cl) {
+        for (const c of cl.clip.paths) {
+          const raw = ck.Path.MakeFromSVGString(c.d);
+          if (!raw) continue;
+          const m = cl.m;
+          const path = transformPath(ck, raw, [m[0], m[2], m[4], m[1], m[3], m[5], 0, 0, 1]);
+          ops(...pathOps(pathCmds(ck, path)), c.evenOdd ? clipEvenOdd() : clip(), endPath());
+          path.delete();
+        }
+      }
       const cx = el.x + el.w / 2, cy = el.y + el.h / 2;
       if (el.rotation) {
         const r = (el.rotation * Math.PI) / 180, cos = Math.cos(r), sin = Math.sin(r);
@@ -323,7 +429,9 @@ export async function exportVectorPdf(renderer: Renderer, doc: Doc, opts: Vector
     cropMarks(p);
     await notesPage(page);
   }
-  return pdf.save();
+  const pageRefs = pdf.getPages();
+  for (const l of pendingLinks) addLinks(l.page, l.links, l.toSheet, (i) => { const at = pages.indexOf(doc.pages[i]!); return at >= 0 ? pageRefs[at]?.ref : undefined; });
+  return pdf.save({ objectsPerTick: Infinity });
 
   /** Hairline crop marks in registration colour (all inks in CMYK). */
   function cropMarks(p: PDFPage): void {
