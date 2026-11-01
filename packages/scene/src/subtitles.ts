@@ -11,6 +11,7 @@ import { stretchAudio } from './stretch.ts';
 import { walk } from './tree.ts';
 import type { AudioClip, Doc, Element, Page, SpeechSettings, SubtitleLine, SubtitleTrack, TextElement, TextEffect, TextStyle } from './types.ts';
 
+const DEVANAGARI = /[\u0900-\u097f]/;
 const r2 = (n: number): number => Math.round(n * 100) / 100;
 const r3 = (n: number): number => Math.round(n * 1000) / 1000;
 /** A line never gets shorter than this, seconds. */
@@ -121,10 +122,14 @@ export const CAPTION_STYLES: CaptionStyle[] = [
 const captionStyle = (id: string): CaptionStyle => CAPTION_STYLES.find((s) => s.id === id) ?? CAPTION_STYLES[0]!;
 export const isCaption = (e: Element): boolean => !!e.caption;
 
+/** Inter has no Devanagari. Caption styles use Inter, so a Hindi line swaps it for this. */
+export const HINDI_FONT = 'Noto Sans Devanagari';
+const captionFamily = (lineText: string, family: string): string => (family === 'Inter' && DEVANAGARI.test(lineText) ? HINDI_FONT : family === HINDI_FONT && !DEVANAGARI.test(lineText) ? 'Inter' : family);
+
 function captionElement(doc: Doc, c: CaptionStyle, line: SubtitleLine, timing: Element['timing']): TextElement {
   const size = Math.round(Math.min(doc.width, doc.height) * 0.05);
   const box = { x: doc.width * 0.08, y: doc.height * c.y, w: doc.width * 0.84, h: size * 1.25 };
-  return { ...text(line.text, box, { fontSize: size, align: 'center', lineHeight: 1.2, ...c.style }), name: 'Caption', caption: line.id, ...(c.effect ? { effect: c.effect } : {}), timing };
+  return { ...text(line.text, box, { fontSize: size, align: 'center', lineHeight: 1.2, ...c.style, fontFamily: captionFamily(line.text, c.style.fontFamily ?? 'Inter') }), name: 'Caption', caption: line.id, ...(c.effect ? { effect: c.effect } : {}), timing };
 }
 
 /** Where a line falls on each scene it crosses. */
@@ -169,7 +174,7 @@ export function syncCaptions(doc: Doc): { doc: Doc; changed: string[] } {
       const same = hit.el.text === l.text && hit.el.timing?.start === timing.start && hit.el.timing?.end === timing.end;
       if (same) continue;
       if (hit.el.text !== l.text) changed.push(hit.el.id);
-      next = updateElements(next, [hit.el.id], { text: l.text, runs: undefined, timing } as never);
+      next = updateElements(next, [hit.el.id], { text: l.text, runs: undefined, timing, style: { ...hit.el.style, fontFamily: captionFamily(l.text, hit.el.style.fontFamily) } } as never);
     }
   }
   const gone = have.filter((h) => !keep.has(h.el.id)).map((h) => h.el.id);
@@ -181,7 +186,7 @@ export function applyCaptionStyle(doc: Doc, id: string): Doc {
   if (!doc.subtitles) return doc;
   const c = captionStyle(id);
   const size = Math.round(Math.min(doc.width, doc.height) * 0.05);
-  const next = updateElements(doc, captionsOf(doc).map((h) => h.el.id), (e) => ({ y: doc.height * c.y, effect: c.effect, style: { ...(e as TextElement).style, ...c.style, uppercase: c.style.uppercase ?? false, fontSize: size } }) as never);
+  const next = updateElements(doc, captionsOf(doc).map((h) => h.el.id), (e) => ({ y: doc.height * c.y, effect: c.effect, style: { ...(e as TextElement).style, ...c.style, fontFamily: captionFamily((e as TextElement).text, c.style.fontFamily ?? 'Inter'), uppercase: c.style.uppercase ?? false, fontSize: size } }) as never);
   return { ...next, subtitles: { ...doc.subtitles, style: id } };
 }
 
@@ -217,7 +222,6 @@ export function setSpeech(doc: Doc, patch: Partial<SpeechSettings>): Doc {
 
 // ---- which lines need speech ----
 
-const DEVANAGARI = /[\u0900-\u097f]/;
 
 /** The voice that says a line: its own, else the track's; Hindi text gets a Hindi voice. */
 export function lineVoice(l: Pick<SubtitleLine, 'text' | 'voice'>, s: SpeechSettings): string {

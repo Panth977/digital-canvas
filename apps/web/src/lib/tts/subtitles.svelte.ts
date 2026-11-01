@@ -4,10 +4,11 @@
  * Generate is one undo step.
  */
 import {
-  addSpeech, applyCaptionStyle, emptyTrack, encodeWav, fitSamples, levelSpeech, lineVoice, newId, parseCues, setLines, setSpeech, speechKey, splitScript, staleLines, syncCaptions, timeScript, toSrt, toVtt, updateElements,
+  HINDI_FONT, addSpeech, applyCaptionStyle, emptyTrack, encodeWav, fitSamples, levelSpeech, lineVoice, newId, parseCues, setLines, setSpeech, speechKey, splitScript, staleLines, syncCaptions, timeScript, toSrt, toVtt, updateElements,
   pageDuration, pageStart, type Doc, type SpeechSettings, type SubtitleLine, type SubtitleTrack, type TextElement,
 } from '@digital-canvas/scene';
 import { assetId } from '@digital-canvas/storage';
+import { catalog, fetchFamily } from '../fonts.ts';
 import type { EditorState } from '../editor.svelte.ts';
 import { ENGINES, voiceById, type Engine } from './voices.ts';
 import type { Spoken } from './synth.ts';
@@ -37,6 +38,7 @@ export class Subtitles {
   /** Spoken lines of this session by key, so changing only the fit doesn't run the model again. */
   private spoken = new Map<string, Spoken>();
   private jobs = 0;
+  private fontPending = false;
 
   constructor(private ed: EditorState) {}
 
@@ -63,6 +65,25 @@ export class Subtitles {
     const fit = (e: TextElement): Partial<TextElement> => { try { return ed.fitPatch(e); } catch { return {}; } };
     const doc = r.changed.length ? updateElements(r.doc, r.changed, (e) => (e.type === 'text' ? fit(e) : {})) : r.doc;
     ed.commit(doc, key);
+    if (doc.subtitles?.lines.some((l) => /[\u0900-\u097f]/.test(l.text))) void this.hindiFont();
+  }
+
+  /** Hindi captions need a font with Devanagari; embedded like any other font. Offline, the design still opens. */
+  private async hindiFont(): Promise<void> {
+    const ed = this.ed;
+    if (ed.engine.fonts.families.has(HINDI_FONT) || this.fontPending) return;
+    this.fontPending = true;
+    try {
+      const f = (await catalog()).find((x) => x.family === HINDI_FONT);
+      const text = this.track.lines.map((l) => l.text).join(' ');
+      if (f) await ed.addFonts(await fetchFamily(f, text));
+      const ids = ed.doc.pages.flatMap((p) => p.elements).filter((e) => e.caption).map((e) => e.id);
+      this.apply({ doc: ed.doc, changed: ids });
+    } catch (e) {
+      console.warn('Hindi caption font not loaded', e);
+    } finally {
+      this.fontPending = false;
+    }
   }
 
   private lines(next: SubtitleLine[], key: string | null = null): void {
@@ -163,7 +184,7 @@ export class Subtitles {
         const line = this.track.lines.find((l) => l.id === first.id);
         if (!line?.text.trim()) continue;
         const s = this.track.speech, key = speechKey(line, s), voice = lineVoice(line, s), speed = line.speed ?? s.speed;
-        this.job = { done: i, total: todo.length, msg: `Speaking line ${i + 1} of ${todo.length}…` };
+        this.job = { done: i, total: todo.length, msg: 'Speaking…' };
         let got = this.spoken.get(key);
         if (!got) {
           const r = await ed.synth(line.text, { voice, speed, engine: this.engine, signal: ac.signal, progress: (msg, fraction) => { if (this.job) this.job = { ...this.job, msg, fraction }; } });

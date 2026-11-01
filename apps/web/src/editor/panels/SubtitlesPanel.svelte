@@ -190,7 +190,7 @@
 
     {#if job}
       <div class="job" role="status" data-testid="sub-progress">
-        <span>{job.msg}</span>
+        <span>{#if job.total > 1}Line {job.done + 1} of {job.total}: {/if}{job.msg}</span>
         <div class="bar"><i style="width:{((job.done + (job.fraction ?? 0)) / job.total) * 100}%"></i></div>
         <button class="btn ghost" data-testid="sub-cancel" onclick={() => s.cancel()}>Cancel</button>
       </div>
