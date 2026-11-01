@@ -27,6 +27,8 @@ const flag = (n: string, d: string) => { const i = args.indexOf(n); if (i < 0) r
 const out = flag('--out', '/tmp/orch27-rw/r18-pdf-report.html');
 const maxPages = Number(flag('--max-pages', '12'));
 const only = flag('--only', '');
+const noSource = args.includes('--no-source');
+if (noSource) args.splice(args.indexOf('--no-source'), 1);
 const quick = args.includes('--quick');
 if (quick) args.splice(args.indexOf('--quick'), 1);
 const files = args.flatMap((a) => (statSync(a).isDirectory() ? readdirSync(a).filter((f) => f.endsWith('.pdf')).map((f) => join(a, f)) : [a])).filter((f) => basename(f).includes(only));
@@ -127,6 +129,8 @@ for (const f of files) {
     const renderer = new Renderer(ck, fonts);
     for (const fnt of doc.fonts ?? []) { const b = assets.get(fnt.asset); if (b) fonts.add(fnt.family, b, fnt.subset); }
     for (const [id, b] of assets) if (doc.assets[id]?.mime.startsWith('image/')) renderer.setImage(id, b);
+    // --no-source: what a file exports like without its original objects (encrypted files, or the source removed)
+    if (noSource) delete doc.pdf!.source;
     const bytes = await exportVectorPdf(renderer, doc, { assets, title: name });
     row.size[1] = bytes.length;
     const ours = join(tmp, `${name}.pdf`);
@@ -205,10 +209,13 @@ async function editTest(doc: Doc, assets: Map<string, Uint8Array>, renderer: Ren
     writeFileSync(path, bytes);
     const d = diff(rasterize(base, i + 1, join(tmp, 'a')), rasterize(path, i + 1, join(tmp, 'b')));
     if (!d.box) return 'edit: nothing changed!';
-    const k = DPI / 96;
+    // page px → pixels of this render (an imported page may sit letterboxed on the design)
+    const b = page.pdfPage;
+    const k = b ? (DPI / 72) / b.scale : DPI / 96, ox = b?.x ?? 0, oy = b?.y ?? 0;
     const pad = el.h * k;
-    const inside = d.box[0] >= el.x * k - pad && d.box[1] >= el.y * k - pad && d.box[3] <= (el.y + el.h) * k + pad;
-    return `edit "${word}": ${inside ? 'only that line changed' : `SPILLED ${d.box.join(',')} vs ${[el.x, el.y, el.w, el.h].map((v) => Math.round(v * k)).join(',')}`}`;
+    const X = (el.x - ox) * k, Y = (el.y - oy) * k, H = el.h * k;
+    const inside = d.box[0] >= X - pad && d.box[1] >= Y - pad && d.box[3] <= Y + H + pad;
+    return `edit "${word}": ${inside ? 'only that line changed' : `SPILLED ${d.box.join(',')} vs ${[X, Y, el.w * k, H].map(Math.round).join(',')}`}`;
   }
   return 'edit: no text';
 }

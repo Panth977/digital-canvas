@@ -1322,9 +1322,8 @@ export async function importPdf(pdfjs: Pdfjs, bytes: Uint8Array, opts: ImportOpt
 }
 
 function fitOnPage(e: Element, k: number, dx: number, dy: number): void {
+  // clips and vector sources keep the box they were made for, so they follow by themselves
   e.x = e.x * k + dx; e.y = e.y * k + dy; e.w *= k; e.h *= k;
-  if (e.pdfClip) e.pdfClip.box = { x: e.x, y: e.y, w: e.w, h: e.h }; // box scales with the element; the clip stays in import px
-  if (e.pdfClip) e.pdfClip = { ...e.pdfClip, paths: e.pdfClip.paths, box: e.pdfClip.box };
 }
 
 async function readLinks(page: any, base: Matrix, pdf: any): Promise<PageLink[]> {

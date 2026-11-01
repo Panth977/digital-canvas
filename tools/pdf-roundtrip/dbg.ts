@@ -5,7 +5,7 @@ import { exportVectorPdf, FontLibrary, Renderer } from '@digital-canvas/render';
 import { decodePDFRawStream, PDFDocument, PDFName, PDFRawStream, PDFArray } from 'pdf-lib';
 const f = process.argv[2]!, pn = +(process.argv[3] ?? 1);
 const src = new Uint8Array(readFileSync(f));
-const r = await importPdfNode(src, { pages: [pn] });
+const r = await importPdfNode(src, { pages: process.env.PAGES ? process.env.PAGES.split(',').map(Number) : [pn] });
 const els = r.doc.pages[0]!.elements;
 console.log('page', r.doc.width, r.doc.height, 'els', els.length, r.report.notes);
 console.log(JSON.stringify(r.report.flattened), els.filter((e:any)=>e.pdfVector).map((e:any)=>JSON.stringify(e.pdfVector).slice(0,200)));
@@ -23,6 +23,7 @@ const content = async (bytes: Uint8Array, i: number) => {
   const parts = c instanceof PDFArray ? c.asArray().map((x) => d.context.lookup(x)) : [c];
   return parts.map((s) => new TextDecoder('latin1').decode(decodePDFRawStream(s as PDFRawStream).decode())).join('\n');
 };
+process.exit(0);
 const a = await content(src, pn - 1), b = await content(out, 0);
 console.log('--- SOURCE\n', a.slice(0, +(process.argv[4] ?? 700)));
 console.log('--- OURS\n', b.slice(0, +(process.argv[4] ?? 700)));
