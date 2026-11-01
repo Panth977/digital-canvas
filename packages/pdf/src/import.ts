@@ -1280,7 +1280,7 @@ export async function importPdf(pdfjs: Pdfjs, bytes: Uint8Array, opts: ImportOpt
         const dx = (docW - s.w * k) / 2, dy = (docH - s.h * k) / 2;
         if (Math.abs(k - 1) > 1e-6 || dx > 0.01 || dy > 0.01) {
           for (const e of els) fitOnPage(e, k, dx, dy);
-          p.pdfPage = { w: s.w / PX, h: s.h / PX, scale: k * PX, x: dx, y: dy };
+          p.pdfPage = { w: Math.round((s.w / PX) * 1e4) / 1e4, h: Math.round((s.h / PX) * 1e4) / 1e4, scale: k * PX, x: dx, y: dy };
         }
       }
       const links = await readLinks(page, base, pdf);
