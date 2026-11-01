@@ -9,17 +9,17 @@ import {
   AudioSample, AudioSampleSource, BufferSource, BufferTarget, CanvasSource, Input, ALL_FORMATS, Mp4OutputFormat, Output, QUALITY_HIGH, VideoSampleSink,
   getFirstEncodableAudioCodec, getFirstEncodableVideoCodec, type VideoSample,
 } from 'mediabunny';
-import { clipLength, clipSpeed, clipTime, frameAt, pageDuration, pageStart, stretchAudio, totalDuration, walk, type Doc, type Page, type VideoElement } from '@digital-canvas/scene';
+import { clipLength, clipSpeed, clipTime, duckGain, frameAt, pageDuration, pageStart, stretchAudio, totalDuration, walk, type Doc, type Page, type VideoElement } from '@digital-canvas/scene';
 import type { ProjectFile } from '@digital-canvas/storage';
 import { withRenderer } from '../engine.ts';
 import type { VideoExportOptions } from '../platform.ts';
 import { drawAt, even, snapshot } from '../video.ts';
 import { RATE, decodeStereo, samplePixels } from './media.ts';
 
-interface Sound { asset: string; at: number; offset: number; dur: number; volume: number; loop?: boolean; fadeIn?: number; fadeOut?: number; speed?: number; end?: number }
+interface Sound { asset: string; at: number; offset: number; dur: number; volume: number; loop?: boolean; fadeIn?: number; fadeOut?: number; speed?: number; end?: number; speech?: boolean }
 
 function sounds(doc: Doc, assets: Map<string, Uint8Array>): Sound[] {
-  const out: Sound[] = (doc.audio ?? []).filter((a) => assets.has(a.asset)).map((a) => ({ asset: a.asset, at: a.start, offset: a.offset, dur: a.duration, volume: a.volume ?? 1, fadeIn: a.fadeIn, fadeOut: a.fadeOut }));
+  const out: Sound[] = (doc.audio ?? []).filter((a) => assets.has(a.asset)).map((a) => ({ asset: a.asset, at: a.start, offset: a.offset, dur: a.duration, volume: a.volume ?? 1, speech: !!a.speech, fadeIn: a.fadeIn, fadeOut: a.fadeOut }));
   for (const p of doc.pages) {
     if (p.hidden) continue;
     for (const e of walk(p.elements)) {
@@ -37,6 +37,7 @@ export async function mixSounds(file: ProjectFile, total: number): Promise<[Floa
   const list = sounds(file.doc, file.assets).filter((s) => s.at < total);
   if (!list.length) return null;
   const len = Math.max(1, Math.ceil(total * RATE));
+  const ducked = file.doc.subtitles?.speech.duck !== undefined;
   const L = new Float32Array(len), R = new Float32Array(len);
   const whole = new Map<string, [Float32Array, Float32Array] | null>();
   let any = false;
@@ -68,6 +69,7 @@ export async function mixSounds(file: ProjectFile, total: number): Promise<[Floa
       let g = s.volume;
       if (fi && i < fi) g *= i / fi;
       if (fo && i > n - fo) g *= Math.max(0, (n - i) / fo);
+      if (ducked && !s.speech) g *= duckGain(file.doc, s.at + i / RATE);
       L[at + i]! += sl[j]! * g;
       R[at + i]! += sr[j]! * g;
     }

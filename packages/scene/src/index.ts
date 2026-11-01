@@ -21,3 +21,4 @@ export * from './anim.ts';
 export * from './ease.ts';
 export * from './find.ts';
 export * from './stretch.ts';
+export * from './subtitles.ts';

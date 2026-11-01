@@ -13,6 +13,7 @@
   import PhotosPanel from './panels/PhotosPanel.svelte';
   import VideosPanel from './panels/VideosPanel.svelte';
   import AudioPanel from './panels/AudioPanel.svelte';
+  import SubtitlesPanel from './panels/SubtitlesPanel.svelte';
   import MockupsPanel from './panels/MockupsPanel.svelte';
 
   /** The rail sections' contents: the desktop side panel and the phone's bottom sheet both show them. */
@@ -27,6 +28,8 @@
   <VideosPanel {ed} />
 {:else if ui.panel === 'sounds'}
   <AudioPanel {ed} />
+{:else if ui.panel === 'subtitles'}
+  <SubtitlesPanel {ed} />
 {:else if ui.panel === 'draw'}
   <ToolsPanel {ed} />
 {:else if ui.panel === 'ai'}

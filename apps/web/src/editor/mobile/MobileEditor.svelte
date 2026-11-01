@@ -36,7 +36,7 @@
 
   const RAIL_TITLES: Record<RailTab, string> = {
     ai: 'AI', templates: 'Design', elements: 'Elements', mockups: 'Mockups', text: 'Text', brand: 'Brand', uploads: 'Uploads', draw: 'Draw',
-    projects: 'Projects', apps: 'Apps', photos: 'Photos', videos: 'Videos', sounds: 'Audio',
+    projects: 'Projects', apps: 'Apps', photos: 'Photos', videos: 'Videos', subtitles: 'Subtitles', sounds: 'Audio',
   };
   const SHEET_TITLES = { size: 'Font size', spacing: 'Spacing', opacity: 'Transparency', format: 'Format', pages: 'Pages', menu: '', download: 'Download', resize: 'Resize', share: 'Share' } as const;
 

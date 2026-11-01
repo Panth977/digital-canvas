@@ -18,7 +18,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { zipSync } from 'fflate';
-  import { isVideo, totalDuration } from '@digital-canvas/scene';
+  import { isVideo, totalDuration, withoutCaptions, type Doc } from '@digital-canvas/scene';
   import { fileName, MIME as DCANVAS_MIME } from '@digital-canvas/storage';
   import type { EditorState } from '../lib/editor.svelte.ts';
   import { download, shareAll } from '../lib/files.ts';
@@ -36,9 +36,11 @@
     format: DlFormat; scale: number; quality: number; transparent: boolean; compress: boolean;
     /** PDF Print */ marks: boolean; flatten: boolean; profile: 'rgb' | 'cmyk'; notes: boolean;
     /** MP4 short side (480, 720, 1080, 2160). */ vq: number;
+    /** MP4: captions stay in the picture. */ burn: boolean;
+    /** MP4: a sidecar .srt with the video. */ srt: boolean;
     /** "Download pages as separate files" (PDF, MP4, GIF). */ separate: boolean;
   };
-  const defaults: Saved = { format: 'png', scale: 1, quality: 80, transparent: false, compress: false, marks: false, flatten: false, profile: 'rgb', notes: true, vq: 1080, separate: false };
+  const defaults: Saved = { burn: true, srt: false, format: 'png', scale: 1, quality: 80, transparent: false, compress: false, marks: false, flatten: false, profile: 'rgb', notes: true, vq: 1080, separate: false };
   function load(): { s: Saved; remembered: boolean } {
     try {
       const raw = localStorage.getItem(KEY);
@@ -71,6 +73,9 @@
   const canSeparate = $derived((dl.format === 'pdfv' || dl.format === 'pdf' || dl.format === 'gif') ? chosen.length > 1 : dl.format === 'mp4' && visiblePages.length > 1);
   const hasNotes = $derived(chosen.some((p) => !!p.notes?.trim()));
   const vsize = $derived(videoSize(ed.doc, dl.vq));
+  const subtitled = $derived(!!ed.doc.subtitles?.lines.some((l) => l.text.trim()));
+  /** The doc an MP4 is made from: with or without the captions in the picture. */
+  const videoDoc = (): Doc => (subtitled && !dl.burn ? withoutCaptions(ed.doc) : ed.doc);
   const mmss = (t: number) => `${Math.floor(t / 60)}:${String(Math.round(t % 60)).padStart(2, '0')}`;
 
   $effect(() => { if (!shownFormats.some((f) => f.id === dl.format)) dl.format = 'png'; });
@@ -127,11 +132,12 @@
         if (separate) {
           const files = [];
           for (const [i, p] of visiblePages.entries()) {
-            const bytes = await exportMp4(ed, { quality: dl.vq, doc: pageDoc(ed.doc, p.id), onProgress: (f) => (progress = (i + f) / visiblePages.length) });
+            const bytes = await exportMp4(ed, { quality: dl.vq, doc: pageDoc(videoDoc(), p.id), onProgress: (f) => (progress = (i + f) / visiblePages.length) });
             files.push({ name: nameOf(ed.doc.pages.indexOf(p), 'mp4'), bytes });
           }
           await deliver(files, 'video/mp4');
-        } else await download(await exportMp4(ed, { quality: dl.vq, onProgress: (f) => (progress = f) }), `${title()}.mp4`, 'video/mp4');
+        } else await download(await exportMp4(ed, { quality: dl.vq, doc: videoDoc(), onProgress: (f) => (progress = f) }), `${title()}.mp4`, 'video/mp4');
+        if (subtitled && dl.srt) await download(new TextEncoder().encode(ed.subs.exportCues('srt')), `${title()}.srt`, 'application/x-subrip');
       } else if (dl.format === 'mp3') {
         ed.player.pause();
         const { exportMp3 } = await import('../lib/mp4.ts');
@@ -232,6 +238,10 @@
       </select>
     </label>
     <span class="dims" data-testid="dl-video-size">{vsize.W} × {vsize.H} px · 30 fps · {mmss(totalDuration(ed.doc))}</span>
+    {#if subtitled}
+      <label class="check"><input type="checkbox" bind:checked={dl.burn} data-testid="dl-burn" /> Burn in subtitles</label>
+      <label class="check"><input type="checkbox" bind:checked={dl.srt} data-testid="dl-srt" /> Also download subtitles (.srt)</label>
+    {/if}
   {:else if dl.format === 'pptx'}
     {#if hasNotes}<label class="check"><input type="checkbox" bind:checked={dl.notes} data-testid="dl-notes" /> Include notes</label>{/if}
     <span class="dims">Each page is a slide. Text stays editable; other elements come as pictures. PowerPoint needs the fonts installed.</span>

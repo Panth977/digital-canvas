@@ -1,6 +1,7 @@
 /** The main thread's side of the speech worker: one worker, jobs by id, cancellable. */
 import type { Progress } from '../models.ts';
 import type { SpeakResult, TtsReply, TtsRequest } from './worker.ts';
+import type { Engine } from './voices.ts';
 
 type Pending = { resolve: (r: SpeakResult) => void; reject: (e: Error) => void; progress?: Progress };
 
@@ -28,7 +29,7 @@ function getWorker(): Worker {
   return w;
 }
 
-export interface SpeakOptions { voice: string; speed: number; file?: string; ep?: string; progress?: Progress; signal?: AbortSignal }
+export interface SpeakOptions { voice: string; speed: number; engine?: Engine; progress?: Progress; signal?: AbortSignal }
 
 /** Speech for `text`. Rejects with Error('cancelled') as soon as `signal` aborts. */
 export function speak(text: string, o: SpeakOptions): Promise<SpeakResult> {
@@ -41,6 +42,6 @@ export function speak(text: string, o: SpeakOptions): Promise<SpeakResult> {
       getWorker().postMessage({ id, op: 'cancel' } as TtsRequest);
       reject(new Error('cancelled'));
     }, { once: true });
-    getWorker().postMessage({ id, op: 'speak', text, voice: o.voice, speed: o.speed, file: o.file, ep: o.ep } as TtsRequest);
+    getWorker().postMessage({ id, op: 'speak', text, voice: o.voice, speed: o.speed, engine: o.engine ?? 'small' } as TtsRequest);
   });
 }

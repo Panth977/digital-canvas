@@ -1,6 +1,6 @@
 <script lang="ts">
   import { flushSync } from 'svelte';
-  import { animationLabel, type Element, type ImageElement, type LineElement, type ShapeElement, type TextElement, type VideoElement } from '@digital-canvas/scene';
+  import { animationLabel, isVideo, type Element, type ImageElement, type LineElement, type ShapeElement, type TextElement, type VideoElement } from '@digital-canvas/scene';
   import type { EditorState } from '../../lib/editor.svelte.ts';
   import Icon, { type IconName } from '../../lib/Icon.svelte';
   import { ui, type ColorTarget, type RailTab } from '../../lib/ui.svelte.ts';
@@ -84,6 +84,7 @@
       add({ id: 'ai', label: 'AI', icon: 'ai', on: isOpen('ai'), act: () => rail('ai') });
       add({ id: 'projects', label: 'Projects', icon: 'projects', on: isOpen('projects'), act: () => rail('projects') });
       add({ id: 'videos', label: 'Videos', icon: 'video', on: isOpen('videos'), act: () => rail('videos') });
+      if (isVideo(ed.doc)) add({ id: 'subtitles', label: 'Subtitles', icon: 'captions', on: isOpen('subtitles'), act: () => rail('subtitles') });
       add({ id: 'sounds', label: 'Audio', icon: 'music', on: isOpen('sounds'), act: () => rail('sounds') });
       add({ id: 'page-bg', label: 'Background', swatch: pageBg(), on: isOpen('color'), act: () => color({ title: 'Background colour', testid: 'page-bg', kind: 'page', value: pageBg, onchange: (hex) => ed.updatePage({ background: { type: 'solid', color: hex } }, 'page-bg') }) });
       add({ id: 'pages', label: 'Pages', icon: 'pages', on: mobile.sheet === 'pages', act: () => sheet('pages') });

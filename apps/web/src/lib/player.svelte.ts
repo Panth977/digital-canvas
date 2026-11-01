@@ -1,4 +1,4 @@
-import { clipSpeed, clipTime, frameAt, totalDuration, walk, type AudioClip, type VideoElement } from '@digital-canvas/scene';
+import { clipSpeed, clipTime, duckGain, frameAt, totalDuration, walk, type AudioClip, type VideoElement } from '@digital-canvas/scene';
 import type { EditorState } from './editor.svelte.ts';
 
 /** A sound's loudness at `t` on the timeline: its volume with its fade in / out (0 outside it). */
@@ -197,7 +197,7 @@ export class Player {
       const inside = t >= clip.start && t < clip.start + clip.duration;
       if (!inside) { if (!a.paused) a.pause(); continue; }
       const want = clip.offset + (t - clip.start);
-      a.volume = soundGain(clip, t);
+      a.volume = soundGain(clip, t) * (clip.speech ? 1 : duckGain(this.ed.doc, t));
       if (hard || Math.abs(a.currentTime - want) > 0.25) a.currentTime = want;
       if (a.paused) void a.play().catch(() => {});
     }

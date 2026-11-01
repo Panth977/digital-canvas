@@ -1,5 +1,7 @@
+import { Subtitles } from './tts/subtitles.svelte.ts';
+import { speakOnDevice, type Synth } from './tts/synth.ts';
 import {
-  History, newId, isVideo, splitPage, pageStart, addAudio, addElements, pageDuration, removeAudio, totalDuration, updateAudio, video, addPage, arrange, commonStyle, duplicateElements, duplicatePage, findElement, image, movePage,
+  History, followSubtitles, newId, isVideo, splitPage, pageStart, addAudio, addElements, pageDuration, removeAudio, totalDuration, updateAudio, video, addPage, arrange, commonStyle, duplicateElements, duplicatePage, findElement, image, movePage,
   normalizeRuns, pruneAssets, pruneFonts, removeElements, removePage, setAsBackground, setTitle, shape, styleRange, text, updateElements, updatePage, lineEnds, pathElement,
   type Arrange, type ImageLook, type AudioClip, type Doc, type Element, type ElementPatch, type EmbeddedFont, type Page, type ShapeKind, type TextElement, type TextRun, type TextStyle,
   childrenOf, cloneElement, distribute, groupElements, resizeDoc, tidyUp, ungroupElements, walk, type ResizeTarget,
@@ -68,6 +70,10 @@ export class EditorState {
   access = $state<FileAccess | null>(null);
   /** The background remover to use (swappable: other models, tests). */
   bgRemover: BackgroundRemover = removeBackground;
+  /** Text to speech; tests swap it for a stub. */
+  synth: Synth = speakOnDevice;
+  /** The video's script and its speech. */
+  readonly subs = new Subtitles(this);
   /** Fills part of a picture on the device; tests use a stub. */
   inpainter: Inpainter = inpaintLocal;
   /** Stands in for the user's AI provider in tests. */
@@ -125,7 +131,7 @@ export class EditorState {
   /** Apply a new doc. Same `key` as the last commit = same undo step (drags, sliders). */
   commit(next: Doc, key: string | null = null): void {
     if (this.readOnly) return;
-    next = followConnectors(next); // connectors keep up with what they are stuck to
+    next = followConnectors(followSubtitles(this.doc, next)); // connectors keep up with what they are stuck to; lines with captions and scenes
     if (next === this.doc) return;
     this.history.push(next, key);
     this.doc = next;
