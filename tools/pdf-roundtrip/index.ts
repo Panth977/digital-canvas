@@ -24,6 +24,8 @@ const DPI = 150;
 
 const args = process.argv.slice(2);
 const flag = (n: string, d: string) => { const i = args.indexOf(n); if (i < 0) return d; const v = args[i + 1]!; args.splice(i, 2); return v; };
+/** Corpus files that need a password to open. */
+const PASSWORDS: Record<string, string> = { 'pdfjs-encrypted': 'user' };
 const out = flag('--out', '/tmp/orch27-rw/r18-pdf-report.html');
 const maxPages = Number(flag('--max-pages', '12'));
 const only = flag('--only', '');
@@ -55,13 +57,14 @@ function readPpm(path: string): Ppm {
 }
 
 function rasterize(pdf: string, page: number, stem: string): Ppm {
-  execFileSync('pdftoppm', ['-r', String(DPI), '-f', String(page), '-l', String(page), '-singlefile', pdf, stem], { stdio: 'ignore' });
+  const pw = PASSWORDS[basename(pdf, '.pdf')];
+  execFileSync('pdftoppm', [...(pw ? ['-upw', pw] : []), '-r', String(DPI), '-f', String(page), '-l', String(page), '-singlefile', pdf, stem], { stdio: 'ignore' });
   return readPpm(`${stem}.ppm`);
 }
 
 interface Diff { share: number; box: [number, number, number, number] | null; image: Uint8Array; w: number; h: number }
 
-function diff(a: Ppm, b: Ppm): Diff {
+function diff(a: Ppm, b: Ppm, tol = TOL): Diff {
   const w = Math.max(a.w, b.w), h = Math.max(a.h, b.h);
   const img = new Uint8Array(w * h * 3);
   let bad = 0, x0 = w, y0 = h, x1 = -1, y1 = -1;
@@ -69,7 +72,7 @@ function diff(a: Ppm, b: Ppm): Diff {
     const oa = x < a.w && y < a.h ? (y * a.w + x) * 3 : -1, ob = x < b.w && y < b.h ? (y * b.w + x) * 3 : -1;
     const at = (y * w + x) * 3;
     let off = oa < 0 || ob < 0;
-    if (!off) off = Math.abs(a.px[oa]! - b.px[ob]!) > TOL || Math.abs(a.px[oa + 1]! - b.px[ob + 1]!) > TOL || Math.abs(a.px[oa + 2]! - b.px[ob + 2]!) > TOL;
+    if (!off) off = Math.abs(a.px[oa]! - b.px[ob]!) > tol || Math.abs(a.px[oa + 1]! - b.px[ob + 1]!) > tol || Math.abs(a.px[oa + 2]! - b.px[ob + 2]!) > tol;
     if (off) {
       bad++;
       img[at] = 230; img[at + 1] = 20; img[at + 2] = 60;
@@ -96,11 +99,26 @@ function wordMatch(a: string[], b: string[]): number {
   return hit / a.length;
 }
 
+/** 3×3 box blur: edges that differ only by anti-aliasing cancel out. */
+function blur(p: Ppm): Ppm {
+  const px = new Uint8Array(p.px.length);
+  for (let y = 0; y < p.h; y++) for (let x = 0; x < p.w; x++) for (let c = 0; c < 3; c++) {
+    let sum = 0, n = 0;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const X = x + dx, Y = y + dy;
+      if (X < 0 || Y < 0 || X >= p.w || Y >= p.h) continue;
+      sum += p.px[(Y * p.w + X) * 3 + c]!; n++;
+    }
+    px[(y * p.w + x) * 3 + c] = sum / n;
+  }
+  return { w: p.w, h: p.h, px };
+}
+
 const pct = (v: number) => `${(v * 100).toFixed(3)}%`;
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
 
 interface Row { file: string; page: number; pdfShare: number; canvasShare: number | null; src: string; ours: string; dif: string; canvas?: string }
-interface FileRow { file: string; pages: number; tested: number; worst: number; mean: number; canvasWorst: number; words: number; flat: string[]; notes: string[]; ms: number; size: [number, number]; edit: string; texts: number; paths: number; images: number; error?: string; pagesMatch: boolean }
+interface FileRow { file: string; pages: number; tested: number; worst: number; mean: number; canvasWorst: number; canvasLoose: number; words: number; flat: string[]; notes: string[]; ms: number; size: [number, number]; edit: string; texts: number; paths: number; images: number; error?: string; pagesMatch: boolean }
 
 const rows: Row[] = [], fileRows: FileRow[] = [];
 
@@ -109,15 +127,15 @@ function saveRgb(p: Ppm, path: string): void { writeFileSync(path, encodePng(p.p
 for (const f of files) {
   const name = basename(f, '.pdf');
   const t0 = Date.now();
-  const row: FileRow = { file: name, pages: 0, tested: 0, worst: 0, mean: 0, canvasWorst: 0, words: 1, flat: [], notes: [], ms: 0, size: [statSync(f).size, 0], edit: '', texts: 0, paths: 0, images: 0, pagesMatch: true };
+  const row: FileRow = { file: name, pages: 0, tested: 0, worst: 0, mean: 0, canvasWorst: 0, canvasLoose: 0, words: 1, flat: [], notes: [], ms: 0, size: [statSync(f).size, 0], edit: '', texts: 0, paths: 0, images: 0, pagesMatch: true };
   fileRows.push(row);
   try {
     const srcBytes = new Uint8Array(readFileSync(f));
-    const info = execFileSync('pdfinfo', [f]).toString();
+    const info = execFileSync('pdfinfo', [...(PASSWORDS[name] ? ['-upw', PASSWORDS[name]!] : []), f]).toString();
     const total = Number(/Pages:\s+(\d+)/.exec(info)?.[1] ?? 1);
     const step = Math.max(1, Math.ceil(total / maxPages));
     const pick = Array.from({ length: total }, (_, i) => i + 1).filter((_, i) => i % step === 0);
-    const r = await importPdfNode(srcBytes, { pages: pick, title: name, password: name === 'pdfjs-empty-pw' ? '' : undefined });
+    const r = await importPdfNode(srcBytes, { pages: pick, title: name, password: PASSWORDS[name] });
     row.pages = total; row.tested = pick.length;
     row.texts = r.report.texts; row.paths = r.report.paths; row.images = r.report.images;
     row.notes = r.report.notes;
@@ -143,8 +161,6 @@ for (const f of files) {
     let sum = 0;
     for (let i = 0; i < pick.length; i++) {
       const pg = pick[i]!;
-      const pw = name === 'pdfjs-empty-pw' ? [] : [];
-      void pw;
       const s = rasterize(f, pg, join(tmp, 's'));
       const o = rasterize(ours, i + 1, join(tmp, 'o'));
       const d = diff(s, o);
@@ -164,6 +180,8 @@ for (const f of files) {
         const cd = diff(s, c);
         cShare = cd.share;
         row.canvasWorst = Math.max(row.canvasWorst, cd.share);
+        // Skia and Splash anti-alias glyph edges differently: this one looks past that
+        row.canvasLoose = Math.max(row.canvasLoose, diff(blur(s), blur(c), 64).share);
         canvasName = `${name}-${pg}-canvas.png`;
         saveRgb(c, join(assetsDir, canvasName));
         void k;
@@ -186,12 +204,12 @@ for (const f of files) {
     row.worst = 1;
   }
   row.ms = Date.now() - t0;
-  console.log(`${name.padEnd(28)} ${String(row.tested).padStart(3)}/${String(row.pages).padEnd(3)} worst ${pct(row.worst)} canvas ${pct(row.canvasWorst)} words ${(row.words * 100).toFixed(1)}% ${row.ms}ms ${row.error ?? ''} ${row.edit}`);
+  console.log(`${name.padEnd(28)} ${String(row.tested).padStart(3)}/${String(row.pages).padEnd(3)} worst ${pct(row.worst)} canvas ${pct(row.canvasWorst)}/${pct(row.canvasLoose)} words ${(row.words * 100).toFixed(1)}% ${row.ms}ms ${row.error ?? ''} ${row.edit}`);
   writeReport();
 }
 
 function execText(pdf: string, page: number): string[] {
-  try { return execFileSync('pdftotext', ['-q', '-f', String(page), '-l', String(page), pdf, '-'], { maxBuffer: 1 << 28 }).toString('utf8').split(/\s+/).filter(Boolean); } catch { return []; }
+  try { const pw = PASSWORDS[basename(pdf, '.pdf')]; return execFileSync('pdftotext', [...(pw ? ['-upw', pw] : []), '-q', '-f', String(page), '-l', String(page), pdf, '-'], { maxBuffer: 1 << 28 }).toString('utf8').split(/\s+/).filter(Boolean); } catch { return []; }
 }
 
 /** Change one word on the first page with text; everything off that box must stay the same. */
@@ -199,7 +217,8 @@ async function editTest(doc: Doc, assets: Map<string, Uint8Array>, renderer: Ren
   for (let i = 0; i < doc.pages.length; i++) {
     const page = doc.pages[i]!;
     const texts = page.elements.filter((e): e is TextElement => e.type === 'text' && !!exactText(e) && !e.exact!.runs.some((r) => r.mode === 3) && /[A-Za-z]{4,}/.test(e.text) && e.rotation === 0);
-    const el = texts.sort((a, b) => b.text.length - a.text.length)[0];
+    // the topmost of the longest: a design may stack a shadow copy under its text
+    const el = texts.reverse().sort((a, b) => b.text.length - a.text.length)[0];
     if (!el) continue;
     const word = /[A-Za-z]{4,}/.exec(el.text)![0];
     const text = el.text.replace(word, word.split('').reverse().join(''));
@@ -223,10 +242,10 @@ async function editTest(doc: Doc, assets: Map<string, Uint8Array>, renderer: Ren
 function writeReport(): void {
   const worst = [...rows].sort((a, b) => b.pdfShare - a.pdfShare);
   const over = rows.filter((r) => r.pdfShare >= 0.005);
-  const summary = fileRows.map((r) => `<tr class="${r.error || r.worst >= 0.005 ? 'bad' : ''}"><td>${esc(r.file)}</td><td>${r.tested}/${r.pages}</td><td>${pct(r.mean)}</td><td>${pct(r.worst)}</td><td>${pct(r.canvasWorst)}</td><td>${(r.words * 100).toFixed(1)}%</td><td>${r.texts}/${r.paths}/${r.images}</td><td>${esc(r.flat.join('; '))}</td><td>${esc(r.edit)}</td><td>${(r.size[0] / 1024).toFixed(0)} → ${(r.size[1] / 1024).toFixed(0)} KB</td><td>${(r.ms / 1000).toFixed(1)} s</td><td>${esc(r.error ?? '')}</td></tr>`).join('');
+  const summary = fileRows.map((r) => `<tr class="${r.error || r.worst >= 0.005 ? 'bad' : ''}"><td>${esc(r.file)}</td><td>${r.tested}/${r.pages}</td><td>${pct(r.mean)}</td><td>${pct(r.worst)}</td><td>${pct(r.canvasWorst)}</td><td>${pct(r.canvasLoose)}</td><td>${(r.words * 100).toFixed(1)}%</td><td>${r.texts}/${r.paths}/${r.images}</td><td>${esc(r.flat.join('; '))}</td><td>${esc(r.edit)}</td><td>${(r.size[0] / 1024).toFixed(0)} → ${(r.size[1] / 1024).toFixed(0)} KB</td><td>${(r.ms / 1000).toFixed(1)} s</td><td>${esc(r.error ?? '')}</td></tr>`).join('');
   const dir = basename(assetsDir);
   const cards = worst.map((r) => `<section><h3>${esc(r.file)} p.${r.page}: export ${pct(r.pdfShare)}${r.canvasShare === null ? '' : `, canvas ${pct(r.canvasShare)}`}</h3><div class="row"><figure><img loading="lazy" src="${dir}/${r.src}"><figcaption>source</figcaption></figure><figure><img loading="lazy" src="${dir}/${r.ours}"><figcaption>ours (export)</figcaption></figure><figure><img loading="lazy" src="${dir}/${r.dif}"><figcaption>diff</figcaption></figure>${r.canvas ? `<figure><img loading="lazy" src="${dir}/${r.canvas}"><figcaption>editor canvas</figcaption></figure>` : ''}</div></section>`).join('');
-  writeFileSync(out, `<!doctype html><meta charset=utf-8><title>r18 PDF round trip</title><style>body{font:14px system-ui;margin:24px;color:#222}table{border-collapse:collapse;font-size:12px}td,th{border:1px solid #ddd;padding:4px 6px;text-align:left;vertical-align:top}.bad{background:#fee}.row{display:flex;gap:8px}figure{margin:0;flex:1;min-width:0}img{width:100%;border:1px solid #ccc}figcaption{font-size:11px;color:#666}section{margin:24px 0}</style><h1>PDF import round trip</h1><p>${rows.length} pages from ${fileRows.length} files, rendered with pdftoppm at ${DPI} dpi. A pixel mismatches when a channel differs by more than ${TOL}/255. Target: under 0.5 % on every page. Pages over target: ${over.length}.</p><table><tr><th>file</th><th>pages tested</th><th>mean</th><th>worst</th><th>canvas worst</th><th>words kept</th><th>text/paths/images</th><th>flattened</th><th>one-word edit</th><th>size</th><th>time</th><th>error</th></tr>${summary}</table><h2>Pages, worst first</h2>${cards}`);
+  writeFileSync(out, `<!doctype html><meta charset=utf-8><title>r18 PDF round trip</title><style>body{font:14px system-ui;margin:24px;color:#222}table{border-collapse:collapse;font-size:12px}td,th{border:1px solid #ddd;padding:4px 6px;text-align:left;vertical-align:top}.bad{background:#fee}.row{display:flex;gap:8px}figure{margin:0;flex:1;min-width:0}img{width:100%;border:1px solid #ccc}figcaption{font-size:11px;color:#666}section{margin:24px 0}</style><h1>PDF import round trip</h1><p>${rows.length} pages from ${fileRows.length} files, rendered with pdftoppm at ${DPI} dpi. A pixel mismatches when a channel differs by more than ${TOL}/255. Target: under 0.5 % on every page. Pages over target: ${over.length}.</p><table><tr><th>file</th><th>pages tested</th><th>mean</th><th>worst</th><th>canvas worst</th><th>canvas, blurred, tol 64</th><th>words kept</th><th>text/paths/images</th><th>flattened</th><th>one-word edit</th><th>size</th><th>time</th><th>error</th></tr>${summary}</table><h2>Pages, worst first</h2>${cards}`);
 }
 
 writeReport();

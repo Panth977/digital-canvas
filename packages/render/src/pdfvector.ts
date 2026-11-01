@@ -232,7 +232,7 @@ export async function exportVectorPdf(renderer: Renderer, doc: Doc, opts: Vector
           o.push(...((run.strokeSrc ? colorOps(w, p, run.strokeSrc, true) : null) ?? [strokeOp(st)]));
           if (run.lw !== undefined) o.push(setLineWidth(run.lw));
         }
-        o.push(...textStateOps(run, f.name), tjOp(run, info.bytes, f.gidCodes ? (c) => info.gids[c] ?? 0 : null), PDFOperator.of(PDFOperatorNames.EndText), popGraphicsState());
+        o.push(...textStateOps(f.gidCodes ? { ...run, tw: undefined } : run, f.name), tjOp(run, info.bytes, f.gidCodes ? info : null), PDFOperator.of(PDFOperatorNames.EndText), popGraphicsState());
         ops(...o);
       }
     };

@@ -199,16 +199,34 @@ export function strokeOps(ex: { width?: number; cap?: 0 | 1 | 2; join?: 0 | 1 | 
   return o;
 }
 
-/** A TJ array as PDF syntax. `map` turns a character code into the code to write. */
-export function tjOp(run: ExactRun, bytes: number, map: ((code: number) => number) | null): PDFOperator {
+/**
+ * A TJ array as PDF syntax. With `font`, codes become glyph ids of the embedded program; a code with no
+ * glyph (spaces, often) turns into the gap it leaves, so nothing draws and everything after it stays put.
+ */
+export function tjOp(run: ExactRun, bytes: number, font: PdfFont | null): PDFOperator {
   const step = bytes * 2;
-  const parts = run.tj.map((t) => {
-    if (typeof t === 'number') return String(Math.round(t * 1000) / 1000);
-    if (!map) return `<${t}>`;
-    let out = '';
-    for (let i = 0; i + step <= t.length; i += step) out += map(parseInt(t.slice(i, i + step), 16)).toString(16).padStart(4, '0');
-    return `<${out}>`;
-  });
+  const parts: string[] = [];
+  const size = run.size || 1;
+  for (const t of run.tj) {
+    if (typeof t === 'number') { parts.push(String(Math.round(t * 1000) / 1000)); continue; }
+    if (!font) { parts.push(`<${t}>`); continue; }
+    let hex = '';
+    const flush = () => { if (hex) parts.push(`<${hex}>`); hex = ''; };
+    for (let i = 0; i + step <= t.length; i += step) {
+      const code = parseInt(t.slice(i, i + step), 16);
+      const gid = font.gids[code];
+      if (gid) {
+        hex += gid.toString(16).padStart(4, '0');
+        // word spacing only works on one-byte codes: glyph ids need it spelled out
+        if (bytes === 1 && code === 32 && run.tw) { flush(); parts.push(String(-Math.round((run.tw / size) * 1e6) / 1000)); }
+        continue;
+      }
+      flush();
+      const w = ((font.widths[code] ?? 0) * (font.scale ?? 1)) / 1000 + ((run.tc ?? 0) + (bytes === 1 && code === 32 ? run.tw ?? 0 : 0)) / size;
+      parts.push(String(-Math.round(w * 1e6) / 1000));
+    }
+    flush();
+  }
   return PDFOperator.of(PDFOperatorNames.ShowTextAdjusted, [`[${parts.join(' ')}]`]);
 }
 
