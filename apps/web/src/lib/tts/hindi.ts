@@ -102,7 +102,7 @@ function render(word: string, s: Seg[]): string {
       const after = (vowels[n + 1] ?? s.length) - vi - 1;
       const closed = lastSyll ? after > 0 : after > 1;
       if (lastSyll && !closed && vowels.length > 1) return;
-      const w = (long ? 2 : 0) + (closed ? 1 : 0);
+      const w = (long ? 2 : 0) + (closed && !lastSyll ? 1 : 0);
       if (w > top || (w === top && long)) { top = w; stress = vi; }
     });
     if (top <= 0) stress = vowels[0]!;

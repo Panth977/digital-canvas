@@ -14,7 +14,7 @@ const port = (process as unknown as { parentPort: { postMessage(m: unknown): voi
 
 let seq = 0;
 const waiting = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
-/** Ask the main process for something (Drive token, a video through the window). */
+/** Ask the main process for something (Drive token, video and speech through the window). */
 function ask<T>(op: string, args?: unknown): Promise<T> {
   return new Promise((resolve, reject) => {
     const id = ++seq;
@@ -32,6 +32,8 @@ setPlatform({
     return ask<Uint8Array>('video.export', { bytes: pack(file), opts: rest });
   },
   videoFrame: (bytes: Uint8Array, at: number, mime?: string) => ask<Uint8Array | null>('video.frame', { bytes, at, mime }),
+  // speech also runs in the window: its worker has WebGPU and the model cache
+  speak: (text: string, o: { voice: string; speed: number }) => ask<{ pcm: Float32Array; rate: number }>('speech.say', { text, ...o }),
 });
 
 const state = { token: '', mcp: true, active: 'folder' as 'folder' | 'drive' };

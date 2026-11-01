@@ -20,6 +20,8 @@ export interface BrowserPlatformOptions {
   templateAssetsBase: string;
   /** Absolute URL of the mockup library (ends with /), e.g. the app's own `/mockups/`. Default: the deployed site. */
   mockupsBase?: string;
+  /** Text to speech, where the app has given the worker its model. */
+  speak?: Platform['speak'];
 }
 
 export function browserPlatform(o: BrowserPlatformOptions): Platform {
@@ -37,6 +39,7 @@ export function browserPlatform(o: BrowserPlatformOptions): Platform {
     videoFrame: (bytes, at) => videoFrameWebCodecs(bytes, at),
     videoProblem: webCodecsProblem,
     exportMp4: exportMp4Browser,
+    ...(o.speak ? { speak: o.speak } : {}),
     ...(o.mockupsBase ? { mockupFile: cachedFetch(o.mockupsBase) } : {}),
   };
 }

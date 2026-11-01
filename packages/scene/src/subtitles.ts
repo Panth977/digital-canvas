@@ -7,6 +7,7 @@
  * scene changes.
  */
 import { addAudio, addElements, newId, pageDuration, pageStart, removeElements, text, updateElements } from './doc.ts';
+import { stretchAudio } from './stretch.ts';
 import { walk } from './tree.ts';
 import type { AudioClip, Doc, Element, Page, SpeechSettings, SubtitleLine, SubtitleTrack, TextElement, TextEffect, TextStyle } from './types.ts';
 
@@ -225,12 +226,12 @@ export function lineVoice(l: Pick<SubtitleLine, 'text' | 'voice'>, s: SpeechSett
 }
 
 /** What a line's speech depends on: same key = same sound. */
-export function speechKey(l: Pick<SubtitleLine, 'text' | 'voice' | 'speed'>, s: SpeechSettings, model: string): string {
+export function speechKey(l: Pick<SubtitleLine, 'text' | 'voice' | 'speed'>, s: SpeechSettings, model = SPEECH_MODEL.id): string {
   return [model, lineVoice(l, s), l.speed ?? s.speed, l.text.replace(/\s+/g, ' ').trim()].join('|');
 }
 
 /** Lines whose sound is missing or out of date (empty lines say nothing). */
-export function staleLines(doc: Doc, model: string, hasAsset: (id: string) => boolean = () => true): SubtitleLine[] {
+export function staleLines(doc: Doc, hasAsset: (id: string) => boolean = () => true, model = SPEECH_MODEL.id): SubtitleLine[] {
   const tr = doc.subtitles;
   if (!tr) return [];
   return tr.lines.filter((l) => {
@@ -290,6 +291,56 @@ export function placeSpeech(doc: Doc, id: string, asset: string, duration: numbe
   return addAudio(doc, { asset, start: l.start, offset: 0, duration: r3(duration), volume: tr.speech.volume, name, speech }).doc;
 }
 
+/** The speech model, as recorded on what it makes. A new id regenerates every line. */
+export const SPEECH_MODEL = { id: 'kokoro-82m-v1.0', label: 'Kokoro-82M' };
+
+// ---- speech samples → timeline ----
+
+/** Bring speech to one loudness, so lines and voices match; peaks stay clear of clipping. */
+export function levelSpeech(pcm: Float32Array, rms = 0.11, peak = 0.92): Float32Array {
+  let sum = 0, top = 0;
+  for (const v of pcm) { sum += v * v; top = Math.max(top, Math.abs(v)); }
+  if (!pcm.length || top === 0) return pcm;
+  const g = Math.min(rms / Math.sqrt(sum / pcm.length), peak / top);
+  const out = new Float32Array(pcm.length);
+  for (let i = 0; i < pcm.length; i++) out[i] = pcm[i]! * g;
+  return out;
+}
+
+/** 16-bit mono WAV: every browser, Mediabunny and ffmpeg read it without a codec. */
+export function encodeWav(pcm: Float32Array, rate: number): Uint8Array {
+  const bytes = new Uint8Array(44 + pcm.length * 2);
+  const d = new DataView(bytes.buffer);
+  const tag = (at: number, s: string): void => { for (let i = 0; i < 4; i++) d.setUint8(at + i, s.charCodeAt(i)); };
+  tag(0, 'RIFF'); d.setUint32(4, 36 + pcm.length * 2, true); tag(8, 'WAVE'); tag(12, 'fmt ');
+  d.setUint32(16, 16, true); d.setUint16(20, 1, true); d.setUint16(22, 1, true); d.setUint32(24, rate, true); d.setUint32(28, rate * 2, true); d.setUint16(32, 2, true); d.setUint16(34, 16, true);
+  tag(36, 'data'); d.setUint32(40, pcm.length * 2, true);
+  for (let i = 0; i < pcm.length; i++) d.setInt16(44 + i * 2, Math.round(Math.max(-1, Math.min(1, pcm[i]!)) * 32767), true);
+  return bytes;
+}
+
+/** Samples for a line: as spoken, or sped up to fit it when the track says so (pitch kept). */
+export function fitSamples(doc: Doc, id: string, pcm: Float32Array, rate: number): { pcm: Float32Array; factor: number } {
+  const tr = doc.subtitles, l = tr?.lines.find((x) => x.id === id);
+  const factor = tr?.speech.fit === 'speed' && l ? fitFactor(pcm.length / rate, l.end - l.start) : 1;
+  return { pcm: factor === 1 ? pcm : stretchAudio([pcm], factor, rate)[0]!, factor };
+}
+
+/**
+ * A line's finished sound on the timeline: the asset's record (what it says, with
+ * which voice and model), the line grown to hold it when the track stretches, the
+ * clip at the line's start. The caller has stored the bytes under `asset`.
+ */
+export function addSpeech(doc: Doc, id: string, asset: string, duration: number, factor: number): { doc: Doc; changed: string[] } {
+  const tr = doc.subtitles, l = tr?.lines.find((x) => x.id === id);
+  if (!tr || !l) return { doc, changed: [] };
+  const voice = lineVoice(l, tr.speech);
+  let next = doc;
+  if (!next.assets[asset]) next = { ...next, assets: { ...next.assets, [asset]: { mime: 'audio/wav', duration, name: `Speech: ${l.text.slice(0, 40)}`, speech: { text: l.text, voice, model: SPEECH_MODEL.label, speed: l.speed ?? tr.speech.speed } } } };
+  if (tr.speech.fit === 'stretch') next = stretchLine(next, id, duration);
+  return syncCaptions(placeSpeech(next, id, asset, duration, speechKey(l, tr.speech, SPEECH_MODEL.id), factor));
+}
+
 // ---- following the canvas and the timeline ----
 
 const layout = (doc: Doc): Map<string, { start: number; d: number }> => new Map(visible(doc).map((p) => [p.id, { start: pageStart(doc, p.id), d: pageDuration(p) }]));
@@ -321,13 +372,14 @@ function adopt(next: Doc): Doc {
   let lines = tr.lines;
   const edited = new Set<string>();
   for (const { page, el } of captionsOf(next)) {
+    const was = tr.lines.find((x) => x.id === el.caption);
     const l = lines.find((x) => x.id === el.caption);
-    if (!l) continue;
+    if (!l || !was) continue;
     const base = pageStart(next, page.id);
     const first = spans(next, l)[0];
     if (!first) continue;
     let patch: Partial<SubtitleLine> | null = null;
-    if (el.text !== l.text) patch = { text: el.text };
+    if (el.text !== was.text) patch = { text: el.text };
     const single = spans(next, l).length === 1;
     if (single && el.timing && (el.timing.start !== first.timing.start || el.timing.end !== first.timing.end)) {
       const start = r2(base + (el.timing.start ?? 0));

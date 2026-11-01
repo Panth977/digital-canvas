@@ -23,6 +23,8 @@ setPlatform(browserPlatform({
   fontsBase: `${base}fonts/`,
   mockupsBase: `${base}mockups/`,
   templateAssetsBase: `${base}templates/assets/`,
+  // generate_speech: the app's speech worker, started from here
+  speak: async (text, o) => (await import('../tts/client.ts')).speak(text, { ...o, engine: /Android|iPhone|iPad/.test(navigator.userAgent) ? 'small' : 'gpu' }),
   templateIndex: INDEX as TemplateEntry[],
   templateDoc: async (id) => {
     const load = templates[`../../templates/${id}.json`];

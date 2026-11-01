@@ -11,7 +11,7 @@
   import { mobile } from '../../lib/mobile.svelte.ts';
   import { download, pickFiles } from '../../lib/files.ts';
   import { toast } from '../../lib/toast.svelte.ts';
-  import { LANGS, MODEL_ID, VOICES, voiceById, type Lang } from '../../lib/tts/voices.ts';
+  import { LANGS, VOICES, voiceById, type Lang } from '../../lib/tts/voices.ts';
   import Icon from '../../lib/Icon.svelte';
   import './panels.css';
 
@@ -79,7 +79,7 @@
     if (!l.text.trim()) return '';
     const c = clipOf(l.id);
     if (!c) return 'No speech yet';
-    if (c.speech!.key !== speechKey(l, speech, MODEL_ID)) return 'Changed, generate again';
+    if (c.speech!.key !== speechKey(l, speech)) return 'Changed, generate again';
     return `${c.duration.toFixed(1)} s${c.speech!.fitted ? `, ${c.speech!.fitted.toFixed(2)}× faster` : ''}`;
   }
 </script>

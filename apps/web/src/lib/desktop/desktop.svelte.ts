@@ -58,9 +58,16 @@ class Desktop {
   pick(mode: 'media' | 'design' | 'file', arg?: string): Promise<unknown> { return this.call('drive.pick', { mode, arg }); }
   setActive(active: 'folder' | 'drive'): Promise<void> { return this.call('setActive', { active }); }
 
-  /** The main process needs the window's WebCodecs (MCP video). */
+  /** The main process needs the window's WebCodecs (MCP video) or speech model. */
   private async answer(r: { id: number; op: string; args: never }): Promise<void> {
     try {
+      if (r.op === 'speech.say') {
+        const a = r.args as { text: string; voice: string; speed: number };
+        const { speakOnDevice } = await import('../tts/synth.ts');
+        const { pcm, rate } = await speakOnDevice(a.text, { voice: a.voice, speed: a.speed, engine: 'gpu' });
+        await this.call('respond', { id: r.id, ok: true, value: { pcm, rate } });
+        return;
+      }
       const { videoTask } = await import('./video.ts');
       await this.call('respond', { id: r.id, ok: true, value: await videoTask(r.op, r.args) });
     } catch (e) {

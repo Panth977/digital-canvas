@@ -59,6 +59,11 @@ export interface Platform {
   videoProblem(): string | null;
   /** The design as an MP4 (H.264 + AAC where possible). */
   exportMp4(file: ProjectFile, opts: VideoExportOptions): Promise<Uint8Array>;
+  /**
+   * Text to speech on this device (Kokoro in the app's worker). Omitted where
+   * no model can run: the cloud function and the plain Node server.
+   */
+  speak?(text: string, o: { voice: string; speed: number }): Promise<{ pcm: Float32Array; rate: number }>;
   /** IP addresses of a host (servers refuse private ones). Omitted where there is no DNS API. */
   lookup?(host: string): Promise<string[]>;
   /**

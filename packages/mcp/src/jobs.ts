@@ -15,6 +15,8 @@ export interface VideoJobSpec {
   maxSide?: number;
   /** File name in Exports (without extension). */
   name?: string;
+  /** Leave the caption text out of the picture. */
+  noCaptions?: boolean;
 }
 
 export type JobSpec = VideoJobSpec;

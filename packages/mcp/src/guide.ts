@@ -60,6 +60,7 @@ shadow, lift, hollow, splice, outline, echo, glitch, neon, background (highlight
   - Exits need a page duration: out plays over the last seconds of the page or of the element's timing window.
 - Transitions (into a page; 0.1 to 2.5 s; apply them to every page but the first): dissolve, fade (through black), slide, wipe, zoom, match (Match & Move: elements with the same name, picture or text travel between the pages), circle, line, stack, chop, flow, colorwipe (+ color), iris, clock, doors, checker. Most take a direction.
 - Captions: add_captions with exact times or a transcript; they show only during their time (element timing).
+- Subtitles and voice-over: set_subtitles with a script or timed lines (captions show as editable text; style bar, clean, outline, yellow, loud or top), then generate_speech to voice them with Kokoro-82M on the user's device (device or desktop mode only; in cloud mode it says so, and set_subtitles still works). Only changed lines regenerate; it stops after about 30 s and returns remaining, so call it again. Hindi text gets a Hindi voice by itself. fit "stretch" grows lines and scenes to hold the speech, "speed" speeds it up; duck 0.25 lowers music under speech. export_video has burn_subtitles.
 - Music: set_audio with fadeIn/fadeOut; keep music around volume 0.6–0.8 under speech 0.3.
 - Reels safe zone: keep text between 11% and 80% of the height.
 - Preview moments with render_page { at: seconds }.

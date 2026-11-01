@@ -3,7 +3,7 @@
  * bring media into it, and save it back (fonts embedded, unused assets
  * dropped, a fresh thumbnail).
  */
-import { pruneAssets, pruneFonts, type AssetMeta, type Doc } from '@digital-canvas/scene';
+import { followSubtitles, pruneAssets, pruneFonts, type AssetMeta, type Doc } from '@digital-canvas/scene';
 import { assetId, type ProjectFile } from '@digital-canvas/storage';
 import { thumbnail } from './engine.ts';
 import { embedFonts } from './fonts.ts';
@@ -81,7 +81,9 @@ export class Context {
   /** Open, change, save. `fn` may replace `file.doc`. */
   async edit<T>(id: string, fn: (file: ProjectFile) => Promise<T> | T): Promise<T & { missingFonts?: string[] }> {
     const file = await this.open(id);
+    const before = file.doc;
     const out = await fn(file);
+    file.doc = followSubtitles(before, file.doc);
     const { missingFonts } = await this.save(file);
     return { ...(out as T), ...(missingFonts.length ? { missingFonts } : {}) };
   }

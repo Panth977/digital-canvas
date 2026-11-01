@@ -5,9 +5,6 @@
 const KOKORO = 'https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/1939ad2a8e416c0acfeecc08a694d14ef25f2231';
 const MISAKI = 'https://cdn.jsdelivr.net/gh/hexgrad/misaki@fba1236595f2d2bf21d414ba6e57d25256afada3/misaki/data';
 
-/** Goes on the asset and the clip: a new id regenerates every line. */
-export const MODEL_ID = 'kokoro-82m-v1.0';
-export const MODEL_LABEL = 'Kokoro-82M';
 
 /**
  * Two builds of the same weights. Measured on an M-series Mac, one thread for

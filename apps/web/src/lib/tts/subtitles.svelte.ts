@@ -4,13 +4,12 @@
  * Generate is one undo step.
  */
 import {
-  applyCaptionStyle, emptyTrack, fitFactor, lineVoice, newId, parseCues, placeSpeech, setLines, setSpeech, speechKey, splitScript, staleLines, stretchAudio, stretchLine, syncCaptions, timeScript, toSrt, toVtt, updateElements,
+  addSpeech, applyCaptionStyle, emptyTrack, encodeWav, fitSamples, levelSpeech, lineVoice, newId, parseCues, setLines, setSpeech, speechKey, splitScript, staleLines, syncCaptions, timeScript, toSrt, toVtt, updateElements,
   pageDuration, pageStart, type Doc, type SpeechSettings, type SubtitleLine, type SubtitleTrack, type TextElement,
 } from '@digital-canvas/scene';
 import { assetId } from '@digital-canvas/storage';
 import type { EditorState } from '../editor.svelte.ts';
-import { encodeWav, levelSpeech } from './audio.ts';
-import { ENGINES, MODEL_ID, MODEL_LABEL, voiceById, type Engine } from './voices.ts';
+import { ENGINES, voiceById, type Engine } from './voices.ts';
 import type { Spoken } from './synth.ts';
 
 /** Text the model says when a voice is previewed. */
@@ -142,7 +141,7 @@ export class Subtitles {
 
   /** Lines whose sound is missing or old. */
   get stale(): SubtitleLine[] {
-    return staleLines(this.ed.doc, MODEL_ID, (id) => this.ed.assets.has(id));
+    return staleLines(this.ed.doc, (id) => this.ed.assets.has(id));
   }
 
   cancel(): void {
@@ -163,7 +162,7 @@ export class Subtitles {
       for (const [i, first] of todo.entries()) {
         const line = this.track.lines.find((l) => l.id === first.id);
         if (!line?.text.trim()) continue;
-        const s = this.track.speech, key = speechKey(line, s, MODEL_ID), voice = lineVoice(line, s), speed = line.speed ?? s.speed;
+        const s = this.track.speech, key = speechKey(line, s), voice = lineVoice(line, s), speed = line.speed ?? s.speed;
         this.job = { done: i, total: todo.length, msg: `Speaking line ${i + 1} of ${todo.length}…` };
         let got = this.spoken.get(key);
         if (!got) {
@@ -171,7 +170,7 @@ export class Subtitles {
           got = { pcm: levelSpeech(r.pcm), rate: r.rate };
           this.spoken.set(key, got);
         }
-        await this.place(line.id, key, got, undo);
+        await this.place(line.id, got, undo);
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -185,26 +184,13 @@ export class Subtitles {
   }
 
   /** Store a line's sound (once) and put it on the timeline, fitted to the line. */
-  private async place(id: string, key: string, got: Spoken, undo: string): Promise<void> {
+  private async place(id: string, got: Spoken, undo: string): Promise<void> {
     const ed = this.ed;
-    const line = this.track.lines.find((l) => l.id === id);
-    if (!line) return;
-    const s = this.track.speech;
-    const room = line.end - line.start;
-    const factor = s.fit === 'speed' ? fitFactor(got.pcm.length / got.rate, room) : 1;
-    const pcm = factor === 1 ? got.pcm : stretchAudio([got.pcm], factor, got.rate)[0]!;
+    const { pcm, factor } = fitSamples(ed.doc, id, got.pcm, got.rate);
     const bytes = encodeWav(pcm, got.rate);
-    const duration = pcm.length / got.rate;
     const asset = await assetId(bytes, 'audio/wav');
     ed.assets.set(asset, bytes);
-    let doc: Doc = ed.doc;
-    if (!doc.assets[asset]) {
-      const speech = { text: line.text, voice: lineVoice(line, s), model: MODEL_LABEL, speed: line.speed ?? s.speed };
-      doc = { ...doc, assets: { ...doc.assets, [asset]: { mime: 'audio/wav', duration, name: `Speech: ${voiceById(speech.voice)?.label ?? speech.voice}`, speech } } };
-    }
-    if (s.fit === 'stretch') doc = stretchLine(doc, id, duration);
-    doc = placeSpeech(doc, id, asset, duration, key, factor);
-    this.apply(syncCaptions(doc), undo);
+    this.apply(addSpeech(ed.doc, id, asset, pcm.length / got.rate, factor), undo);
   }
 
   /** Hear a voice on its sample sentence. */
