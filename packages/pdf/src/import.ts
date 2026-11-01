@@ -140,6 +140,7 @@ interface Chunk {
   m: Matrix;
   end: number;
   text: string;
+  actual?: string;
   state: { blend: string; clipKey: string; clips: readonly PdfClipPath[]; alpha: number; clipBox: State['clipBox'] };
 }
 
@@ -220,6 +221,11 @@ class PageWalker {
   flatNow: Flat | null = null;
   hidden = 0;
   mc: boolean[] = [];
+  /** /ActualText of the marked content we are in, innermost last. */
+  spans: (string | undefined)[] = [];
+  /** The span whose text has been told already. */
+  spanSaid = -1;
+  spanCount = 0;
   groups: { flat: boolean; mask: boolean }[] = [];
   pendingClip: null | 'nonzero' | 'evenodd' = null;
   pathOut: { el: PathElement; box: [number, number, number, number]; key: string } | null = null;
@@ -365,9 +371,15 @@ class PageWalker {
     const prev = this.bt[this.bt.length - 1];
     const fillC = hexOf(st.fill.rgb, st.fill.alpha * st.ga), strokeC = st.mode === 1 || st.mode === 2 ? hexOf(st.stroke.rgb, st.stroke.alpha * st.ga) : undefined;
     const clipKey = st.clips.map((c) => c.d).join('|');
+    // shaped scripts: the glyphs of a span say what /ActualText says, once
+    let at = this.spans.length - 1;
+    while (at >= 0 && this.spans[at] === undefined) at--;
+    const actual = at >= 0 ? this.spans[at] : undefined;
+    const spanId = actual === undefined ? -1 : this.spanCount + at;
+    if (actual !== undefined) text = spanId === this.spanSaid ? '' : actual;
     if (prev) {
       const r = prev.run;
-      if (r.font === st.font && r.size === st.size && (r.tc ?? 0) === st.tc && (r.tw ?? 0) === st.tw && (r.th ?? 1) === st.th && (r.rise ?? 0) === st.rise && (r.mode ?? 0) === st.mode
+      if (actual === undefined && prev.actual === undefined && r.font === st.font && r.size === st.size && (r.tc ?? 0) === st.tc && (r.tw ?? 0) === st.tw && (r.th ?? 1) === st.th && (r.rise ?? 0) === st.rise && (r.mode ?? 0) === st.mode
         && r.color === fillC && r.stroke === strokeC && prev.state.clipKey === clipKey && prev.state.blend === st.blend) {
         const inv = invert(prev.m);
         if (inv) {
@@ -387,6 +399,7 @@ class PageWalker {
       }
     }
     const run: ExactRun = { font: st.font!, size: st.size, m, tj, color: fillC };
+    if (actual !== undefined) { run.actual = spanId === this.spanSaid ? '' : actual; this.spanSaid = spanId; }
     if (st.tc) run.tc = st.tc;
     if (st.tw) run.tw = st.tw;
     if (st.th !== 1) run.th = st.th;
@@ -398,7 +411,7 @@ class PageWalker {
       run.lw = st.lw;
       if (st.stroke.src) run.strokeSrc = st.stroke.src;
     }
-    this.bt.push({ run, m, end, text, state: { blend: st.blend, clipKey, clips: st.clips, alpha: st.fill.alpha, clipBox: st.clipBox } });
+    this.bt.push({ run, m, end, text, actual, state: { blend: st.blend, clipKey, clips: st.clips, alpha: st.fill.alpha, clipBox: st.clipBox } });
   }
 
   private textBox(end: number): [number, number, number, number] {
@@ -688,14 +701,17 @@ class PageWalker {
         case OPS.paintFormXObjectEnd: this.baseCtm.pop(); if (this.stack.length) this.st = this.stack.pop()!; break;
         case OPS.beginGroup: this.beginGroup(i, a[0]); break;
         case OPS.endGroup: this.endGroup(i); break;
-        case OPS.beginMarkedContent: this.mc.push(false); break;
+        case OPS.beginMarkedContent: this.mc.push(false); this.spans.push(undefined); break;
         case OPS.beginMarkedContentProps: {
           const off = a[0] === 'OC' && a[1] && this.ocConfig && !this.ocConfig.isVisible(a[1]);
           this.mc.push(!!off);
           if (off) this.hidden++;
+          const actual = this.scan?.nextSpan();
+          this.spans.push(actual);
+          this.spanCount += 1000;
           break;
         }
-        case OPS.endMarkedContent: if (this.mc.pop()) this.hidden--; break;
+        case OPS.endMarkedContent: if (this.mc.pop()) this.hidden--; this.spans.pop(); break;
         case OPS.beginAnnotation: {
           // [id, rect, transform, matrix, hasOwnCanvas]
           this.stack.push({ ...st });

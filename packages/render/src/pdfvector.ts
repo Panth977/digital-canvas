@@ -8,7 +8,7 @@ import fontkit from '@pdf-lib/fontkit';
 import type { Path } from 'canvaskit-wasm';
 import type { Color, Doc, Element, Fill, ImageElement, Page, PathElement, ShapeElement, Stroke, TextElement, VideoElement } from '@digital-canvas/scene';
 import { applyMatrix, clipOf, dashArray, exactPart, exactText, mulMatrix, posterOf, walk, type Decomposed, type Matrix, type PathPart, type TextExact } from '@digital-canvas/scene';
-import { addLinks, cm, colorOps, exactWriter, parseD, strokeOps, textStateOps, tjOp, type ExactWriter } from './pdfexact.ts';
+import { actualTextOp, addLinks, cm, colorOps, exactWriter, parseD, strokeOps, textStateOps, tjOp, type ExactWriter } from './pdfexact.ts';
 import type { FontFace } from './fonts.ts';
 import { shapePath, transformPath, type Renderer } from './renderer.ts';
 import { loadPicture, pictureNeedsRaster, textNeedsRaster, type VectorExportOptions } from './svgexport.ts';
@@ -232,7 +232,11 @@ export async function exportVectorPdf(renderer: Renderer, doc: Doc, opts: Vector
           o.push(...((run.strokeSrc ? colorOps(w, p, run.strokeSrc, true) : null) ?? [strokeOp(st)]));
           if (run.lw !== undefined) o.push(setLineWidth(run.lw));
         }
-        o.push(...textStateOps(f.gidCodes ? { ...run, tw: undefined } : run, f.name), tjOp(run, info.bytes, f.gidCodes ? info : null), PDFOperator.of(PDFOperatorNames.EndText), popGraphicsState());
+        o.push(...textStateOps(f.gidCodes ? { ...run, tw: undefined } : run, f.name));
+        if (run.actual !== undefined) o.push(actualTextOp(run.actual));
+        o.push(tjOp(run, info.bytes, f.gidCodes ? info : null));
+        if (run.actual !== undefined) o.push(PDFOperator.of('EMC' as never));
+        o.push(PDFOperator.of(PDFOperatorNames.EndText), popGraphicsState());
         ops(...o);
       }
     };

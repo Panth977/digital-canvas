@@ -83,6 +83,8 @@ export interface ExactRun {
   strokeSrc?: SourceColor;
   /** Stroke width in text space px. */
   lw?: number;
+  /** What these glyphs say, when codes can't tell (shaped scripts): /ActualText. Empty: told by an earlier run. */
+  actual?: string;
 }
 
 export interface TextExact {

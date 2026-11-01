@@ -9,7 +9,8 @@ import { closestFamily, exactPart, exactText, missingGlyphs, placeGlyphs, pruneA
 import { pack, unpack } from '@digital-canvas/storage';
 import { encodePng } from '../src/png.ts';
 import { buildCmap, readCmap } from '../src/fontfile.ts';
-import { PdfImportError } from '../src/import.ts';
+import { PdfImportError, tileOf } from '../src/import.ts';
+import { actualText } from '../src/source.ts';
 import { importPdfNode } from '../src/node.ts';
 
 const fixture = (n: string) => new Uint8Array(readFileSync(new URL(`../../../e2e/fixtures/${n}`, import.meta.url)));
@@ -132,6 +133,21 @@ describe('exact content', () => {
 });
 
 describe('helpers', () => {
+  it('reads /ActualText in both string forms', () => {
+    expect(actualText('<</ActualText <FEFF0930093E>>>')).toBe('रा');
+    expect(actualText('<</MCID 3/ActualText (fi\\051)>>')).toBe('fi)');
+    expect(actualText('<</MCID 3>>')).toBeUndefined();
+  });
+
+  it('writes tiling cells of plain paths, and refuses anything else', async () => {
+    const { OPS } = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    const list = { fnArray: [OPS.setFillRGBColor, OPS.constructPath], argsArray: [['#ff0000'], [OPS.fill, [[0, 0, 0, 1, 4, 0, 4]]]] };
+    const t = tileOf(['TilingPattern', null, list, null, [0, 0, 4, 4], 4, 4, 1], OPS)!;
+    expect(t.content).toBe('1 0 0 rg\n0 0 m 4 0 l h f');
+    expect(t.matrix).toEqual([1, 0, 0, 1, 0, 0]);
+    expect(tileOf(['TilingPattern', null, { fnArray: [OPS.paintImageXObject], argsArray: [[]] }, null, [0, 0, 1, 1], 1, 1, 1], OPS)).toBeNull();
+  });
+
   it('cmap tables round trip', () => {
     const map = new Map([[65, 3], [66, 4], [0x1f600, 9]]);
     const cmap = buildCmap(map);

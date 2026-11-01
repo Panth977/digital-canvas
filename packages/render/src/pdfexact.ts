@@ -259,6 +259,13 @@ export function tjOp(run: ExactRun, bytes: number, font: PdfFont | null): PDFOpe
   return PDFOperator.of(PDFOperatorNames.ShowTextAdjusted, [`[${parts.join(' ')}]`]);
 }
 
+/** Opens a span whose /ActualText says what the glyphs say (for copying and search). */
+export function actualTextOp(text: string): PDFOperator {
+  let hex = 'FEFF';
+  for (let i = 0; i < text.length; i++) hex += text.charCodeAt(i).toString(16).padStart(4, '0');
+  return PDFOperator.of('BDC' as never, ['/Span', `<</ActualText <${hex}>>>`]);
+}
+
 export function textStateOps(run: ExactRun, name: PDFName): PDFOperator[] {
   const o: PDFOperator[] = [beginText(), setFontAndSize(name, run.size)];
   if (run.mode) o.push(setTextRenderingMode(run.mode));

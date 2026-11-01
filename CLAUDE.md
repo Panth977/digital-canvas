@@ -201,5 +201,6 @@ Panth's rule: no generated design content. Templates, stickers, illustrations, f
 - CMYK on screen: `cmykHex` uses the 16 corner table poppler and Adobe's defaults use, not pdf.js's polynomial.
 - Pages share one size: the design takes the largest, smaller pages sit centred (`Page.pdfPage`), and PDF export gives each its own size back.
 - `pdf-lib`'s subsetter drops Inter's glyphs (M6 note): that goes for fixtures too. Fixtures: `npx tsx tools/pdf-roundtrip/fixtures.ts`.
+- `/ActualText` (BDC) comes through `source.ts` too: `ExactRun.actual`, written back as `/Span` BDC. pdf.js drops it, and shaped scripts need it for `el.text`.
 - pdf.js data (`standard_fonts`, `cmaps`, `wasm`) is served at `/pdfjs/` by a Vite plugin and copied on build, never precached. `getOperatorList` runs in pdf.js's worker. The bridge worker has no DOM: `OffscreenCanvasFactory` and a stub `document` in `lib/bridge/worker.ts`.
 - Proof: `npx tsx tools/pdf-roundtrip/index.ts <dir> [--max-pages N] [--no-source] [--quick]` writes `/tmp/orch27-rw/r18-pdf-report.html`. A pixel mismatches above 16/255 on any channel at 150 dpi; "canvas" compares the editor renderer with poppler, and a second score (3×3 blur, tolerance 64) looks past Skia and Splash anti-aliasing text differently.

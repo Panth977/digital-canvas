@@ -39,11 +39,13 @@ export function cmykHex(v: number[]): string {
 }
 
 export class PageScan {
-  private f = 0; private i = 0; private cf = 0; private cs = 0; private fo = 0; private pf = 0; private ps = 0; private sh = 0;
-  constructor(private fonts: FontEvent[], private images: ImageEvent[], private fills: ColorEvent[], private strokes: ColorEvent[], private forms: (number | undefined)[], private fillPatterns: (number | undefined)[], private strokePatterns: (number | undefined)[], private shadings: (number | undefined)[]) {}
+  private f = 0; private i = 0; private cf = 0; private cs = 0; private fo = 0; private pf = 0; private ps = 0; private sh = 0; private mc = 0;
+  constructor(private fonts: FontEvent[], private images: ImageEvent[], private fills: ColorEvent[], private strokes: ColorEvent[], private forms: (number | undefined)[], private fillPatterns: (number | undefined)[], private strokePatterns: (number | undefined)[], private shadings: (number | undefined)[], private spans: (string | undefined)[]) {}
 
   /** Annotations come after the page's content, from streams we don't read. */
-  annotation(): void { this.fonts = []; this.images = []; this.fills = []; this.strokes = []; this.forms = []; this.fillPatterns = []; this.strokePatterns = []; this.shadings = []; }
+  annotation(): void { this.fonts = []; this.images = []; this.fills = []; this.strokes = []; this.forms = []; this.fillPatterns = []; this.strokePatterns = []; this.shadings = []; this.spans = []; }
+
+  nextSpan(): string | undefined { return this.spans[this.mc++]; }
 
   nextShading(): number | undefined { return this.shadings[this.sh++]; }
 
@@ -80,7 +82,7 @@ export class PageScan {
   }
 }
 
-type Tok = { k: 'num'; v: number } | { k: 'name'; v: string } | { k: 'op'; v: string } | { k: 'other' };
+type Tok = { k: 'num'; v: number } | { k: 'name'; v: string } | { k: 'op'; v: string } | { k: 'dict'; v: string } | { k: 'other' };
 
 const WS = new Set([0, 9, 10, 12, 13, 32]);
 const DELIM = new Set([40, 41, 60, 62, 91, 93, 123, 125, 47, 37]);
@@ -102,11 +104,19 @@ function tokenize(b: Uint8Array, op: (name: string, args: Tok[]) => void): void 
     }
     if (c === 60) {
       if (b[i + 1] === 60) { // dict
-        let depth = 1; i += 2;
+        let depth = 1;
+        const from = i;
+        i += 2;
         while (i < n && depth) {
           if (b[i] === 60 && b[i + 1] === 60) { depth++; i += 2; } else if (b[i] === 62 && b[i + 1] === 62) { depth--; i += 2; } else i++;
         }
-      } else { while (i < n && b[i] !== 62) i++; i++; }
+        let raw = '';
+        for (let k = from; k < i; k++) raw += String.fromCharCode(b[k]!);
+        args.push({ k: 'dict', v: raw });
+        continue;
+      }
+      while (i < n && b[i] !== 62) i++;
+      i++;
       args.push({ k: 'other' });
       continue;
     }
@@ -130,6 +140,30 @@ function tokenize(b: Uint8Array, op: (name: string, args: Tok[]) => void): void 
     op(word, args);
     args = [];
   }
+}
+
+/** The /ActualText of a marked-content dictionary: what a run of glyphs really says (shaped scripts need it). */
+export function actualText(dict: string): string | undefined {
+  const m = /\/ActualText\s*(?:<([0-9A-Fa-f\s]*)>|\(((?:\\[\s\S]|[^\\)])*)\))/.exec(dict);
+  if (!m) return undefined;
+  let bytes: number[];
+  if (m[1] !== undefined) bytes = (m[1].replace(/\s/g, '').match(/../g) ?? []).map((h) => parseInt(h, 16));
+  else {
+    bytes = [];
+    const raw = m[2]!;
+    for (let i = 0; i < raw.length; i++) {
+      if (raw[i] !== '\\') { bytes.push(raw.charCodeAt(i)); continue; }
+      const c = raw[++i]!;
+      const oct = /^[0-7]{1,3}/.exec(raw.slice(i));
+      if (oct) { bytes.push(parseInt(oct[0], 8)); i += oct[0].length - 1; } else bytes.push(({ n: 10, r: 13, t: 9, b: 8, f: 12 } as Record<string, number>)[c] ?? c.charCodeAt(0));
+    }
+  }
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) {
+    let out = '';
+    for (let i = 2; i + 1 < bytes.length; i += 2) out += String.fromCharCode((bytes[i]! << 8) | bytes[i + 1]!);
+    return out;
+  }
+  return String.fromCharCode(...bytes);
 }
 
 const nums = (a: Tok[]): number[] => a.flatMap((t) => (t.k === 'num' ? [t.v] : []));
@@ -183,7 +217,7 @@ export class Source {
       const page = this.pages[index];
       if (!page) return null;
       const fonts: FontEvent[] = [], images: ImageEvent[] = [], fills: ColorEvent[] = [], strokes: ColorEvent[] = [];
-      const forms: (number | undefined)[] = [], fillPatterns: (number | undefined)[] = [], strokePatterns: (number | undefined)[] = [], shadings: (number | undefined)[] = [];
+      const forms: (number | undefined)[] = [], fillPatterns: (number | undefined)[] = [], strokePatterns: (number | undefined)[] = [], shadings: (number | undefined)[] = [], spans: (string | undefined)[] = [];
       const patternRef = (a: Tok[], res: PDFDict | undefined): number | undefined => {
         const last = a[a.length - 1];
         const v = last?.k === 'name' ? this.dictIn(res, 'Pattern')?.get(PDFName.of(last.v)) : undefined;
@@ -207,6 +241,7 @@ export class Source {
             case 'CS': if (a[0]?.k === 'name') strokeCs = this.spaceOf(a[0].v, res); break;
             case 'sc': case 'scn': if (fillCs !== 'pattern') fills.push({ cs: fillCs, v: nums(a) }); else fillPatterns.push(patternRef(a, res)); break;
             case 'SC': case 'SCN': if (strokeCs !== 'pattern') strokes.push({ cs: strokeCs, v: nums(a) }); else strokePatterns.push(patternRef(a, res)); break;
+            case 'BDC': { const d = a[1]; spans.push(d?.k === 'dict' ? actualText(d.v) : undefined); break; }
             case 'sh': {
               const v = a[0]?.k === 'name' ? this.dictIn(res, 'Shading')?.get(PDFName.of(a[0].v)) : undefined;
               shadings.push(v instanceof PDFRef ? v.objectNumber : undefined);
@@ -239,7 +274,7 @@ export class Source {
         });
       };
       run(this.bytesOf(page.node.Contents()), page.node.Resources(), 0);
-      return new PageScan(fonts, images, fills, strokes, forms, fillPatterns, strokePatterns, shadings);
+      return new PageScan(fonts, images, fills, strokes, forms, fillPatterns, strokePatterns, shadings, spans);
     } catch {
       return null;
     }
