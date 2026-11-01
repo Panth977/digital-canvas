@@ -170,11 +170,16 @@ for (const f of files) {
       if (!quick) {
         const page = doc.pages[i]!;
         const k = DPI / 96;
-        const png = renderer.renderPageRgba(doc, page, s.w, s.h);
+        // a smaller page sits letterboxed on the design: render all of it, cut the page out
+        const b = page.pdfPage;
+        const zoom = b ? (DPI / 72) / b.scale : s.w / doc.width;
+        const png = renderer.renderPageRgba(doc, page, Math.round(doc.width * zoom), Math.round(doc.height * zoom));
+        const ox = Math.round((b?.x ?? 0) * zoom), oy = Math.round((b?.y ?? 0) * zoom);
         const rgb = new Uint8Array(s.w * s.h * 3);
-        for (let q = 0; q < s.w * s.h; q++) {
-          const al = png.data[q * 4 + 3]! / 255;
-          for (let c = 0; c < 3; c++) rgb[q * 3 + c] = png.data[q * 4 + c]! * al + 255 * (1 - al);
+        for (let y = 0; y < s.h; y++) for (let x = 0; x < s.w; x++) {
+          const at = ((y + oy) * png.width + x + ox) * 4, q = y * s.w + x;
+          const al = (png.data[at + 3] ?? 0) / 255;
+          for (let c = 0; c < 3; c++) rgb[q * 3 + c] = (png.data[at + c] ?? 255) * al + 255 * (1 - al);
         }
         const c = { w: s.w, h: s.h, px: rgb };
         const cd = diff(s, c);

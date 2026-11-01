@@ -306,15 +306,19 @@ export async function exportVectorPdf(renderer: Renderer, doc: Doc, opts: Vector
       const st = part.stroke ? rgba(part.stroke.color) : null;
       const o: PDFOperator[] = [pushGraphicsState(), ...alpha(opacity * (fill?.a ?? 1), opacity * (st?.a ?? 1))];
       if (ex.ctm) o.push(cm(fine(mulMatrix(toSheet, ex.ctm))));
-      if (ex.shade) {
-        const name = w.shading(p, ex.shade);
-        ops(...o, pushGraphicsState(), ...cmds, part.evenOdd ? clipEvenOdd() : clip(), endPath(), cm(fine(mulMatrix(toSheet, ex.shade.matrix))), PDFOperator.of(PDFOperatorNames.ShadingFill, [name]), popGraphicsState());
+      const pattern = ex.pattern && !ex.ctm ? w.pattern(p, ex.pattern.obj, fine(mulMatrix(toSheet, ex.pattern.base))) : null;
+      if (pattern) {
+        o.push(PDFOperator.of(PDFOperatorNames.NonStrokingColorspace, [PDFName.of('Pattern')]), PDFOperator.of(PDFOperatorNames.NonStrokingColorN, [pattern]));
+      } else if (ex.shade) {
+        const own = ex.shading !== undefined && ex.base ? w.shadingObject(p, ex.shading) : null;
+        const name = own ?? w.shading(p, ex.shade);
+        ops(...o, pushGraphicsState(), ...cmds, part.evenOdd ? clipEvenOdd() : clip(), endPath(), cm(fine(mulMatrix(toSheet, own ? ex.base! : ex.shade.matrix))), PDFOperator.of(PDFOperatorNames.ShadingFill, [name]), popGraphicsState());
         o.length = 0;
         if (st) o.push(...strokeOps(ex, k), ...((ex.strokeSrc ? colorOps(w, p, ex.strokeSrc, true) : null) ?? [strokeOp(st)]), ...cmds, PDFOperator.of(PDFOperatorNames.StrokePath));
         ops(...o, popGraphicsState());
         return;
       }
-      if (fill) o.push(...((ex.fillSrc ? colorOps(w, p, ex.fillSrc, false) : null) ?? [fillOp(fill)]));
+      if (fill && !pattern) o.push(...((ex.fillSrc ? colorOps(w, p, ex.fillSrc, false) : null) ?? [fillOp(fill)]));
       if (st) o.push(...strokeOps(ex, k), ...((ex.strokeSrc ? colorOps(w, p, ex.strokeSrc, true) : null) ?? [strokeOp(st)]));
       o.push(...cmds);
       const eo = part.evenOdd;

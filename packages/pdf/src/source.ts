@@ -39,11 +39,13 @@ export function cmykHex(v: number[]): string {
 }
 
 export class PageScan {
-  private f = 0; private i = 0; private cf = 0; private cs = 0; private fo = 0; private pf = 0; private ps = 0;
-  constructor(private fonts: FontEvent[], private images: ImageEvent[], private fills: ColorEvent[], private strokes: ColorEvent[], private forms: (number | undefined)[], private fillPatterns: (number | undefined)[], private strokePatterns: (number | undefined)[]) {}
+  private f = 0; private i = 0; private cf = 0; private cs = 0; private fo = 0; private pf = 0; private ps = 0; private sh = 0;
+  constructor(private fonts: FontEvent[], private images: ImageEvent[], private fills: ColorEvent[], private strokes: ColorEvent[], private forms: (number | undefined)[], private fillPatterns: (number | undefined)[], private strokePatterns: (number | undefined)[], private shadings: (number | undefined)[]) {}
 
   /** Annotations come after the page's content, from streams we don't read. */
-  annotation(): void { this.fonts = []; this.images = []; this.fills = []; this.strokes = []; this.forms = []; this.fillPatterns = []; this.strokePatterns = []; }
+  annotation(): void { this.fonts = []; this.images = []; this.fills = []; this.strokes = []; this.forms = []; this.fillPatterns = []; this.strokePatterns = []; this.shadings = []; }
+
+  nextShading(): number | undefined { return this.shadings[this.sh++]; }
 
   nextForm(): number | undefined { return this.forms[this.fo++]; }
   nextPattern(kind: 'fill' | 'stroke'): number | undefined { return kind === 'fill' ? this.fillPatterns[this.pf++] : this.strokePatterns[this.ps++]; }
@@ -181,7 +183,7 @@ export class Source {
       const page = this.pages[index];
       if (!page) return null;
       const fonts: FontEvent[] = [], images: ImageEvent[] = [], fills: ColorEvent[] = [], strokes: ColorEvent[] = [];
-      const forms: (number | undefined)[] = [], fillPatterns: (number | undefined)[] = [], strokePatterns: (number | undefined)[] = [];
+      const forms: (number | undefined)[] = [], fillPatterns: (number | undefined)[] = [], strokePatterns: (number | undefined)[] = [], shadings: (number | undefined)[] = [];
       const patternRef = (a: Tok[], res: PDFDict | undefined): number | undefined => {
         const last = a[a.length - 1];
         const v = last?.k === 'name' ? this.dictIn(res, 'Pattern')?.get(PDFName.of(last.v)) : undefined;
@@ -205,6 +207,11 @@ export class Source {
             case 'CS': if (a[0]?.k === 'name') strokeCs = this.spaceOf(a[0].v, res); break;
             case 'sc': case 'scn': if (fillCs !== 'pattern') fills.push({ cs: fillCs, v: nums(a) }); else fillPatterns.push(patternRef(a, res)); break;
             case 'SC': case 'SCN': if (strokeCs !== 'pattern') strokes.push({ cs: strokeCs, v: nums(a) }); else strokePatterns.push(patternRef(a, res)); break;
+            case 'sh': {
+              const v = a[0]?.k === 'name' ? this.dictIn(res, 'Shading')?.get(PDFName.of(a[0].v)) : undefined;
+              shadings.push(v instanceof PDFRef ? v.objectNumber : undefined);
+              break;
+            }
             case 'Tf': {
               const name = a[0]?.k === 'name' ? a[0].v : '', size = nums(a)[0] ?? 0;
               const v = this.dictIn(res, 'Font')?.get(PDFName.of(name));
@@ -232,7 +239,7 @@ export class Source {
         });
       };
       run(this.bytesOf(page.node.Contents()), page.node.Resources(), 0);
-      return new PageScan(fonts, images, fills, strokes, forms, fillPatterns, strokePatterns);
+      return new PageScan(fonts, images, fills, strokes, forms, fillPatterns, strokePatterns, shadings);
     } catch {
       return null;
     }

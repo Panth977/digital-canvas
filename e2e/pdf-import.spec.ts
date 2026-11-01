@@ -56,7 +56,7 @@ test('Home › Import opens a PDF as a design with real text', async ({ page }) 
   await waitSaved(page);
 });
 
-test('type a new word on the canvas, export a vector PDF: only that line changes', async ({ page }) => {
+test('change a word, export a vector PDF: only that line changes', async ({ page }) => {
   await home(page);
   await openPdf(page);
   await inEditor(page);
@@ -200,7 +200,8 @@ test('drop on Home, and File › Import a PDF in the editor', async ({ page }) =
 
 test('saved to Drive and opened again: fonts and the source come back, text is still exact', async ({ page }) => {
   const d = new FakeDrive();
-  d.add({ id: FOLDER, name: 'Digital Canvas', mimeType: 'application/vnd.google-apps.folder' } as never);
+  const app = d.add({ id: 'appfolder', name: 'Digital Canvas', mimeType: FOLDER, appProperties: { digitalCanvasRoot: '1' } });
+  d.add({ id: 'assetsfolder', name: 'assets', mimeType: FOLDER, parents: [app.id], appProperties: { dcAssets: '1', digitalCanvasRoot: 'assets' } });
   await d.install(page);
   await page.context().route(CONTENT_HOSTS, (r) => r.fulfill({ status: 503, body: 'offline in tests' }));
   await page.goto('/');
@@ -210,10 +211,12 @@ test('saved to Drive and opened again: fonts and the source come back, text is s
   await page.getByTestId('pdf-report-ok').click();
   await waitSaved(page);
   const id = (await doc(page)).id;
+  expect([...d.files.values()].some((f) => f.name.endsWith('.dcanvas'))).toBe(true);
   await page.goto('/');
   await fakeSignIn(page);
   await page.evaluate((i) => { location.hash = `#/d/${i}`; }, id);
   await inEditor(page);
+  await page.waitForFunction(() => (window as any).__dc.assets.size > 0);
   const exact = await page.evaluate(() => {
     const ed = (window as any).__dc;
     const t = ed.doc.pages[0].elements.find((e: { text?: string }) => e.text?.startsWith('Hello'));

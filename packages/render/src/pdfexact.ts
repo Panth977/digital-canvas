@@ -18,6 +18,7 @@ export interface ExactWriter {
   colorSpace(page: PDFPage, obj: number): PDFName | null;
   shading(page: PDFPage, s: PathShade): PDFName;
   form(page: PDFPage, obj: number): PDFName | null;
+  shadingObject(page: PDFPage, obj: number): PDFName | null;
   /** A copy of a tiling pattern under this matrix (sheet points). Null: not one we can place. */
   pattern(page: PDFPage, obj: number, base: Matrix): PDFName | null;
 }
@@ -63,7 +64,10 @@ export async function exactWriter(pdf: PDFDocument, doc: Doc, assets: ReadonlyMa
     if (embedded.has(key)) return embedded.get(key)!;
     const file = f.asset ? assets.get(f.asset) : undefined;
     let ref: PDFRef | null = null;
-    if (file) {
+    if (f.standard) {
+      // the source named it without embedding it: name it too, so every viewer substitutes as before
+      ref = pdf.context.register(pdf.context.obj({ Type: 'Font', Subtype: f.standard.subtype, BaseFont: f.standard.baseFont }));
+    } else if (file) {
       const ctx = pdf.context;
       const cff = file[0] === 0x4f;
       const stream = ctx.register(ctx.flateStream(file, cff ? { Subtype: 'OpenType' } : { Length1: file.length }));
@@ -119,7 +123,7 @@ export async function exactWriter(pdf: PDFDocument, doc: Doc, assets: ReadonlyMa
       const src = f.obj !== undefined ? copy(f.obj) : null;
       const ref = src ?? embed(key, f);
       if (!ref) return null;
-      return { name: nameOn(page, 'Font', key, () => page.node.newFontDictionary('PF', ref)), gidCodes: !src };
+      return { name: nameOn(page, 'Font', key, () => page.node.newFontDictionary('PF', ref)), gidCodes: !src && !f.standard };
     },
     image: (obj) => copy(obj),
     colorSpace(page, obj) {
@@ -132,6 +136,16 @@ export async function exactWriter(pdf: PDFDocument, doc: Doc, assets: ReadonlyMa
         return n;
       });
     },
+    shadingObject(page, obj) {
+      const ref = copy(obj);
+      if (!ref) return null;
+      return nameOn(page, 'Shading', `obj${obj}`, () => {
+        const d = res(page, 'Shading');
+        const n = PDFName.of(`PSh${d.keys().length}`);
+        d.set(n, ref);
+        return n;
+      });
+    },
     form(page, obj) {
       const ref = copy(obj);
       if (!ref) return null;
@@ -139,15 +153,16 @@ export async function exactWriter(pdf: PDFDocument, doc: Doc, assets: ReadonlyMa
     },
     pattern(page, obj, base) {
       const ref = copy(obj);
-      const stream = ref ? pdf.context.lookup(ref) : null;
-      if (!(stream instanceof PDFStream)) return null;
-      const num = (k: string) => { const v = stream.dict.get(PDFName.of(k)); return v instanceof PDFNumber ? v.asNumber() : 0; };
-      if (num('PaintType') !== 1) return null;
+      const obj_ = ref ? pdf.context.lookup(ref) : null;
+      const dict = obj_ instanceof PDFStream ? obj_.dict : obj_ instanceof PDFDict ? obj_ : null;
+      if (!dict) return null;
+      const num = (k: string) => { const v = dict.get(PDFName.of(k)); return v instanceof PDFNumber ? v.asNumber() : 0; };
+      if (num('PatternType') === 1 && num('PaintType') !== 1) return null;
       return nameOn(page, 'Pattern', `${obj}/${base.join(',')}`, () => {
-        const own = stream.dict.lookupMaybe(PDFName.of('Matrix'), PDFArray);
+        const own = dict.lookupMaybe(PDFName.of('Matrix'), PDFArray);
         const m = own ? own.asArray().map((v) => (v instanceof PDFNumber ? v.asNumber() : 0)) as Matrix : [1, 0, 0, 1, 0, 0] as Matrix;
-        const dup = stream.clone(pdf.context) as PDFStream;
-        dup.dict.set(PDFName.of('Matrix'), pdf.context.obj(mulMatrix(base, m).map((v) => Math.round(v * 1e6) / 1e6)));
+        const dup = (obj_ as PDFStream | PDFDict).clone(pdf.context) as PDFStream | PDFDict;
+        (dup instanceof PDFStream ? dup.dict : dup).set(PDFName.of('Matrix'), pdf.context.obj(mulMatrix(base, m).map((v) => Math.round(v * 1e6) / 1e6)));
         const d = res(page, 'Pattern');
         const n = PDFName.of(`PPt${d.keys().length}`);
         d.set(n, pdf.context.register(dup));

@@ -297,6 +297,7 @@ class PageWalker {
         serif: !!f.serif, mono: !!f.isMonospace, bold: !!f.bold || !!f.black, italic: !!f.italic,
       };
       if (f.isType3Font) pf.type3 = true;
+      if (!f.composite && this.isStandard(f)) pf.standard = { baseFont: rawName, subtype: f.subtype ?? 'Type1' };
       const fm = f.fontMatrix as number[] | undefined;
       if (fm && Math.abs(fm[0]! - 0.001) > 1e-9) pf.scale = fm[0]! * 1000;
       if (this.st.fontSrc !== undefined) pf.obj = this.st.fontSrc;
@@ -306,6 +307,15 @@ class PageWalker {
     }
   }
   ascents = new Map<string, [number, number]>();
+
+  /**
+   * The file names this font and holds no program for it. pdf.js fills in its own and doesn't say so; with the
+   * file unreadable, a standard name without a subset tag is the best sign there is.
+   */
+  private isStandard(f: any): boolean {
+    if (f.missingFile || !f.data?.length) return true;
+    return !this.source && /^(Helvetica|Times-|Courier|Symbol$|ZapfDingbats$)/.test(String(f.name));
+  }
 
   private show(i: number, glyphs: any[]): void {
     const st = this.st, font = this.font();
@@ -509,7 +519,10 @@ class PageWalker {
       if (st.stroke.src) ex.strokeSrc = st.stroke.src;
       if (keepCtm) ex.ctm = st.ctm;
     }
-    if (shade) ex.shade = shade;
+    if (shade) {
+      ex.shade = shade;
+      if (st.fill.patternObj !== undefined) ex.pattern = { obj: st.fill.patternObj, base: this.baseOf() };
+    }
     part.exact = { ...ex, sig: partSig(part) };
 
     const key = `${st.clips.map((c) => c.d).join('|')}/${st.blend}`;
@@ -544,6 +557,7 @@ class PageWalker {
   private async shadingFill(i: number, id: string): Promise<void> {
     const st = this.st;
     const ir: any = await objGet(this.objsOf(id), id);
+    const shObj = this.scan?.nextShading();
     const box = st.clipBox;
     const blend = this.blendMode();
     const shade = ir ? shadeOf(ir, st.ctm) : null;
@@ -553,7 +567,7 @@ class PageWalker {
     const [x0, y0, x1, y1] = box;
     if (x1 <= x0 || y1 <= y0) return;
     const part: PathPart = { d: `M${n4(x0)} ${n4(y0)}L${n4(x1)} ${n4(y0)}L${n4(x1)} ${n4(y1)}L${n4(x0)} ${n4(y1)}Z`, fill: { type: 'solid', color: hexOf(shade.stops[0]!.color, st.fill.alpha * st.ga) }, stroke: null };
-    part.exact = { shade, sig: partSig(part) };
+    part.exact = { shade, ...(shObj !== undefined ? { shading: shObj, base: st.ctm } : {}), sig: partSig(part) };
     const el: PathElement = { id: newId(), type: 'path', name: 'PDF gradient', x: x0, y: y0, w: x1 - x0, h: y1 - y0, rotation: 0, opacity: 1, viewBox: { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }, paths: [part] };
     if (blend) el.blend = blend;
     setClip(el, st.clips, box);

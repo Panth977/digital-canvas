@@ -52,6 +52,11 @@ export interface PathExact {
   fillSrc?: SourceColor;
   strokeSrc?: SourceColor;
   shade?: PathShade;
+  /** The source file's pattern for this fill: PDF export writes it, the screen draws `shade`. */
+  pattern?: { obj: number; base: Matrix };
+  /** The source file's shading object for a `sh` fill, under `base`. */
+  shading?: number;
+  base?: Matrix;
   /** `fill` and `stroke` as imported: a change to either drops the exact paint. */
   sig: string;
 }
@@ -130,6 +135,8 @@ export interface PdfVectorSource {
 }
 
 export interface PdfFont {
+  /** Not embedded in the file: PDF export names it, as the source did. */
+  standard?: { baseFont: string; subtype: string; encoding?: string };
   /** Name in the file, without the subset tag. */
   name: string;
   /** Design family for this font (absent: nothing could be extracted). */
