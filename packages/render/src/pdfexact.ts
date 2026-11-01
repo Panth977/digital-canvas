@@ -4,11 +4,11 @@
  * With the source file gone (or encrypted) fonts are embedded from the design instead.
  */
 import {
-  beginText, clip, clipEvenOdd, concatTransformationMatrix, endPath, endText, PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFObjectCopier, PDFOperator, PDFOperatorNames, PDFRef, PDFString,
+  beginText, clip, clipEvenOdd, concatTransformationMatrix, endPath, endText, PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFObjectCopier, PDFOperator, PDFOperatorNames, PDFRef, PDFStream, PDFString,
   popGraphicsState, pushGraphicsState, setCharacterSpacing, setDashPattern, setFillingCmykColor, setFillingGrayscaleColor, setFillingRgbColor, setCharacterSqueeze, setFontAndSize, setLineCap, setLineJoin, setLineWidth,
   setStrokingCmykColor, setStrokingGrayscaleColor, setStrokingRgbColor, setTextRenderingMode, setTextRise, setWordSpacing, type PDFPage,
 } from 'pdf-lib';
-import type { Doc, ExactRun, Matrix, PageLink, PathShade, PdfFont, SourceColor } from '@digital-canvas/scene';
+import { mulMatrix, type Doc, type ExactRun, type Matrix, type PageLink, type PathShade, type PdfFont, type SourceColor } from '@digital-canvas/scene';
 import { rgba, type Cmd } from './vectorpath.ts';
 
 export interface ExactWriter {
@@ -17,6 +17,9 @@ export interface ExactWriter {
   image(obj: number): PDFRef | null;
   colorSpace(page: PDFPage, obj: number): PDFName | null;
   shading(page: PDFPage, s: PathShade): PDFName;
+  form(page: PDFPage, obj: number): PDFName | null;
+  /** A copy of a tiling pattern under this matrix (sheet points). Null: not one we can place. */
+  pattern(page: PDFPage, obj: number, base: Matrix): PDFName | null;
 }
 
 const res = (page: PDFPage, kind: string): PDFDict => {
@@ -126,6 +129,28 @@ export async function exactWriter(pdf: PDFDocument, doc: Doc, assets: ReadonlyMa
         const d = res(page, 'ColorSpace');
         const n = PDFName.of(`PCS${obj}`);
         d.set(n, ref);
+        return n;
+      });
+    },
+    form(page, obj) {
+      const ref = copy(obj);
+      if (!ref) return null;
+      return nameOn(page, 'Form', String(obj), () => page.node.newXObject('Form', ref));
+    },
+    pattern(page, obj, base) {
+      const ref = copy(obj);
+      const stream = ref ? pdf.context.lookup(ref) : null;
+      if (!(stream instanceof PDFStream)) return null;
+      const num = (k: string) => { const v = stream.dict.get(PDFName.of(k)); return v instanceof PDFNumber ? v.asNumber() : 0; };
+      if (num('PaintType') !== 1) return null;
+      return nameOn(page, 'Pattern', `${obj}/${base.join(',')}`, () => {
+        const own = stream.dict.lookupMaybe(PDFName.of('Matrix'), PDFArray);
+        const m = own ? own.asArray().map((v) => (v instanceof PDFNumber ? v.asNumber() : 0)) as Matrix : [1, 0, 0, 1, 0, 0] as Matrix;
+        const dup = stream.clone(pdf.context) as PDFStream;
+        dup.dict.set(PDFName.of('Matrix'), pdf.context.obj(mulMatrix(base, m).map((v) => Math.round(v * 1e6) / 1e6)));
+        const d = res(page, 'Pattern');
+        const n = PDFName.of(`PPt${d.keys().length}`);
+        d.set(n, pdf.context.register(dup));
         return n;
       });
     },

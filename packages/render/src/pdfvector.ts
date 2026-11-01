@@ -1,8 +1,8 @@
 import {
-  appendBezierCurve, clip, clipEvenOdd, closePath, cmyk, concatTransformationMatrix, drawObject, endPath, LineCapStyle, LineJoinStyle, lineTo, moveTo, PDFDocument, PDFOperator,
+  appendBezierCurve, clip, clipEvenOdd, closePath, cmyk, concatTransformationMatrix, drawObject, endPath, LineCapStyle, LineJoinStyle, lineTo, moveTo, PDFDocument, PDFName, PDFOperator,
   PDFOperatorNames, popGraphicsState, pushGraphicsState, rgb, setCharacterSpacing, setCharacterSqueeze, setDashPattern, setFillingCmykColor, setFillingRgbColor,
   setGraphicsState, setLineCap, setLineJoin, setLineWidth, setStrokingCmykColor, setStrokingRgbColor, StandardFonts, type Color as PdfColor, type PDFFont,
-  type PDFName, type PDFPage, type PDFRef,
+  type PDFPage, type PDFRef,
 } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import type { Path } from 'canvaskit-wasm';
@@ -349,6 +349,26 @@ export async function exportVectorPdf(renderer: Renderer, doc: Doc, opts: Vector
         const sx = el.w / vb.w, sy = el.h / vb.h;
         const toSheet = mulMatrix(mulMatrix(root, frameOf(el)), [sx, 0, 0, sy, el.x - vb.x * sx, el.y - vb.y * sy]);
         for (const part of el.paths) exactPartOps(part, exactPart(part)!, w, el.opacity, toSheet);
+        return true;
+      }
+      if (el.type === 'image' && el.pdfVector?.asset === el.asset) {
+        const v = el.pdfVector;
+        const sx = v.box.w > 0 ? el.w / v.box.w : 1, sy = v.box.h > 0 ? el.h / v.box.h : 1;
+        const move = mulMatrix(mulMatrix(root, frameOf(el)), [sx, 0, 0, sy, el.x - v.box.x * sx, el.y - v.box.y * sy]);
+        const form = v.form ? w.form(p, v.form.obj) : null;
+        const fills = (v.fills ?? []).map((f) => ({ f, name: w.pattern(p, f.obj, fine(mulMatrix(move, f.base))) }));
+        if ((v.form && !form) || fills.some((f) => !f.name)) return false;
+        if (v.form && form) {
+          ops(pushGraphicsState());
+          for (const c of v.form.clips) ops(...absPath(c.d, move), c.evenOdd ? clipEvenOdd() : clip(), endPath());
+          ops(...alpha(v.form.alpha * el.opacity, v.form.alpha * el.opacity), cm(fine(mulMatrix(move, v.form.m))), drawObject(form), popGraphicsState());
+        }
+        for (const { f, name } of fills) {
+          ops(pushGraphicsState());
+          for (const c of f.clips) ops(...absPath(c.d, move), c.evenOdd ? clipEvenOdd() : clip(), endPath());
+          ops(...alpha(f.alpha * el.opacity, f.alpha * el.opacity), PDFOperator.of(PDFOperatorNames.NonStrokingColorspace, [PDFName.of('Pattern')]), PDFOperator.of(PDFOperatorNames.NonStrokingColorN, [name!]),
+            ...absPath(f.d, move), PDFOperator.of(f.evenOdd ? PDFOperatorNames.FillEvenOdd : PDFOperatorNames.FillNonZero), popGraphicsState());
+        }
         return true;
       }
       if (el.type === 'image' && el.pdfImage?.asset === el.asset) {

@@ -104,6 +104,31 @@ export interface PdfImageSource {
   stencil?: SourceColor;
 }
 
+/** A fill with a tiling pattern from the source file. */
+export interface PdfPatternFill {
+  /** Page px at import. */
+  d: string;
+  evenOdd?: boolean;
+  /** Pattern object in the source file. */
+  obj: number;
+  /** Pattern space's parent → page px. */
+  base: Matrix;
+  alpha: number;
+  clips: PdfClipPath[];
+}
+
+/**
+ * What a picture of a flattened region stands for: the screen shows the picture, a PDF
+ * export writes the original objects so the region stays vector. Used while `asset` is unchanged.
+ */
+export interface PdfVectorSource {
+  asset: string;
+  /** The element's box at import: moving it moves this too. */
+  box: { x: number; y: number; w: number; h: number };
+  form?: { obj: number; m: Matrix; alpha: number; clips: PdfClipPath[] };
+  fills?: PdfPatternFill[];
+}
+
 export interface PdfFont {
   /** Name in the file, without the subset tag. */
   name: string;

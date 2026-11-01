@@ -39,11 +39,14 @@ export function cmykHex(v: number[]): string {
 }
 
 export class PageScan {
-  private f = 0; private i = 0; private cf = 0; private cs = 0;
-  constructor(private fonts: FontEvent[], private images: ImageEvent[], private fills: ColorEvent[], private strokes: ColorEvent[]) {}
+  private f = 0; private i = 0; private cf = 0; private cs = 0; private fo = 0; private pf = 0; private ps = 0;
+  constructor(private fonts: FontEvent[], private images: ImageEvent[], private fills: ColorEvent[], private strokes: ColorEvent[], private forms: (number | undefined)[], private fillPatterns: (number | undefined)[], private strokePatterns: (number | undefined)[]) {}
 
   /** Annotations come after the page's content, from streams we don't read. */
-  annotation(): void { this.fonts = []; this.images = []; this.fills = []; this.strokes = []; this.f = this.i = this.cf = this.cs = 0; }
+  annotation(): void { this.fonts = []; this.images = []; this.fills = []; this.strokes = []; this.forms = []; this.fillPatterns = []; this.strokePatterns = []; }
+
+  nextForm(): number | undefined { return this.forms[this.fo++]; }
+  nextPattern(kind: 'fill' | 'stroke'): number | undefined { return kind === 'fill' ? this.fillPatterns[this.pf++] : this.strokePatterns[this.ps++]; }
 
   nextFont(size: number): number | undefined {
     for (let k = this.f; k < Math.min(this.fonts.length, this.f + WINDOW); k++) {
@@ -178,6 +181,12 @@ export class Source {
       const page = this.pages[index];
       if (!page) return null;
       const fonts: FontEvent[] = [], images: ImageEvent[] = [], fills: ColorEvent[] = [], strokes: ColorEvent[] = [];
+      const forms: (number | undefined)[] = [], fillPatterns: (number | undefined)[] = [], strokePatterns: (number | undefined)[] = [];
+      const patternRef = (a: Tok[], res: PDFDict | undefined): number | undefined => {
+        const last = a[a.length - 1];
+        const v = last?.k === 'name' ? this.dictIn(res, 'Pattern')?.get(PDFName.of(last.v)) : undefined;
+        return v instanceof PDFRef ? v.objectNumber : undefined;
+      };
       const run = (bytes: Uint8Array, res: PDFDict | undefined, depth: number) => {
         type Cs = SourceColor['cs'] | 'pattern' | null;
         let fillCs: Cs = 'g' as Cs, strokeCs: Cs = 'g' as Cs;
@@ -194,8 +203,8 @@ export class Source {
             case 'K': strokeCs = 'k'; strokes.push({ cs: 'k', v: nums(a) }); break;
             case 'cs': if (a[0]?.k === 'name') fillCs = this.spaceOf(a[0].v, res); break;
             case 'CS': if (a[0]?.k === 'name') strokeCs = this.spaceOf(a[0].v, res); break;
-            case 'sc': case 'scn': if (fillCs !== 'pattern') fills.push({ cs: fillCs, v: nums(a) }); break;
-            case 'SC': case 'SCN': if (strokeCs !== 'pattern') strokes.push({ cs: strokeCs, v: nums(a) }); break;
+            case 'sc': case 'scn': if (fillCs !== 'pattern') fills.push({ cs: fillCs, v: nums(a) }); else fillPatterns.push(patternRef(a, res)); break;
+            case 'SC': case 'SCN': if (strokeCs !== 'pattern') strokes.push({ cs: strokeCs, v: nums(a) }); else strokePatterns.push(patternRef(a, res)); break;
             case 'Tf': {
               const name = a[0]?.k === 'name' ? a[0].v : '', size = nums(a)[0] ?? 0;
               const v = this.dictIn(res, 'Font')?.get(PDFName.of(name));
@@ -212,6 +221,7 @@ export class Source {
                 const num = (k: string) => { const v = this.look(x.dict.get(PDFName.of(k))); return v instanceof PDFNumber ? v.asNumber() : 0; };
                 images.push({ obj: ref.objectNumber, w: num('Width'), h: num('Height') });
               } else if (sub === '/Form') {
+                forms.push(ref instanceof PDFRef ? ref.objectNumber : undefined);
                 const inner = this.look(x.dict.get(PDFName.of('Resources')));
                 run(this.bytesOf(x), inner instanceof PDFDict ? inner : res, depth + 1);
               }
@@ -222,7 +232,7 @@ export class Source {
         });
       };
       run(this.bytesOf(page.node.Contents()), page.node.Resources(), 0);
-      return new PageScan(fonts, images, fills, strokes);
+      return new PageScan(fonts, images, fills, strokes, forms, fillPatterns, strokePatterns);
     } catch {
       return null;
     }

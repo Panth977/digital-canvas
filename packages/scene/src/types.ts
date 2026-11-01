@@ -7,7 +7,7 @@
  * people, scripts and AI agents can read and write it.
  */
 
-import type { PageLink, PathExact, PdfClip, PdfImageSource, PdfPageBox, PdfSource, TextExact } from './pdftypes.ts';
+import type { PageLink, PathExact, PdfClip, PdfImageSource, PdfPageBox, PdfSource, PdfVectorSource, TextExact } from './pdftypes.ts';
 
 export const FORMAT = 'digital-canvas';
 export const VERSION = 1;
@@ -381,6 +381,8 @@ export interface ImageElement extends ElementBase, ImageLook {
   mask?: ShapeKind | MaskPath;
   /** Imported from a PDF: the image object in the source file. Used while `asset` is unchanged. */
   pdfImage?: PdfImageSource;
+  /** Imported from a PDF: the vector content this picture stands for. */
+  pdfVector?: PdfVectorSource;
 }
 
 /** A frame outline in its own units, stretched over the element's box. */

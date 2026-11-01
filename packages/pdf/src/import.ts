@@ -8,7 +8,7 @@
  */
 import {
   applyMatrix, DEFAULT_TEXT_STYLE, FORMAT, mulMatrix, newId, partSig, textSig, VERSION,
-  type AssetMeta, type Doc, type Element, type ExactRun, type ImageElement, type Matrix, type Page, type PageLink, type PathElement, type PathExact, type PathPart, type PathShade, type PdfClipPath, type PdfFont, type PdfImageSource, type BlendMode, type SourceColor, type TextElement, type TextRun,
+  type AssetMeta, type Doc, type Element, type ExactRun, type ImageElement, type Matrix, type Page, type PageLink, type PathElement, type PathExact, type PathPart, type PathShade, type PdfClipPath, type PdfFont, type PdfImageSource, type PdfPatternFill, type PdfVectorSource, type BlendMode, type SourceColor, type TextElement, type TextRun,
 } from '@digital-canvas/scene';
 import { readCmap, withUnicodeCmap } from './fontfile.ts';
 import { encodePng } from './png.ts';
@@ -90,6 +90,8 @@ interface Paint {
   src?: SourceColor;
   /** ['TilingPattern', …] or ['Shading', objId, matrix] */
   pattern?: unknown[];
+  /** The pattern object in the source file. */
+  patternObj?: number;
 }
 
 interface State {
@@ -138,6 +140,13 @@ interface Flat {
   blend?: BlendMode;
   /** Type 3 text: the picture is only for screens, cut per text box. */
   invisibleText?: Element[];
+  /** The form this group draws, kept vector in PDF exports. */
+  form?: { obj: number; m: Matrix; alpha: number; clips: PdfClipPath[] };
+  fills?: PdfPatternFill[];
+  /** Something in here has no vector form. */
+  noVector?: boolean;
+  /** Filled by the render. */
+  made?: { id: string; x: number; y: number; w: number; h: number };
 }
 
 type Out = Element | Flat;
@@ -225,15 +234,20 @@ class PageWalker {
     }
     this.flushText();
     this.flushPath();
-    const last = this.out[this.out.length - 1];
+    const last = this.lastFlat();
     const blend = this.blendMode();
-    if (last && isFlat(last) && last.why === why && last.blend === blend) {
+    if (last && last.why === why && last.blend === blend && !last.form) {
       last.ops.add(op);
       grow(last.bbox, bb[0], bb[1]);
       grow(last.bbox, bb[2], bb[3]);
       return;
     }
     this.out.push({ kind: 'flat', ops: new Set([op]), why, bbox: bb, blend });
+  }
+
+  private lastFlat(): Flat | undefined {
+    const o = this.out[this.out.length - 1];
+    return o && isFlat(o) ? o : undefined;
   }
 
   private blendMode(): BlendMode | undefined {
@@ -425,7 +439,7 @@ class PageWalker {
 
   // ---- paths ----
 
-  private async paintPath(i: number, op: number, data: Float32Array | number[], OPS: Record<string, number>): void {
+  private async paintPath(i: number, op: number, data: Float32Array | number[], OPS: Record<string, number>): Promise<void> {
     const st = this.st;
     const clipOnly = op === OPS.endPath;
     const closes = op === OPS.closeStroke || op === OPS.closeFillStroke || op === OPS.closeEOFillStroke;
@@ -453,7 +467,14 @@ class PageWalker {
     let shade: PathShade | undefined;
     if (fills && st.fill.pattern) {
       shade = (await this.axialOf(st.fill.pattern)) ?? undefined;
-      if (!shade) { this.flat(i, st.fill.pattern[0] === 'TilingPattern' ? 'tiling pattern' : 'mesh shading', shown); return; }
+      if (!shade) {
+        this.flat(i, st.fill.pattern[0] === 'TilingPattern' ? 'tiling pattern' : 'mesh shading', shown);
+        const f = this.lastFlat();
+        if (f && st.fill.pattern[0] === 'TilingPattern' && st.fill.patternObj !== undefined && !strokes && !keepCtm && !this.flatNow) {
+          (f.fills ??= []).push({ d, ...(evenOdd ? { evenOdd } : {}), obj: st.fill.patternObj, base: this.baseOf(), alpha: st.fill.alpha * st.ga, clips: [...st.clips] });
+        } else if (f) f.fills = undefined, f.noVector = true;
+        return;
+      }
     }
     if (strokes && st.stroke.pattern) { this.flat(i, 'pattern on a stroke', shown); return; }
 
@@ -627,6 +648,7 @@ class PageWalker {
         case OPS.restore: if (this.stack.length) this.st = this.stack.pop()!; break;
         case OPS.transform: st.ctm = mulMatrix(st.ctm, toMatrix(a)); break;
         case OPS.paintFormXObjectBegin: {
+          if (fnArray[i - 1] !== OPS.beginGroup) this.scan?.nextForm();
           this.stack.push({ ...st });
           if (a[0]) st.ctm = mulMatrix(st.ctm, toMatrix(a[0]));
           this.baseCtm.push(st.ctm);
@@ -667,8 +689,8 @@ class PageWalker {
         case OPS.setStrokeRGBColor: { const src = this.scan?.nextColor('stroke', a[0]); st.stroke = { rgb: src?.rgb ?? a[0], alpha: st.stroke.alpha, src }; break; }
         case OPS.setFillTransparent: st.fill = { ...st.fill, alpha: 0 }; break;
         case OPS.setStrokeTransparent: st.stroke = { ...st.stroke, alpha: 0 }; break;
-        case OPS.setFillColorN: st.fill = { rgb: st.fill.rgb, alpha: st.fill.alpha, pattern: a }; break;
-        case OPS.setStrokeColorN: st.stroke = { rgb: st.stroke.rgb, alpha: st.stroke.alpha, pattern: a }; break;
+        case OPS.setFillColorN: st.fill = { rgb: st.fill.rgb, alpha: st.fill.alpha, pattern: a, patternObj: this.scan?.nextPattern('fill') }; break;
+        case OPS.setStrokeColorN: st.stroke = { rgb: st.stroke.rgb, alpha: st.stroke.alpha, pattern: a, patternObj: this.scan?.nextPattern('stroke') }; break;
         case OPS.constructPath: {
           const [op, [data]] = a;
           await this.paintPath(i, op, data ?? [], OPS);
@@ -787,6 +809,7 @@ class PageWalker {
   private beginGroup(i: number, g: any): void {
     const st = this.st;
     this.stack.push({ ...st });
+    const formObj = !g.smask ? this.scan?.nextForm() : undefined;
     if (g.smask) { // draws a mask, not page content
       this.always.add(i);
       this.maskDepth = 1;
@@ -811,6 +834,7 @@ class PageWalker {
         const bbox = this.st.clipBox;
         const why = g.knockout ? 'knockout group' : st.smask || g.hasSoftMask ? 'soft mask' : st.blend !== 'source-over' ? `transparency group, ${st.blend} blend` : needsIso(g) ? 'isolated group with blends inside' : 'transparency group';
         this.flatNow = { kind: 'flat', ops: new Set(), why, bbox: [...bbox], blend: this.blendMode() };
+        if (formObj !== undefined && !st.smask) this.flatNow.form = { obj: formObj, m: st.ctm, alpha: st.fill.alpha * st.ga, clips: [...st.clips] };
         this.out.push(this.flatNow);
       }
       this.flatDepth++;
@@ -1135,7 +1159,7 @@ async function renderFlats(pdfjs: Pdfjs, doc: any, page: any, list: { fnArray: n
     const id = `flat-${newId()}`;
     b.addAsset(id, encodePng(px, cw, ch, 4), { mime: 'image/png', width: cw, height: ch, name: 'PDF region' });
     const box = { x: x0 + minX / scale, y: y0 + minY / scale, w: cw / scale, h: ch / scale };
-    (f as Flat & { made?: unknown }).made = { id, ...box };
+    f.made = { id, ...box };
     b.report.flattened.push({ page: num, why: f.why, x: Math.round(box.x), y: Math.round(box.y), w: Math.round(box.w), h: Math.round(box.h) });
   }
 }
@@ -1162,10 +1186,16 @@ function finishPage(out: Out[], b: Builder): Element[] {
       if (Number.isFinite(o.x + o.y + o.w + o.h + o.rotation)) els.push(o);
       continue;
     }
-    const made = (o as Flat & { made?: { id: string; x: number; y: number; w: number; h: number } }).made;
+    const made = o.made;
     if (made) {
       const el: ImageElement = { id: newId(), type: 'image', name: `PDF region (${o.why})`, x: made.x, y: made.y, w: made.w, h: made.h, rotation: 0, opacity: 1, asset: made.id, radius: 0, crop: { x: 0, y: 0, w: 1, h: 1 } };
       if (o.blend) el.blend = o.blend;
+      if ((o.form || o.fills?.length) && !o.noVector) {
+        const v: PdfVectorSource = { asset: made.id, box: { x: el.x, y: el.y, w: el.w, h: el.h } };
+        if (o.form) v.form = o.form;
+        if (o.fills) v.fills = o.fills;
+        el.pdfVector = v;
+      }
       if (o.invisibleText?.length) {
         // the picture shows the glyphs: the text stays on top, selectable and editable, and draws nothing
         for (const t of o.invisibleText) if (t.type === 'text' && t.exact) t.exact.runs = t.exact.runs.map((r) => ({ ...r, mode: 3 }));
