@@ -75,6 +75,8 @@ export class PdfImportError extends Error {
 const PX = 96 / 72;
 /** Most parts in one path element: past this a figure is split, so one element stays cheap to redraw. */
 const MAX_PARTS = 1500;
+/** pdf.js path opcodes (not exported by the library). */
+const DRAW = { moveTo: 0, lineTo: 1, curveTo: 2, quadraticCurveTo: 3, closePath: 4 };
 const n4 = (v: number) => Math.round(v * 10000) / 10000;
 
 const BLENDS: Record<string, BlendMode> = {
@@ -421,7 +423,7 @@ class PageWalker {
 
   // ---- paths ----
 
-  private paintPath(i: number, op: number, data: Float32Array | number[], OPS: Record<string, number>): void {
+  private async paintPath(i: number, op: number, data: Float32Array | number[], OPS: Record<string, number>): void {
     const st = this.st;
     const clipOnly = op === OPS.endPath;
     const closes = op === OPS.closeStroke || op === OPS.closeFillStroke || op === OPS.closeEOFillStroke;
@@ -430,12 +432,12 @@ class PageWalker {
     const evenOdd = op === OPS.eoFill || op === OPS.eoFillStroke || op === OPS.closeEOFillStroke;
     const conformal = isConformal(st.ctm);
     const keepCtm = strokes && !conformal;
-    const { d, box } = pathToSvg(data, keepCtm ? null : st.ctm, closes, this.pdfjs.DrawOPS);
+    const { d, box } = pathToSvg(data, keepCtm ? null : st.ctm, closes, DRAW);
     const pageBox = keepCtm ? transformBox(box, st.ctm) : box;
 
     if (this.pendingClip && !this.flatDepth && !this.maskDepth) { /* clip below */ }
     if (this.pendingClip) {
-      const c = keepCtm ? pathToSvg(data, st.ctm, closes, this.pdfjs.DrawOPS) : { d, box };
+      const c = keepCtm ? pathToSvg(data, st.ctm, closes, DRAW) : { d, box };
       st.clips = [...st.clips, { d: c.d, ...(this.pendingClip === 'evenodd' ? { evenOdd: true } : {}) }];
       st.clipBox = [Math.max(st.clipBox[0], c.box[0]), Math.max(st.clipBox[1], c.box[1]), Math.min(st.clipBox[2], c.box[2]), Math.min(st.clipBox[3], c.box[3])];
       this.pendingClip = null;
@@ -448,7 +450,7 @@ class PageWalker {
     if (this.flatDepth > 0 || st.smask) { this.flat(i, 'soft mask or transparency group', shown); return; }
     let shade: PathShade | undefined;
     if (fills && st.fill.pattern) {
-      shade = this.axialOf(st.fill.pattern) ?? undefined;
+      shade = (await this.axialOf(st.fill.pattern)) ?? undefined;
       if (!shade) { this.flat(i, st.fill.pattern[0] === 'TilingPattern' ? 'tiling pattern' : 'mesh shading', shown); return; }
     }
     if (strokes && st.stroke.pattern) { this.flat(i, 'pattern on a stroke', shown); return; }
@@ -493,19 +495,20 @@ class PageWalker {
     this.pathOut = { el, box: [...pageBox] as [number, number, number, number], key };
   }
 
-  private axialOf(pattern: unknown[]): PathShade | null {
+  private objsOf(id: string): any { return id.startsWith('g_') ? this.page.commonObjs : this.page.objs; }
+
+  private async axialOf(pattern: unknown[]): Promise<PathShade | null> {
     if (pattern[0] !== 'Shading') return null;
-    const ir = this.page.commonObjs.has?.(pattern[1]) ? this.page.commonObjs.get(pattern[1]) : this.shadeIr.get(pattern[1] as string);
-    const pm = (pattern[2] as Matrix | null) ?? null;
+    const ir: any = await objGet(this.objsOf(pattern[1] as string), pattern[1] as string);
+    const pm = pattern[2] ? toMatrix(pattern[2]) : null;
     return ir ? shadeOf(ir, pm ? mulMatrix(this.baseOf(), pm) : this.baseOf()) : null;
   }
-  shadeIr = new Map<string, unknown[]>();
   private baseOf(): Matrix { return this.baseCtm[this.baseCtm.length - 1]!; }
   baseCtm: Matrix[] = [];
 
-  private shadingFill(i: number, id: string): void {
+  private async shadingFill(i: number, id: string): Promise<void> {
     const st = this.st;
-    const ir: any = this.page.commonObjs.get(id);
+    const ir: any = await objGet(this.objsOf(id), id);
     const box = st.clipBox;
     const blend = this.blendMode();
     const shade = ir ? shadeOf(ir, st.ctm) : null;
@@ -620,10 +623,10 @@ class PageWalker {
       switch (fn) {
         case OPS.save: this.stack.push({ ...st }); break;
         case OPS.restore: if (this.stack.length) this.st = this.stack.pop()!; break;
-        case OPS.transform: st.ctm = mulMatrix(st.ctm, a as Matrix); break;
+        case OPS.transform: st.ctm = mulMatrix(st.ctm, toMatrix(a)); break;
         case OPS.paintFormXObjectBegin: {
           this.stack.push({ ...st });
-          if (a[0]) st.ctm = mulMatrix(st.ctm, a[0]);
+          if (a[0]) st.ctm = mulMatrix(st.ctm, toMatrix(a[0]));
           this.baseCtm.push(st.ctm);
           if (a[1]) this.clipRect(a[1]);
           break;
@@ -645,8 +648,8 @@ class PageWalker {
           const [, rect, tr, mx] = a;
           if (Array.isArray(rect) || rect?.length) {
             this.clipRect([...rect] as number[]);
-            if (tr) st.ctm = mulMatrix(st.ctm, tr);
-            if (mx) st.ctm = mulMatrix(st.ctm, mx);
+            if (tr) st.ctm = mulMatrix(st.ctm, toMatrix(tr));
+            if (mx) st.ctm = mulMatrix(st.ctm, toMatrix(mx));
           }
           this.scan?.annotation();
           break;
@@ -666,7 +669,7 @@ class PageWalker {
         case OPS.setStrokeColorN: st.stroke = { rgb: st.stroke.rgb, alpha: st.stroke.alpha, pattern: a }; break;
         case OPS.constructPath: {
           const [op, [data]] = a;
-          this.paintPath(i, op, data ?? [], OPS);
+          await this.paintPath(i, op, data ?? [], OPS);
           break;
         }
         case OPS.clip: this.pendingClip = 'nonzero'; break;
@@ -683,12 +686,12 @@ class PageWalker {
         case OPS.moveText: this.td(a[0], a[1]); break;
         case OPS.setLeadingMoveText: st.leading = -a[1]; this.td(a[0], a[1]); break;
         case OPS.nextLine: this.td(0, -st.leading); break;
-        case OPS.setTextMatrix: st.tm = [...a] as Matrix; st.tlm = [...a] as Matrix; break;
+        case OPS.setTextMatrix: st.tm = toMatrix(a); st.tlm = st.tm; break;
         case OPS.showText: if (!this.hidden) this.show(i, a[0]); else this.advance(a[0]); break;
         case OPS.showSpacedText: if (!this.hidden) this.show(i, a[0]); else this.advance(a[0]); break;
         case OPS.nextLineShowText: this.td(0, -st.leading); if (!this.hidden) this.show(i, a[0]); break;
         case OPS.nextLineSetSpacingShowText: st.tw = a[0]; st.tc = a[1]; this.td(0, -st.leading); if (!this.hidden) this.show(i, a[2]); break;
-        case OPS.shadingFill: if (!this.hidden) this.shadingFill(i, a[0]); break;
+        case OPS.shadingFill: if (!this.hidden) await this.shadingFill(i, a[0]); break;
         case OPS.paintImageXObject: {
           if (this.hidden) { this.scan?.nextImage(a[1], a[2]); break; }
           const img: any = await objGet(String(a[0]).startsWith('g_') ? this.page.commonObjs : this.page.objs, a[0]);
@@ -709,7 +712,7 @@ class PageWalker {
         case OPS.paintSolidColorImageMask: {
           if (this.hidden) break;
           const part = [0, 0, 1, 0, 1, 1, 0, 1];
-          this.paintPath(i, OPS.fill, rectOps(part, this.pdfjs.DrawOPS), OPS);
+          await this.paintPath(i, OPS.fill, rectOps(part, DRAW), OPS);
           break;
         }
         default:
@@ -754,8 +757,8 @@ class PageWalker {
   private clipRect(r: number[]): void {
     const st = this.st;
     const [x0, y0, x1, y1] = r as [number, number, number, number];
-    const data = rectOps([x0, y0, x1, y0, x1, y1, x0, y1], this.pdfjs.DrawOPS);
-    const { d, box } = pathToSvg(data, st.ctm, false, this.pdfjs.DrawOPS);
+    const data = rectOps([x0, y0, x1, y0, x1, y1, x0, y1], DRAW);
+    const { d, box } = pathToSvg(data, st.ctm, false, DRAW);
     st.clips = [...st.clips, { d }];
     st.clipBox = [Math.max(st.clipBox[0], box[0]), Math.max(st.clipBox[1], box[1]), Math.min(st.clipBox[2], box[2]), Math.min(st.clipBox[3], box[3])];
   }
@@ -995,6 +998,12 @@ function textElement(line: Chunk[], b: Builder, ascents: Map<string, [number, nu
   return el;
 }
 
+/** pdf.js hands matrices over bare, or wrapped in the argument list, as arrays or Float32Arrays. */
+function toMatrix(a: any): Matrix {
+  const m = a.length === 1 ? a[0] : a;
+  return [m[0], m[1], m[2], m[3], m[4], m[5]];
+}
+
 const roundM = (m: Matrix): Matrix => m.map((v) => Math.round(v * 1e6) / 1e6) as Matrix;
 
 /** Turn pdf.js fonts into assets and design families, once every glyph used is known. */
@@ -1200,7 +1209,7 @@ export async function importPdf(pdfjs: Pdfjs, bytes: Uint8Array, opts: ImportOpt
       opts.onProgress?.(idx, sizes.length, `Reading page ${s.num} of ${pdf.numPages}`);
       const { page, viewport, num } = s;
       const list = await page.getOperatorList({ annotationMode: pdfjs.AnnotationMode.ENABLE });
-      const base = viewport.transform as Matrix;
+      const base = toMatrix(viewport.transform);
       const scan = source?.scanPage(num - 1) ?? null;
       const w = new PageWalker(pdfjs, b, page, list, base, s.w, s.h, scan, source, oc, num);
       const out = await w.walk(check);
@@ -1286,4 +1295,3 @@ function notes(r: ImportReport): void {
   if (r.scanned) r.notes.push(`${r.scanned} page${r.scanned > 1 ? 's are' : ' is'} a scan: one image, no text to edit.`);
 }
 
-void hexOf;
