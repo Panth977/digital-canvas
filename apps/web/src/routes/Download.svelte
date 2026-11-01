@@ -42,8 +42,15 @@
     <h2>First launch</h2>
     <p>The app isn’t code-signed yet, so your system will ask before the first start.</p>
     <h3>Mac</h3>
-    <p>Open the <code>.dmg</code>, drag Digital Canvas to Applications, and open it. When macOS refuses, go to <b>System Settings › Privacy &amp; Security</b>, scroll down and choose <b>Open Anyway</b>. If it says the app is damaged, run this in Terminal:</p>
+    <ol>
+      <li>Open the <code>.dmg</code> and drag Digital Canvas onto Applications. Don’t start it from the <code>.dmg</code> window.</li>
+      <li>In Terminal, run this once:</li>
+    </ol>
     <pre>xattr -dr com.apple.quarantine "/Applications/Digital Canvas.app"</pre>
+    <ol start="3">
+      <li>Open Digital Canvas from Applications.</li>
+    </ol>
+    <p>No Terminal? Open the app once from Applications and press <b>Done</b> (not Move to Bin) on the warning. Then go to <b>System Settings › Privacy &amp; Security</b>, scroll down, choose <b>Open Anyway</b> and confirm.</p>
     <h3>Windows</h3>
     <p>When SmartScreen shows “Windows protected your PC”, choose <b>More info</b>, then <b>Run anyway</b>.</p>
     <h3>Linux</h3>
