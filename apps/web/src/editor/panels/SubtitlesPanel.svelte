@@ -201,7 +201,7 @@
     {#if s.error}<p class="dp-err" role="alert" data-testid="sub-error">{s.error}</p>{/if}
     <p class="dp-hint" data-testid="sub-note">Made on this device by Kokoro-82M; nothing is sent anywhere. The first time downloads about {mb} MB, then it works offline.</p>
     {#if gpu && !mobile.on}
-      <label class="tick"><input type="checkbox" checked={s.smallModel} data-testid="sub-small" onchange={(e) => s.setSmallModel((e.currentTarget as HTMLInputElement).checked)} /> Use the smaller model (86 MB, slower)</label>
+      <label class="tick"><input type="checkbox" checked={s.smallModel} data-testid="sub-small" onchange={(e) => s.setSmallModel((e.currentTarget as HTMLInputElement).checked)} /> Use the smaller model (92 MB, slower)</label>
     {/if}
   {/if}
 </div>

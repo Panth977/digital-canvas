@@ -84,13 +84,15 @@ async function speak(id: number, text: string, voiceId: string, speed: number, e
         if (cancelled.has(id)) throw new Error('cancelled');
         const ids = tokenize(piece);
         const at = Math.min(Math.max(ids.length - 2, 0), 509) * 256;
-        const r = await session.run({
+        const say = (rate: number) => session.run({
           input_ids: new ort.Tensor('int64', BigInt64Array.from(ids.map(BigInt)), [1, ids.length]),
           style: new ort.Tensor('float32', voiceData.slice(at, at + 256), [1, 256]),
-          speed: new ort.Tensor('float32', new Float32Array([speed]), [1]),
+          speed: new ort.Tensor('float32', new Float32Array([rate]), [1]),
         });
-        const wav = r[session.outputNames[0]!]!.data;
-        if (!wav.length || !Number.isFinite(wav[0])) throw new Error('the model gave no sound');
+        const heard = (d: { data: Float32Array } | undefined): Float32Array | null => (d?.data.length && Number.isFinite(d.data[0]) ? d.data : null);
+        // quantised models can overflow on one exact input: a hair's difference in speed gets past it
+        const wav = heard((await say(speed))[session.outputNames[0]!]) ?? heard((await say(speed * 1.02))[session.outputNames[0]!]);
+        if (!wav) throw new Error('the model gave no sound');
         out.push(new Float32Array(wav));
         if (pieces.length > 1) progress('Speaking…', (i + 1) / pieces.length);
       }

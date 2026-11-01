@@ -289,7 +289,7 @@ test('the phone warns before the download and works in its sheet', async ({ page
   await expect(page.getByTestId('subtitles-panel')).toBeVisible();
   await script(page, 'Small screen line.');
   await page.getByTestId('sub-generate').click();
-  await expect(page.getByTestId('sub-phone-warn')).toContainText('86 MB');
+  await expect(page.getByTestId('sub-phone-warn')).toContainText('92 MB');
   await shot(page, 'phone');
   await page.getByTestId('sub-phone-go').click();
   await expect(page.getByTestId('sub-generate')).toHaveText('Speech is up to date');

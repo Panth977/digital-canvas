@@ -1,5 +1,5 @@
 /**
- * The real model, end to end: off by default, it downloads 86 MB and takes
+ * The real model, end to end: off by default, it downloads 92 MB and takes
  * minutes. DC_REAL_MODELS=1 runs it; DC_TTS_SAMPLE=<path> keeps the MP4.
  */
 import { execFileSync } from 'node:child_process';

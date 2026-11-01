@@ -11,11 +11,13 @@ const MISAKI = 'https://cdn.jsdelivr.net/gh/hexgrad/misaki@fba1236595f2d2bf21d41
  * WebAssembly: `gpu` (full precision on WebGPU) makes a 6 s line in 2 s; `small`
  * (quantised, on the CPU) takes 10 s. The smaller builds give NaN on WebGPU,
  * and the full one is too big for phones, so each engine has its own file.
+ * `model_q8f16.onnx` looks better on paper (86 MB) but gives all-NaN sound for
+ * about 1 sentence in 10, on WebAssembly too; `model_quantized.onnx` gave none in 60.
  */
 export type Engine = 'gpu' | 'small';
 export const ENGINES: Record<Engine, { file: string; ep: string; mb: number }> = {
   gpu: { file: 'model.onnx', ep: 'webgpu', mb: 326 },
-  small: { file: 'model_q8f16.onnx', ep: 'wasm', mb: 86 },
+  small: { file: 'model_quantized.onnx', ep: 'wasm', mb: 92 },
 };
 
 export const modelUrl = (file: string): string => `${KOKORO}/onnx/${file}`;
