@@ -1,13 +1,14 @@
 import {
-  appendBezierCurve, clip, closePath, cmyk, concatTransformationMatrix, drawObject, endPath, LineCapStyle, LineJoinStyle, lineTo, moveTo, PDFDocument, PDFOperator,
+  appendBezierCurve, clip, clipEvenOdd, closePath, cmyk, concatTransformationMatrix, drawObject, endPath, LineCapStyle, LineJoinStyle, lineTo, moveTo, PDFDocument, PDFName, PDFOperator,
   PDFOperatorNames, popGraphicsState, pushGraphicsState, rgb, setCharacterSpacing, setCharacterSqueeze, setDashPattern, setFillingCmykColor, setFillingRgbColor,
   setGraphicsState, setLineCap, setLineJoin, setLineWidth, setStrokingCmykColor, setStrokingRgbColor, StandardFonts, type Color as PdfColor, type PDFFont,
-  type PDFName, type PDFPage, type PDFRef,
+  type PDFPage, type PDFRef,
 } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import type { Path } from 'canvaskit-wasm';
 import type { Color, Doc, Element, Fill, ImageElement, Page, PathElement, ShapeElement, Stroke, TextElement, VideoElement } from '@digital-canvas/scene';
-import { dashArray, posterOf, walk, type Decomposed } from '@digital-canvas/scene';
+import { applyMatrix, clipOf, dashArray, exactPart, exactText, mulMatrix, posterOf, walk, type Decomposed, type Matrix, type PathPart, type TextExact } from '@digital-canvas/scene';
+import { actualTextOp, addLinks, cm, colorOps, exactWriter, parseD, strokeOps, textStateOps, tjOp, type ExactWriter } from './pdfexact.ts';
 import type { FontFace } from './fonts.ts';
 import { shapePath, transformPath, type Renderer } from './renderer.ts';
 import { loadPicture, pictureNeedsRaster, textNeedsRaster, type VectorExportOptions } from './svgexport.ts';
@@ -34,7 +35,7 @@ const isLinear = (f: Fill | null | undefined) => f?.type === 'linear';
 
 /** Elements vector PDF draws as an image: text effects, curved or gradient text, gradient fills, images with a look. */
 function needsRaster(el: Element): boolean {
-  if (el.type === 'text') return textNeedsRaster(el) || !!el.gradient;
+  if (el.type === 'text') return !exactText(el) && (textNeedsRaster(el) || !!el.gradient);
   if (el.type === 'shape') return isLinear(el.fill);
   if (el.type === 'path') return el.paths.some((p) => isLinear(p.fill));
   if (el.type === 'image' || el.type === 'video') return pictureNeedsRaster(el);
@@ -94,6 +95,8 @@ export async function exportVectorPdf(renderer: Renderer, doc: Doc, opts: Vector
     }
     return e;
   };
+  const exact: ExactWriter | null = doc.pdf ? await exactWriter(pdf, doc, opts.assets) : null;
+  const pendingLinks: { page: PDFPage; links: NonNullable<Page['links']>; toSheet: (x: number, y: number) => [number, number] }[] = [];
   const images = new Map<string, PDFRef | null>();
   const embedImage = async (key: string, bytes: Uint8Array, mime: string): Promise<PDFRef | null> => {
     if (images.has(key)) return images.get(key)!;
@@ -117,12 +120,26 @@ export async function exportVectorPdf(renderer: Renderer, doc: Doc, opts: Vector
   };
 
   for (const page of pages) {
-    const p = pdf.addPage([wPt, hPt]);
+    // an imported page gets its own size back; `box` also moves it off the letterbox
+    const box = !opts.print ? page.pdfPage : undefined;
+    const sheetW = box ? box.w : wPt, sheetH = box ? box.h : hPt;
+    const p = pdf.addPage([sheetW, sheetH]);
     if (opts.print) {
       // PDF boxes are y-up points; the layout is symmetric, so y = x
       p.setBleedBox(lay.bleed.x * 0.75, lay.bleed.y * 0.75, lay.bleed.w * 0.75, lay.bleed.h * 0.75);
       p.setTrimBox(lay.trim.x * 0.75, lay.trim.y * 0.75, lay.trim.w * 0.75, lay.trim.h * 0.75);
     }
+    const blends = new Map<string, PDFName>();
+    /** A blend mode, for elements of imported pages. */
+    const blendOp = (b: string): PDFOperator => {
+      let name = blends.get(b);
+      if (!name) {
+        const bm = b.split('-').map((w) => w[0]!.toUpperCase() + w.slice(1)).join('');
+        name = p.node.newExtGState('BM', pdf.context.obj({ Type: 'ExtGState', BM: bm }));
+        blends.set(b, name);
+      }
+      return setGraphicsState(name);
+    };
     const states = new Map<string, PDFName>();
     /** Named graphics state for fill/stroke alpha. */
     const alpha = (ca: number, CA: number): PDFOperator[] => {
@@ -167,6 +184,61 @@ export async function exportVectorPdf(renderer: Renderer, doc: Doc, opts: Vector
       let name = xobjects.get(img);
       if (!name) xobjects.set(img, (name = p.node.newXObject('Image', img)));
       ops(pushGraphicsState(), ...alpha(opacity, opacity), concatTransformationMatrix(w, 0, 0, -h, x, y + h), drawObject(name), popGraphicsState());
+    };
+
+    let root: Matrix = [1, 0, 0, 1, 0, 0];
+    /** Rotation and flips of an element, as a matrix from its unrotated frame to page px. */
+    const frameOf = (el: Element): Matrix => {
+      const cx = el.x + el.w / 2, cy = el.y + el.h / 2;
+      let m: Matrix = [1, 0, 0, 1, 0, 0];
+      if (el.rotation) {
+        const r = (el.rotation * Math.PI) / 180, cos = Math.cos(r), sin = Math.sin(r);
+        m = mulMatrix(m, [cos, sin, -sin, cos, cx - cx * cos + cy * sin, cy - cx * sin - cy * cos]);
+      }
+      if (el.flipX || el.flipY) {
+        const fx = el.flipX ? -1 : 1, fy = el.flipY ? -1 : 1;
+        m = mulMatrix(m, [fx, 0, 0, fy, cx - fx * cx, cy - fy * cy]);
+      }
+      return m;
+    };
+    const fine = (m: Matrix): Matrix => m.map((v) => Math.round(v * 1e6) / 1e6) as Matrix;
+    /** Path commands of an SVG `d`, moved by `m` straight to sheet points. */
+    const absPath = (d: string, m: Matrix): PDFOperator[] => pathOps(parseD(d).map((c) => {
+      if (c.op === 'Z') return c;
+      const p = applyMatrix(m, c.x, c.y);
+      if (c.op !== 'C') return { op: c.op, x: Math.round(p[0] * 1e4) / 1e4, y: Math.round(p[1] * 1e4) / 1e4 };
+      const a = applyMatrix(m, c.x1, c.y1), b = applyMatrix(m, c.x2, c.y2);
+      const f = (v: number) => Math.round(v * 1e4) / 1e4;
+      return { op: 'C' as const, x1: f(a[0]), y1: f(a[1]), x2: f(b[0]), y2: f(b[1]), x: f(p[0]), y: f(p[1]) };
+    }));
+
+    /** The exact glyphs of an imported text box. */
+    const exactRuns = (el: TextElement, x: TextExact, w: ExactWriter) => {
+      const sx = x.w > 0 ? el.w / x.w : 1, sy = x.h > 0 ? el.h / x.h : 1;
+      const recolor = el.style.color !== x.color ? el.style.color : null;
+      const toSheet = mulMatrix(mulMatrix(root, frameOf(el)), [sx, 0, 0, sy, el.x, el.y]);
+      for (const run of x.runs) {
+        const f = w.font(p, run.font);
+        const info = doc.pdf!.fonts[run.font]!;
+        if (!f) {
+          if (run.mode === 3) continue;
+          continue;
+        }
+        const fill = rgba(recolor ?? run.color), st = run.stroke ? rgba(run.stroke) : null;
+        const o: PDFOperator[] = [pushGraphicsState(), ...alpha(el.opacity * fill.a, el.opacity * (st?.a ?? 1)), cm(fine(mulMatrix(toSheet, run.m)))];
+        const fillSrc = !recolor && run.colorSrc ? colorOps(w, p, run.colorSrc, false) : null;
+        o.push(...(fillSrc ?? [fillOp(fill)]));
+        if (st) {
+          o.push(...((run.strokeSrc ? colorOps(w, p, run.strokeSrc, true) : null) ?? [strokeOp(st)]));
+          if (run.lw !== undefined) o.push(setLineWidth(run.lw));
+        }
+        o.push(...textStateOps(f.gidCodes ? { ...run, tw: undefined } : run, f.name));
+        if (run.actual !== undefined) o.push(actualTextOp(run.actual));
+        o.push(tjOp(run, info.bytes, f.gidCodes ? info : null));
+        if (run.actual !== undefined) o.push(PDFOperator.of('EMC' as never));
+        o.push(PDFOperator.of(PDFOperatorNames.EndText), popGraphicsState());
+        ops(...o);
+      }
     };
 
     const text = async (el: TextElement, opacity: number) => {
@@ -230,6 +302,34 @@ export async function exportVectorPdf(renderer: Renderer, doc: Doc, opts: Vector
       path.delete();
     };
 
+    /** A part as the PDF drew it, in viewBox units. */
+    const exactPartOps = (part: PathPart, ex: NonNullable<ReturnType<typeof exactPart>>, w: ExactWriter, opacity: number, toSheet: Matrix) => {
+      const cmds = ex.ctm ? absPath(part.d, [1, 0, 0, 1, 0, 0]) : absPath(part.d, toSheet);
+      const k = ex.ctm ? 1 : Math.sqrt(Math.abs(toSheet[0] * toSheet[3] - toSheet[1] * toSheet[2]));
+      const fill = part.fill?.type === 'solid' ? rgba(part.fill.color) : null;
+      const st = part.stroke ? rgba(part.stroke.color) : null;
+      const o: PDFOperator[] = [pushGraphicsState(), ...alpha(opacity * (fill?.a ?? 1), opacity * (st?.a ?? 1))];
+      if (ex.ctm) o.push(cm(fine(mulMatrix(toSheet, ex.ctm))));
+      const pattern = ex.pattern && !ex.ctm ? w.pattern(p, ex.pattern.obj, fine(mulMatrix(toSheet, ex.pattern.base))) : null;
+      if (pattern) {
+        o.push(PDFOperator.of(PDFOperatorNames.NonStrokingColorspace, [PDFName.of('Pattern')]), PDFOperator.of(PDFOperatorNames.NonStrokingColorN, [pattern]));
+      } else if (ex.shade) {
+        const own = ex.shading !== undefined && ex.base ? w.shadingObject(p, ex.shading) : null;
+        const name = own ?? w.shading(p, ex.shade);
+        ops(...o, pushGraphicsState(), ...cmds, part.evenOdd ? clipEvenOdd() : clip(), endPath(), cm(fine(mulMatrix(toSheet, own ? ex.base! : ex.shade.matrix))), PDFOperator.of(PDFOperatorNames.ShadingFill, [name]), popGraphicsState());
+        o.length = 0;
+        if (st) o.push(...strokeOps(ex, k), ...((ex.strokeSrc ? colorOps(w, p, ex.strokeSrc, true) : null) ?? [strokeOp(st)]), ...cmds, PDFOperator.of(PDFOperatorNames.StrokePath));
+        ops(...o, popGraphicsState());
+        return;
+      }
+      if (fill && !pattern) o.push(...((ex.fillSrc ? colorOps(w, p, ex.fillSrc, false) : null) ?? [fillOp(fill)]));
+      if (st) o.push(...strokeOps(ex, k), ...((ex.strokeSrc ? colorOps(w, p, ex.strokeSrc, true) : null) ?? [strokeOp(st)]));
+      o.push(...cmds);
+      const eo = part.evenOdd;
+      o.push(PDFOperator.of(fill && st ? (eo ? PDFOperatorNames.FillEvenOddAndStroke : PDFOperatorNames.FillNonZeroAndStroke) : fill ? (eo ? PDFOperatorNames.FillEvenOdd : PDFOperatorNames.FillNonZero) : PDFOperatorNames.StrokePath), popGraphicsState());
+      ops(...o);
+    };
+
     const vectorPath = (el: PathElement) => {
       const vb = el.viewBox;
       if (vb.w <= 0 || vb.h <= 0) return;
@@ -243,6 +343,55 @@ export async function exportVectorPdf(renderer: Renderer, doc: Doc, opts: Vector
       }
     };
 
+    /** Whatever of an element keeps its PDF form, written in sheet points. True when nothing is left to draw. */
+    const exactElement = (el: Exclude<Element, { type: 'group' }>, w: ExactWriter): boolean => {
+      if (el.type === 'text') {
+        const x = exactText(el);
+        if (!x || !x.runs.every((r) => w.ok(r))) return false;
+        exactRuns(el, x, w);
+        return true;
+      }
+      if (el.type === 'path') {
+        const vb = el.viewBox;
+        if (vb.w <= 0 || vb.h <= 0 || el.paths.some((q) => !exactPart(q))) return false;
+        const sx = el.w / vb.w, sy = el.h / vb.h;
+        const toSheet = mulMatrix(mulMatrix(root, frameOf(el)), [sx, 0, 0, sy, el.x - vb.x * sx, el.y - vb.y * sy]);
+        for (const part of el.paths) exactPartOps(part, exactPart(part)!, w, el.opacity, toSheet);
+        return true;
+      }
+      if (el.type === 'image' && el.pdfVector?.asset === el.asset) {
+        const v = el.pdfVector;
+        const sx = v.box.w > 0 ? el.w / v.box.w : 1, sy = v.box.h > 0 ? el.h / v.box.h : 1;
+        const move = mulMatrix(mulMatrix(root, frameOf(el)), [sx, 0, 0, sy, el.x - v.box.x * sx, el.y - v.box.y * sy]);
+        const form = v.form ? w.form(p, v.form.obj) : null;
+        const fills = (v.fills ?? []).map((f) => ({ f, name: f.tile ? w.tile(p, f.tile, fine(mulMatrix(move, f.base))) : w.pattern(p, f.obj!, fine(mulMatrix(move, f.base))) }));
+        if ((v.form && !form) || fills.some((f) => !f.name)) return false;
+        if (v.form && form) {
+          ops(pushGraphicsState());
+          for (const c of v.form.clips) ops(...absPath(c.d, move), c.evenOdd ? clipEvenOdd() : clip(), endPath());
+          ops(...alpha(v.form.alpha * el.opacity, v.form.alpha * el.opacity), cm(fine(mulMatrix(move, v.form.m))), drawObject(form), popGraphicsState());
+        }
+        for (const { f, name } of fills) {
+          ops(pushGraphicsState());
+          for (const c of f.clips) ops(...absPath(c.d, move), c.evenOdd ? clipEvenOdd() : clip(), endPath());
+          ops(...alpha(f.alpha * el.opacity, f.alpha * el.opacity), PDFOperator.of(PDFOperatorNames.NonStrokingColorspace, [PDFName.of('Pattern')]), PDFOperator.of(PDFOperatorNames.NonStrokingColorN, [name!]),
+            ...absPath(f.d, move), PDFOperator.of(f.evenOdd ? PDFOperatorNames.FillEvenOdd : PDFOperatorNames.FillNonZero), popGraphicsState());
+        }
+        return true;
+      }
+      if (el.type === 'image' && el.pdfImage?.asset === el.asset) {
+        const ref = w.image(el.pdfImage.obj);
+        if (!ref) return false;
+        const sc = el.pdfImage.stencil;
+        if (sc) ops(...(colorOps(w, p, sc, false) ?? [fillOp(rgba(sc.rgb))]));
+        let name = xobjects.get(ref);
+        if (!name) xobjects.set(ref, (name = p.node.newXObject('Image', ref)));
+        ops(...alpha(el.opacity, el.opacity), cm(fine(mulMatrix(mulMatrix(root, frameOf(el)), [el.w, 0, 0, -el.h, el.x, el.y + el.h]))), drawObject(name));
+        return true;
+      }
+      return false;
+    };
+
     const picture = async (el: ImageElement | VideoElement) => {
       const assetId = el.type === 'video' ? posterOf(el) : el.asset;
       const bytes = assetId ? opts.assets.get(assetId) : undefined;
@@ -254,7 +403,9 @@ export async function exportVectorPdf(renderer: Renderer, doc: Doc, opts: Vector
         clipPath.delete();
         return;
       }
-      ops(pushGraphicsState(), ...pathOps(pathCmds(ck, clipPath)), clip(), endPath());
+      const full = el.crop && el.crop.x === 0 && el.crop.y === 0 && el.crop.w === 1 && el.crop.h === 1 && exact && el.radius === 0;
+      ops(pushGraphicsState());
+      if (!full) ops(...pathOps(pathCmds(ck, clipPath)), clip(), endPath());
       clipPath.delete();
       let crop = el.crop;
       if (!crop) {
@@ -268,12 +419,22 @@ export async function exportVectorPdf(renderer: Renderer, doc: Doc, opts: Vector
     };
 
     // sheet px (y down) → PDF points (y up); then page px (0,0 = the trim's top-left)
-    ops(pushGraphicsState(), concatTransformationMatrix(0.75, 0, 0, -0.75, 0, hPt), concatTransformationMatrix(1, 0, 0, 1, lay.trim.x, lay.trim.y));
+    const pt = box ? 1 / box.scale : 0.75;
+    const rootMatrix: Matrix = [pt, 0, 0, -pt, (box ? -box.x : lay.trim.x) * pt, sheetH - (box ? -box.y : lay.trim.y) * pt];
+    root = rootMatrix;
+    // imported pages write absolute points, element by element: Splash floors device boxes, so a CTM
+    // that lands 1e-13 under an integer moves an image by a pixel
+    if (!doc.pdf) ops(pushGraphicsState(), concatTransformationMatrix(pt, 0, 0, -pt, 0, sheetH), concatTransformationMatrix(1, 0, 0, 1, lay.trim.x, lay.trim.y));
+    if (page.links?.length) {
+      const ox = box ? box.x : -lay.trim.x, oy = box ? box.y : -lay.trim.y;
+      pendingLinks.push({ page: p, links: page.links, toSheet: (x, y) => [(x - ox) * pt, sheetH - (y - oy) * pt] });
+    }
     // artwork stops at the bleed (the marks' slug stays clean)
-    ops(...pathOps([{ op: 'M', x: -bl, y: -bl }, { op: 'L', x: doc.width + bl, y: -bl }, { op: 'L', x: doc.width + bl, y: doc.height + bl }, { op: 'L', x: -bl, y: doc.height + bl }, { op: 'Z' }]), clip(), endPath());
+    if (!doc.pdf) ops(...pathOps([{ op: 'M', x: -bl, y: -bl }, { op: 'L', x: doc.width + bl, y: -bl }, { op: 'L', x: doc.width + bl, y: doc.height + bl }, { op: 'L', x: -bl, y: doc.height + bl }, { op: 'Z' }]), clip(), endPath());
     // a blend mixes with what's under it, which vectors drawn one by one can't do: draw the page whole
-    const blended = [...walk(page.elements)].some((e) => e.blend);
+    const blended = !doc.pdf && [...walk(page.elements)].some((e) => e.blend);
     if (opts.flatten || blended) {
+      if (doc.pdf) ops(pushGraphicsState(), cm(root));
       // the whole page as one picture (bleed included)
       const scale = (opts.flatten?.dpi ?? 300) / 96;
       const bytes = renderer.exportPage(doc, page, { scale, format: isCmyk ? 'png' : 'jpeg', quality: 92, bleed: bl });
@@ -284,7 +445,9 @@ export async function exportVectorPdf(renderer: Renderer, doc: Doc, opts: Vector
       await notesPage(page);
       continue;
     }
-    if (page.background.type === 'solid') {
+    const plain = doc.pdf && page.background.type === 'solid' && /^#fff(fff)?$/i.test(page.background.color);
+    if (doc.pdf) ops(pushGraphicsState(), cm(root));
+    if (plain) { /* paper is white: an imported page adds nothing under its own content */ } else if (page.background.type === 'solid') {
       const b = new ck.PathBuilder();
       b.addRect(ck.XYWHRect(-bl, -bl, doc.width + 2 * bl, doc.height + 2 * bl));
       const path = b.detachAndDelete();
@@ -294,15 +457,30 @@ export async function exportVectorPdf(renderer: Renderer, doc: Doc, opts: Vector
       const bg = await embedPng(renderer.exportPage(doc, { ...page, elements: [] }, { format: 'png', bleed: bl }));
       if (bg) placeImage(bg, -bl, -bl, doc.width + 2 * bl, doc.height + 2 * bl);
     }
+    if (doc.pdf) ops(popGraphicsState());
     for (const el of flattenGroups(page.elements)) {
       if (el.hidden) continue;
       if (needsRaster(el) && ((el.type !== 'image' && el.type !== 'video') || loadPicture(renderer, el, opts.assets))) {
         const r = renderer.rasterElement(el);
         const img = r ? await embedPng(r.png) : null;
-        if (r && img) placeImage(img, r.x, r.y, r.w, r.h);
+        if (r && img) {
+          if (doc.pdf) ops(pushGraphicsState(), cm(root));
+          placeImage(img, r.x, r.y, r.w, r.h);
+          if (doc.pdf) ops(popGraphicsState());
+        }
         continue;
       }
       ops(pushGraphicsState());
+      if (el.blend && doc.pdf) ops(blendOp(el.blend));
+      const cl = clipOf(el);
+      if (cl) {
+        const m = mulMatrix(root, cl.m);
+        for (const c of cl.clip.paths) ops(...absPath(c.d, m), c.evenOdd ? clipEvenOdd() : clip(), endPath());
+      }
+      if (exact) {
+        if (exactElement(el, exact)) { ops(popGraphicsState()); continue; }
+        ops(cm(root));
+      }
       const cx = el.x + el.w / 2, cy = el.y + el.h / 2;
       if (el.rotation) {
         const r = (el.rotation * Math.PI) / 180, cos = Math.cos(r), sin = Math.sin(r);
@@ -319,11 +497,13 @@ export async function exportVectorPdf(renderer: Renderer, doc: Doc, opts: Vector
       else await picture(el);
       ops(popGraphicsState());
     }
-    ops(popGraphicsState());
+    if (!doc.pdf) ops(popGraphicsState());
     cropMarks(p);
     await notesPage(page);
   }
-  return pdf.save();
+  const pageRefs = pdf.getPages();
+  for (const l of pendingLinks) addLinks(l.page, l.links, l.toSheet, (i) => { const at = pages.indexOf(doc.pages[i]!); return at >= 0 ? pageRefs[at]?.ref : undefined; });
+  return pdf.save({ objectsPerTick: Infinity });
 
   /** Hairline crop marks in registration colour (all inks in CMYK). */
   function cropMarks(p: PDFPage): void {

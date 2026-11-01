@@ -13,6 +13,7 @@ import { pickFiles } from './files.ts';
 import { isNative } from './native/platform.ts';
 import { driveApiKey, knownFiles } from './sharing.ts';
 import { pickDesignFile } from './picker.ts';
+import { isPdfBytes, isPdfFile, pdfImport } from './pdfimport.svelte.ts';
 
 export interface ImportProgress {
   name: string;
@@ -32,7 +33,7 @@ export const importer = new ImportState();
  * the .dcanvas type and would grey the file out; the file is checked after picking.
  */
 export function designAccept(phone: boolean): string {
-  return phone ? '' : '.dcanvas,.zip,application/vnd.digital-canvas+zip,application/zip,application/x-zip-compressed,application/octet-stream';
+  return phone ? '' : '.dcanvas,.zip,.pdf,application/pdf,application/vnd.digital-canvas+zip,application/zip,application/x-zip-compressed,application/octet-stream';
 }
 
 const isPhone = () => isNative() || matchMedia('(max-width: 767px), (pointer: coarse)').matches;
@@ -41,6 +42,7 @@ const cache = browserAssetCache();
 
 /** Import file bytes into the current store and open the design. Returns the new design id (null on error). */
 export async function importBytes(bytes: Uint8Array, name: string, store: ProjectStore = library.store): Promise<string | null> {
+  if (isPdfBytes(bytes)) { importer.job = null; return pdfImport.open(bytes, name); }
   importer.job = { name, phase: 'assets', done: 0, total: 0 };
   try {
     const drive = store instanceof DriveStore ? store : null;
@@ -71,8 +73,9 @@ export async function importBytes(bytes: Uint8Array, name: string, store: Projec
 export async function importFromDevice(): Promise<void> {
   const [file] = await pickFiles(designAccept(isPhone()), false, 'files');
   if (!file) return;
+  if (isPdfFile(file)) { await pdfImport.openFile(file); return; }
   if (!/\.(dcanvas|zip)$/i.test(file.name) && file.size > 0 && file.type && !/zip|octet-stream|digital-canvas/.test(file.type)) {
-    toast.show(`“${file.name}” is not a Digital Canvas design. Choose a .dcanvas file.`, { timeout: 8000 });
+    toast.show(`“${file.name}” is not a Digital Canvas design. Choose a .dcanvas or .pdf file.`, { timeout: 8000 });
     return;
   }
   await importBytes(new Uint8Array(await file.arrayBuffer()), file.name);

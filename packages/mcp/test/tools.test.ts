@@ -11,7 +11,7 @@ import { emptyBrand } from '@digital-canvas/storage';
 import { ffmpeg } from '../src/node/index.ts';
 import { platform, setPlatform } from '../src/platform.ts';
 import { chunkTranscript } from '../src/tools/video.ts';
-import { clipWebm, harness, isPng, samplePng, toneMp3, type Harness } from './helpers.ts';
+import { clipWebm, FIXTURES, harness, isPng, samplePng, toneMp3, type Harness } from './helpers.ts';
 
 // real CanvasKit renders; slow when the whole suite runs in parallel
 vi.setConfig({ testTimeout: 30_000 });
@@ -29,7 +29,8 @@ beforeAll(async () => {
   h = await harness();
   png = await samplePng();
   photo = (await h.ws.putAsset(png, 'image/png', 'Night sky.png')).id;
-  const files: Record<string, [string, Uint8Array]> = { '/photo.png': ['image/png', png], '/clip.webm': ['video/webm', clipWebm()], '/tone.mp3': ['audio/mpeg', toneMp3()] };
+  const fixture = (n: string) => new Uint8Array(readFileSync(new URL(n, FIXTURES)));
+  const files: Record<string, [string, Uint8Array]> = { '/fixture.pdf': ['application/pdf', fixture('roundtrip.pdf')], '/locked.pdf': ['application/pdf', fixture('password.pdf')], '/photo.png': ['image/png', png], '/clip.webm': ['video/webm', clipWebm()], '/tone.mp3': ['audio/mpeg', toneMp3()] };
   web = httpServer((req, res) => {
     const f = files[req.url ?? ''];
     if (!f) { res.writeHead(404).end(); return; }
@@ -255,6 +256,27 @@ describe('editing', () => {
     expect(els[0].fill).toBe('#0055ff');
     expect(els[1].font).toMatch(/uppercase/);
     expect(els.at(-1).name).toBe('Logo');
+  });
+});
+
+describe('import_pdf', () => {
+  it('opens a PDF from a URL as a design, keeps it exact, says what happened', async () => {
+    const r = await h.call('import_pdf', { url: `${base}/fixture.pdf`, title: 'Imported' });
+    expect(r.isError, r.text).toBe(false);
+    expect(r.json).toMatchObject({ title: 'Imported', pages: 2, links: 1 });
+    expect(r.json.texts).toBeGreaterThan(1);
+    expect(r.json.notes.join(' ')).toMatch(/different sizes/);
+    const open = await h.call('open_design', { design_id: r.json.design_id });
+    expect(open.text).toContain('Hello from the fixture');
+    const png = await h.call('render_page', { design_id: r.json.design_id });
+    expect(png.images).toHaveLength(1);
+    const pdf = await h.call('export_pdf', { design_id: r.json.design_id });
+    expect(pdf.isError, pdf.text).toBe(false);
+    expect((await h.call('import_pdf', {})).text).toMatch(/url/);
+    expect((await h.call('import_pdf', { url: `${base}/photo.png` })).text).toMatch(/not a PDF/);
+    expect((await h.call('import_pdf', { url: `${base}/locked.pdf` })).text).toMatch(/password/);
+    const locked = await h.call('import_pdf', { url: `${base}/locked.pdf`, password: 'secret' });
+    expect(locked.json.texts).toBe(1);
   });
 });
 

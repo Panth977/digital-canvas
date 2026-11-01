@@ -34,6 +34,7 @@
     "start": "tsx src/main.ts"
   },
   "dependencies": {
+    "@digital-canvas/pdf": "*",
     "@digital-canvas/render": "*",
     "@digital-canvas/scene": "*",
     "@digital-canvas/storage": "*",
@@ -44,6 +45,7 @@
     "gifenc": "^1.0.3",
     "mediabunny": "^1.62.1",
     "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^6.4.299",
     "uqr": "^0.1.3",
     "zod": "^3.25.76"
   },

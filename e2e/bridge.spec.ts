@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
@@ -149,4 +150,21 @@ test('a reel made and exported on the device: clip frames and MP4 by WebCodecs i
   expect(await input.getPrimaryVideoTrack()).toBeTruthy();
   expect(await input.getPrimaryAudioTrack()).toBeTruthy();
   await client.close();
+});
+
+test('import_pdf runs in the device worker: a PDF from a URL becomes a design in Drive', async ({ page }) => {
+  test.setTimeout(120_000);
+  const drive = await device(page);
+  const { call } = await mcp();
+  await page.getByTestId('home-ai').click();
+  await page.getByTestId('ai-device-toggle').check();
+  await expect(page.getByTestId('ai-this-device')).toContainText('Ready for requests');
+  await page.getByRole('button', { name: 'Close' }).click();
+  const fixture = readFileSync(new URL('./fixtures/roundtrip.pdf', import.meta.url));
+  await page.context().route('https://files.example.test/fixture.pdf', (r) => r.fulfill({ status: 200, contentType: 'application/pdf', body: fixture, headers: { 'access-control-allow-origin': '*' } }));
+  const r = await call('import_pdf', { url: 'https://files.example.test/fixture.pdf', title: 'From a URL' });
+  expect(r.isError, r.text).toBe(false);
+  expect(r.json).toMatchObject({ title: 'From a URL', pages: 2 });
+  expect(r.json.texts).toBeGreaterThan(1);
+  expect([...drive.files.values()].some((f) => f.name.includes('From a URL'))).toBe(true);
 });

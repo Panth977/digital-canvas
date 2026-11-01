@@ -13,12 +13,14 @@ import {
 } from '@digital-canvas/scene';
 import { assetId, pack, type FileAccess, type ProjectFile, type ProjectStore } from '@digital-canvas/storage';
 import { toast } from './toast.svelte.ts';
+import { isPdfFile, pdfImport } from './pdfimport.svelte.ts';
 import type { Engine } from './engine.ts';
 import { isImage } from './files.ts';
 import { inpaintLocal, removeBackground, type BackgroundRemover, type Inpainter } from './bgremove.ts';
 import { tesseractOcr, type Ocr } from './vision/tools.svelte.ts';
 import type { Media } from './ai/types.ts';
-import { addCssFace, fetchFamily, type CatalogFont, type FontFile } from './fonts.ts';
+import { addCssFace, catalog, fetchFamily, type CatalogFont, type FontFile } from './fonts.ts';
+import { closestFamily, exactText, missingGlyphs } from '@digital-canvas/scene';
 import { isAudioFile, isVideoFile, mediaMime, probeAudio, probeVideo } from './media.ts';
 import { Player } from './player.svelte.ts';
 import { Thumbs } from './thumbs.svelte.ts';
@@ -272,7 +274,8 @@ export class EditorState {
     this.commit(updateElements(this.doc, [id], (e) => {
       if (e.type !== 'text') return {};
       const next = { ...e, text: value, runs: runs && normalizeRuns(runs, e.style) };
-      return { text: value, runs: next.runs, ...this.fitPatch(next) };
+      if (e.exact) queueMicrotask(() => void this.fillMissingGlyphs(id));
+      return { text: value, runs: next.runs, ...this.fitPatch(next), ...(e.exact && value !== e.text ? { w: this.renderer.textWidth(next) } : {}) };
     }), `text:${id}`);
   }
 
@@ -497,7 +500,29 @@ export class EditorState {
   }
 
   /** Add a dropped or uploaded file: image, video or sound. Returns false when it isn't one we can use. */
+  /**
+   * An imported PDF font holds only the letters the file used. When an edit needs another one, the box
+   * moves to the closest full font and the user is told. Other boxes keep their exact font.
+   */
+  private async fillMissingGlyphs(id: string): Promise<void> {
+    const el = [...walk(this.page.elements)].find((e) => e.id === id);
+    if (el?.type !== 'text' || !el.exact || exactText(el)) return;
+    const key = el.exact.runs[0]?.font;
+    const font = key ? this.doc.pdf?.fonts[key] : undefined;
+    if (!font || el.style.fontFamily !== font.family) return;
+    const missing = missingGlyphs(el.text, font);
+    if (!missing.length) return;
+    const family = closestFamily(font);
+    const known = this.engine.fonts.families.has(family);
+    const found = known ? null : (await catalog().catch(() => [])).find((f) => f.family === family);
+    if (found) await this.addFonts(await fetchFamily(found, el.text), `font:${id}`);
+    if (!known && !found) return;
+    this.commit(updateElements(this.doc, [id], (e) => (e.type === 'text' ? { style: { ...e.style, fontFamily: family }, runs: undefined } : {})), `font:${id}`);
+    toast.show(`“${font.name}” in this PDF has no ${missing.slice(0, 5).join(' ')}. This text box now uses ${family}, the closest full font.`, { timeout: 8000 });
+  }
+
   async addMediaFile(file: File, at?: { x: number; y: number }): Promise<boolean> {
+    if (isPdfFile(file)) return !!(await pdfImport.openFile(file)); // a PDF is a design of its own
     if (isImage(file)) return this.addImageFile(file, at);
     if (isVideoFile(file)) return this.addVideoFile(file, at);
     if (isAudioFile(file)) return this.addAudioFile(file);

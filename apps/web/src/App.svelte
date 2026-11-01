@@ -10,6 +10,7 @@
   import { openWith } from './lib/openwith.svelte.ts';
   import type { DriveStore } from '@digital-canvas/storage';
   import Toasts from './lib/Toasts.svelte';
+  import PdfImport from './lib/PdfImport.svelte';
   import Tooltips from './lib/Tooltips.svelte';
   import TabStrip from './lib/TabStrip.svelte';
   import { tabs } from './lib/tabs.svelte.ts';
@@ -148,6 +149,7 @@
   <DesktopSettings onclose={() => { bridgeUi.open = false; desktop.settingsOpen = false; }} />
 {:else if bridgeUi.open}<AiDialog onclose={() => (bridgeUi.open = false)} />{/if}
 <Toasts />
+<PdfImport />
 <Tooltips />
 
 <style>

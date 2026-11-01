@@ -2,7 +2,7 @@
 import { DUOTONES, FILTER_GROUPS, IMAGE_FILTERS } from '@digital-canvas/scene';
 
 export const WORKFLOW = `1. Understand the brief: format (post, story, reel, poster, thumbnail…), message, audience, brand.
-2. Gather material first: list_assets / search_drive (the user's own photos and clips are best), get_brand_kit, search_stock for anything missing. Import what you'll use.
+2. A PDF to edit? import_pdf (URL or Drive file) makes it a design with real text, shapes and images; untouched content exports the same as the source. Gather material first: list_assets / search_drive (the user's own photos and clips are best), get_brand_kit, search_stock for anything missing. Import what you'll use.
 3. Pick a starting point: list_templates (pass design_id or a preset to rank by fit) or a blank create_design with the right preset.
 4. Compose with few, large, batched calls: add_elements with several elements at once; set_page background_media for full-bleed photos/videos with an overlay tint.
 5. LOOK at it: render_page (show_ids: true to point at elements). Judge hierarchy, balance, spacing, legibility.

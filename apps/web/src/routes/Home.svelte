@@ -3,6 +3,7 @@
   import { PRESET_CATEGORIES, PRESETS, createDoc, formatLength, newId, searchPresets, walk, type Doc, type Preset, type PresetCategory, type Unit } from '@digital-canvas/scene';
   import { assetId, type ProjectMeta } from '@digital-canvas/storage';
   import { importer, importFromDevice, importFromDrive } from '../lib/importdesign.svelte.ts';
+  import { isPdfFile, pdfImport } from '../lib/pdfimport.svelte.ts';
   import { sharedList } from '../lib/sharedlist.svelte.ts';
   import { pickDesignFile } from '../lib/picker.ts';
   import Icon from '../lib/Icon.svelte';
@@ -134,6 +135,14 @@
   /** Bring a .dcanvas file from this device into the current store (Drive when signed in). */
   const openFile = () => void importFromDevice();
 
+  /** A PDF dropped anywhere on Home opens as a new design. */
+  function dropOnHome(e: DragEvent): void {
+    const f = [...(e.dataTransfer?.files ?? [])].find(isPdfFile);
+    if (!f) return;
+    e.preventDefault();
+    void pdfImport.openFile(f);
+  }
+
   const shared = $derived(sharedList.of(account.user?.uid));
   const ROLE: Record<string, string> = { writer: 'Can edit', commenter: 'Can comment', reader: 'Can view', owner: 'Yours' };
 
@@ -217,7 +226,7 @@
   const sizeLabel = (p: Preset) => `${p.width} × ${p.height} ${p.unit}`;
 </script>
 
-<svelte:window onclick={() => { menuFor = null; showCreate = false; }} onkeydown={(e) => { if (e.key === 'Escape') { menuFor = null; showCreate = false; } }} />
+<svelte:window ondragover={(e) => { if (e.dataTransfer?.types.includes('Files')) e.preventDefault(); }} ondrop={dropOnHome} onclick={() => { menuFor = null; showCreate = false; }} onkeydown={(e) => { if (e.key === 'Escape') { menuFor = null; showCreate = false; } }} />
 
 {#snippet card(p: ProjectMeta)}
   <div class="card" class:row={view === 'list'} data-testid="project-card">
@@ -473,7 +482,7 @@
     <div class="row-head">
       <h2>{q ? 'Your designs' : 'Recent designs'}</h2>
       <div class="tools">
-        <button class="btn" onclick={openFile} data-testid="open-file"><Icon name="upload" size={16} /> Open a .dcanvas file</button>
+        <button class="btn" onclick={openFile} data-testid="open-file"><Icon name="upload" size={16} /> Import a PDF or .dcanvas file</button>
         {#if account.user}<button class="btn" onclick={() => void importFromDrive()} data-testid="open-drive-file" title="Open a .dcanvas file from Google Drive (makes your own copy)"><Icon name="drive" size={16} /> From Drive</button>{/if}
         <div class="seg" role="group" aria-label="View">
           <button class:on={view === 'grid'} aria-pressed={view === 'grid'} title="Grid view" aria-label="Grid view" data-testid="view-grid" onclick={() => setView('grid')}><Icon name="gridview" size={18} /></button>

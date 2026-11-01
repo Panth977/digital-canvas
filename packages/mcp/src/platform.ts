@@ -15,6 +15,7 @@
  */
 import type { CanvasKit } from 'canvaskit-wasm';
 import type { FontLibrary } from '@digital-canvas/render';
+import type { ImportOptions, ImportResult } from '@digital-canvas/pdf';
 import type { ProjectFile } from '@digital-canvas/storage';
 
 export interface TemplateEntry {
@@ -71,6 +72,8 @@ export interface Platform {
    * fetched from the deployed site (src/mockups.ts).
    */
   mockupFile?(path: string): Promise<Uint8Array>;
+  /** A PDF as a design (real text, paths and images). Omitted where pdf.js can't run. */
+  importPdf?(bytes: Uint8Array, opts: ImportOptions): Promise<ImportResult>;
   /** No network for fonts (tests). */
   readonly offline?: boolean;
 }

@@ -23,6 +23,15 @@ setPlatform(browserPlatform({
   fontsBase: `${base}fonts/`,
   mockupsBase: `${base}mockups/`,
   templateAssetsBase: `${base}templates/assets/`,
+  importPdf: async (bytes, opts) => {
+    // pdf.js reaches for `document` for a scratch canvas even with its factories replaced; a worker has none
+    const self_ = globalThis as unknown as { document?: unknown };
+    self_.document ??= { createElement: () => new OffscreenCanvas(1, 1), querySelector: () => null, querySelectorAll: () => [], getElementsByTagName: () => [], documentElement: { style: {} }, head: { append() {} }, baseURI: self.location.href };
+    const [pdfjs, { importPdf, OffscreenCanvasFactory }] = await Promise.all([import('pdfjs-dist'), import('@digital-canvas/pdf')]);
+    pdfjs.GlobalWorkerOptions.workerPort ??= new Worker(new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url), { type: 'module' });
+    const data = (d: string) => new URL(`${base}pdfjs/${d}/`, self.location.origin).href;
+    return importPdf(pdfjs, bytes, { ...opts, standardFontDataUrl: data('standard_fonts'), cMapUrl: data('cmaps'), wasmUrl: data('wasm'), documentOptions: { CanvasFactory: OffscreenCanvasFactory } });
+  },
   // generate_speech: the app's speech worker, started from here
   speak: async (text, o) => (await import('../tts/client.ts')).speak(text, { ...o, engine: /Android|iPhone|iPad/.test(navigator.userAgent) ? 'small' : 'gpu' }),
   templateIndex: INDEX as TemplateEntry[],

@@ -2,7 +2,11 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { createDoc, isVideo, looseFill, newId, resizeDoc, searchPresets, setTitle, totalDuration, type Doc, type Page } from '@digital-canvas/scene';
+import { PdfImportError } from '@digital-canvas/pdf';
+import { platform } from '../platform.ts';
 import { ToolError, round, type Context } from '../context.ts';
+
+const MAX_PDF = 300 * 1024 * 1024;
 import { POPULAR_PRESETS, findPreset, fitPages, loadTemplate, loadTemplateAssets } from '../library.ts';
 import { designOutline } from '../outline.ts';
 import { fill as fillSchema } from '../schemas.ts';
@@ -20,6 +24,35 @@ export function sizeFrom(args: { preset?: string; width?: number; height?: numbe
 }
 
 export function registerDesignTools(server: McpServer, ctx: Context): void {
+  server.registerTool('import_pdf', {
+    title: 'Import a PDF',
+    description: 'Open a PDF (public URL or Google Drive file) as a new design with real editable text, vector shapes and images. Untouched content exports the same as the source. Pages of different sizes are fitted on the largest; PDF export gives each its own size back. Returns the design id and what was kept as pictures.',
+    inputSchema: {
+      url: z.string().url().optional(),
+      drive_file_id: z.string().optional(),
+      title: z.string().optional(),
+      password: z.string().optional().describe('For a password-protected PDF.'),
+    },
+    annotations: { openWorldHint: true },
+  }, safe(async ({ url, drive_file_id, title, password }) => {
+    if (!url && !drive_file_id) throw new ToolError('give `url` or `drive_file_id`', 'search_drive finds Drive files');
+    const importer = platform().importPdf;
+    if (!importer) throw new ToolError('PDF import does not run on this server', 'use the app (Home › Import), or run the tools on your device');
+    const got = await ctx.fetchRef(url ? { url } : { driveFileId: drive_file_id! });
+    if (got.bytes.length > MAX_PDF) throw new ToolError(`that file is ${Math.round(got.bytes.length / 1048576)} MB; the limit is ${MAX_PDF / 1048576} MB`, 'split the PDF first');
+    if (String.fromCharCode(...got.bytes.subarray(0, 4)) !== '%PDF') throw new ToolError('that file is not a PDF');
+    const name = (title ?? got.name ?? 'Imported PDF').replace(/\.pdf$/i, '');
+    let r;
+    try {
+      r = await importer(got.bytes, { title: name, password });
+    } catch (e) {
+      if (e instanceof PdfImportError && e.code === 'password') throw new ToolError('this PDF needs a password, or the one given is wrong', 'pass `password`');
+      throw e;
+    }
+    await ctx.ws.store.save({ doc: r.doc, assets: r.assets });
+    return json({ design_id: r.doc.id, title: r.doc.title, pages: r.report.pages, width: r.doc.width, height: r.doc.height, texts: r.report.texts, paths: r.report.paths, images: r.report.images, flattened: r.report.flattened, notes: r.report.notes, fonts: r.report.fonts, links: r.report.links });
+  }));
+
   server.registerTool('list_designs', {
     title: 'List designs',
     description: 'Your Digital Canvas designs (newest first), optionally filtered by words in the title. Returns ids to use with every other tool.',
