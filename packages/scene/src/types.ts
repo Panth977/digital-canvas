@@ -7,6 +7,8 @@
  * people, scripts and AI agents can read and write it.
  */
 
+import type { PageLink, PathExact, PdfClip, PdfImageSource, PdfPageBox, PdfSource, TextExact } from './pdftypes.ts';
+
 export const FORMAT = 'digital-canvas';
 export const VERSION = 1;
 
@@ -58,6 +60,8 @@ export interface ElementBase {
   timing?: { start?: number; end?: number };
   /** Shows this subtitle line (`SubtitleLine.id`): edits to the element reach the line. */
   caption?: string;
+  /** Imported from a PDF: the clip it was under. See pdfscene.ts. */
+  pdfClip?: PdfClip;
 }
 
 export type BlendMode = 'multiply' | 'screen' | 'overlay' | 'darken' | 'lighten' | 'color-dodge' | 'color-burn' | 'hard-light' | 'soft-light' | 'difference' | 'exclusion' | 'hue' | 'saturation' | 'color' | 'luminosity';
@@ -213,6 +217,8 @@ export interface TextElement extends ElementBase {
    * box"). Absent = top.
    */
   anchor?: 'top' | 'middle' | 'bottom';
+  /** Imported from a PDF: the exact glyphs, drawn until the text is edited. See pdfscene.ts. */
+  exact?: TextExact;
 }
 
 /**
@@ -373,6 +379,8 @@ export interface ImageElement extends ElementBase, ImageLook {
    * frame waiting for a photo.
    */
   mask?: ShapeKind | MaskPath;
+  /** Imported from a PDF: the image object in the source file. Used while `asset` is unchanged. */
+  pdfImage?: PdfImageSource;
 }
 
 /** A frame outline in its own units, stretched over the element's box. */
@@ -409,6 +417,8 @@ export interface PathPart {
   stroke: Stroke | null;
   /** Fill with the even-odd rule (SVG `fill-rule="evenodd"`). */
   evenOdd?: boolean;
+  /** Imported from a PDF: what `fill` and `stroke` can't say. See pdfscene.ts. */
+  exact?: PathExact;
 }
 
 /**
@@ -533,6 +543,10 @@ export interface Page {
   animation?: Animation;
   /** How this page comes in after the previous one (video). See anim.ts `transitionAt`. */
   transition?: Transition;
+  /** Imported from a PDF: its own size, when other pages made the design bigger. */
+  pdfPage?: PdfPageBox;
+  /** Clickable areas, kept in PDF exports. */
+  links?: PageLink[];
 }
 
 export type TransitionType = 'dissolve' | 'fade' | 'slide' | 'wipe' | 'zoom' | 'match' | 'circle' | 'line' | 'stack' | 'chop' | 'flow' | 'colorwipe' | 'iris' | 'clock' | 'doors' | 'checker';
@@ -654,6 +668,8 @@ export interface EmbeddedFont {
   source?: string;
 }
 
+export * from './pdftypes.ts';
+
 export interface Doc {
   format: typeof FORMAT;
   version: typeof VERSION;
@@ -673,6 +689,8 @@ export interface Doc {
   audio?: AudioClip[];
   /** The video's subtitles and speech. */
   subtitles?: SubtitleTrack;
+  /** Imported from a PDF: the source file and its fonts. See pdfscene.ts. */
+  pdf?: PdfSource;
   createdAt: string;
   updatedAt: string;
 }
