@@ -4,7 +4,7 @@
  * Generate is one undo step.
  */
 import {
-  HINDI_FONT, addSpeech, applyCaptionStyle, emptyTrack, encodeWav, fitSamples, levelSpeech, lineVoice, newId, parseCues, setLines, setSpeech, speechKey, splitScript, staleLines, syncCaptions, timeScript, toSrt, toVtt, updateElements,
+  HINDI_FONT, addSpeech, applyCaptionStyle, emptyTrack, encodeWav, fitSamples, levelSpeech, lineVoice, newId, parseCues, setLines, setSpeech, speechKey, splitScript, staleLines, syncCaptions, trimSilence, timeScript, toSrt, toVtt, updateElements,
   pageDuration, pageStart, type Doc, type SpeechSettings, type SubtitleLine, type SubtitleTrack, type TextElement,
 } from '@digital-canvas/scene';
 import { assetId } from '@digital-canvas/storage';
@@ -188,7 +188,7 @@ export class Subtitles {
         let got = this.spoken.get(key);
         if (!got) {
           const r = await ed.synth(line.text, { voice, speed, engine: this.engine, signal: ac.signal, progress: (msg, fraction) => { if (this.job) this.job = { ...this.job, msg, fraction }; } });
-          got = { pcm: levelSpeech(r.pcm), rate: r.rate };
+          got = { pcm: levelSpeech(trimSilence(r.pcm, r.rate)), rate: r.rate };
           this.spoken.set(key, got);
         }
         await this.place(line.id, got, undo);
@@ -200,7 +200,9 @@ export class Subtitles {
       this.job = null;
       this.abort = null;
       ed.seal();
-      void ed.player.refresh();
+      // scenes may have grown: the playhead stays in the scene on the stage
+      const start = pageStart(ed.doc, ed.pageId), end = start + pageDuration(ed.page), t = ed.player.time;
+      void (t < start || t >= end ? ed.player.seek(start, false) : ed.player.refresh());
     }
   }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  addSpeech, applyCaptionStyle, createDoc, duckGain, duckPoints, emptyTrack, encodeWav, fitFactor, fitSamples, followSubtitles, levelSpeech, lineVoice, parseCues, setLines, setSpeech, speechKey, speechSpans, splitScript, staleLines, stretchLine, syncCaptions, timeScript, toSrt, toVtt, updateElements, updatePage, withoutCaptions, type Doc, type SubtitleLine, type TextElement,
+  addSpeech, applyCaptionStyle, createDoc, duckGain, duckPoints, emptyTrack, encodeWav, fitFactor, fitSamples, followSubtitles, levelSpeech, lineVoice, parseCues, setLines, setSpeech, speechKey, speechSpans, splitScript, staleLines, stretchLine, syncCaptions, timeScript, toSrt, toVtt, trimSilence, updateElements, updatePage, withoutCaptions, type Doc, type SubtitleLine, type TextElement,
 } from '../src/index.ts';
 
 function video(durations: number[]): Doc {
@@ -245,6 +245,12 @@ describe('audio', () => {
     expect(levelSpeech(a)[0]).toBeCloseTo(levelSpeech(b)[0]!);
     const spike = new Float32Array(1000); spike[0] = 1;
     expect(Math.max(...levelSpeech(spike))).toBeCloseTo(0.92);
+  });
+  it('cuts the quiet around speech, keeping a breath', () => {
+    const pcm = new Float32Array(24000); pcm.fill(0.5, 6000, 12000);
+    const t = trimSilence(pcm, 24000);
+    expect(t.length).toBe(6000 + 2 * 720);
+    expect(trimSilence(new Float32Array(100), 24000)).toHaveLength(100);
   });
   it('writes a valid mono WAV', () => {
     const w = encodeWav(new Float32Array([0, 1, -1]), 24000);

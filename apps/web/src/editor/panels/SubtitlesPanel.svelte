@@ -7,7 +7,6 @@
    */
   import { CAPTION_STYLES, lineVoice, speechKey, type SubtitleLine } from '@digital-canvas/scene';
   import type { EditorState } from '../../lib/editor.svelte.ts';
-  import { formatTime } from '../../lib/media.ts';
   import { mobile } from '../../lib/mobile.svelte.ts';
   import { download, pickFiles } from '../../lib/files.ts';
   import { toast } from '../../lib/toast.svelte.ts';
@@ -117,7 +116,7 @@
           </div>
           <textarea class="field txt" rows="2" value={l.text} aria-label="Line {i + 1}" data-testid="sub-text" lang={/[ऀ-ॿ]/.test(l.text) ? 'hi' : undefined}
             oninput={(e) => s.updateLine(l.id, { text: (e.currentTarget as HTMLTextAreaElement).value }, `sub-text:${l.id}`)} onblur={() => ed.seal()}></textarea>
-          <span class="state" data-testid="sub-state">{lineState(l)}{#if l.text.trim() && clipOf(l.id)} · {formatTime(l.start, true)}{/if}</span>
+          <span class="state" data-testid="sub-state">{lineState(l)}</span>
           {#if open === l.id}
             <div class="over">
               <label>Voice

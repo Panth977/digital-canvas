@@ -3,7 +3,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { assetId, type ProjectFile } from '@digital-canvas/storage';
 import { z } from 'zod';
 import {
-  addAudio, addSpeech, applyCaptionStyle, createDoc, emptyTrack, encodeWav, fitSamples, isVideo, levelSpeech, lineVoice, parseCues, setLines, setSpeech, splitScript, staleLines, syncCaptions, timeScript, newId, pageDuration, pageStart, removeAudio, removeElements, totalDuration, updateAudio, walk,
+  addAudio, addSpeech, applyCaptionStyle, createDoc, emptyTrack, encodeWav, fitSamples, isVideo, levelSpeech, lineVoice, parseCues, setLines, setSpeech, splitScript, staleLines, syncCaptions, timeScript, trimSilence, newId, pageDuration, pageStart, removeAudio, removeElements, totalDuration, updateAudio, walk,
   type Doc, type Element, type Page, type TextElement,
   type Transition,
 } from '@digital-canvas/scene';
@@ -291,7 +291,7 @@ export function registerSpeechTools(server: McpServer, ctx: Context): void {
         if (Date.now() > until) break;
         const s = file.doc.subtitles!.speech;
         const said = await speak.call(platform(), l.text, { voice: lineVoice(l, s), speed: l.speed ?? s.speed }).catch((e: unknown) => { throw new ToolError(`speech failed: ${e instanceof Error ? e.message : String(e)}`, 'the subtitles are saved; try again, or generate from the Subtitles panel'); });
-        const { pcm, factor } = fitSamples(file.doc, l.id, levelSpeech(said.pcm), said.rate);
+        const { pcm, factor } = fitSamples(file.doc, l.id, levelSpeech(trimSilence(said.pcm, said.rate)), said.rate);
         const bytes = encodeWav(pcm, said.rate);
         const asset = await assetId(bytes, 'audio/wav');
         file.assets.set(asset, bytes);

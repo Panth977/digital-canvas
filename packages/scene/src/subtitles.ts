@@ -311,6 +311,16 @@ export function levelSpeech(pcm: Float32Array, rms = 0.11, peak = 0.92): Float32
   return out;
 }
 
+/** Cut the quiet the model leaves around speech, so it starts with its caption. */
+export function trimSilence(pcm: Float32Array, rate: number, floor = 0.012, keep = 0.03): Float32Array {
+  let a = 0, b = pcm.length;
+  while (a < b && Math.abs(pcm[a]!) < floor) a++;
+  while (b > a && Math.abs(pcm[b - 1]!) < floor) b--;
+  if (a >= b) return pcm;
+  const pad = Math.round(rate * keep);
+  return pcm.slice(Math.max(0, a - pad), Math.min(pcm.length, b + pad));
+}
+
 /** 16-bit mono WAV: every browser, Mediabunny and ffmpeg read it without a codec. */
 export function encodeWav(pcm: Float32Array, rate: number): Uint8Array {
   const bytes = new Uint8Array(44 + pcm.length * 2);
