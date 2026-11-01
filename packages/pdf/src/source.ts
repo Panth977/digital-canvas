@@ -24,6 +24,20 @@ function matchesRgb(e: ColorEvent, hex: string): boolean {
   return true; // CMYK and friends: pdf.js's conversion is its own
 }
 
+/** CMYK on screen: the 16 corners of the ink cube, as Adobe's and poppler's default conversions have them. */
+const CORNERS: [number, number, number][] = [[1, 1, 1], [0.1373, 0.1373, 0.1373], [1, 0.949, 0], [0.1098, 0.102, 0], [0.9255, 0, 0.549], [0.1412, 0, 0], [0.9294, 0.1098, 0.1412], [0.1333, 0, 0],
+  [0, 0.6784, 0.9373], [0, 0.0588, 0.1412], [0, 0.651, 0.3137], [0, 0.0745, 0], [0.1804, 0.1922, 0.5725], [0, 0, 0.0078], [0.2118, 0.2119, 0.2235], [0, 0, 0]];
+
+export function cmykHex(v: number[]): string {
+  const [c, m, y, k] = v.map((x) => Math.min(1, Math.max(0, x))) as [number, number, number, number];
+  const rgb = [0, 0, 0];
+  CORNERS.forEach((corner, i) => {
+    const w = (i & 8 ? c : 1 - c) * (i & 4 ? m : 1 - m) * (i & 2 ? y : 1 - y) * (i & 1 ? k : 1 - k);
+    for (let a = 0; a < 3; a++) rgb[a]! += w * corner[a]!;
+  });
+  return `#${rgb.map((x) => Math.round(Math.min(1, x) * 255).toString(16).padStart(2, '0')).join('')}`;
+}
+
 export class PageScan {
   private f = 0; private i = 0; private cf = 0; private cs = 0;
   constructor(private fonts: FontEvent[], private images: ImageEvent[], private fills: ColorEvent[], private strokes: ColorEvent[]) {}
@@ -55,7 +69,7 @@ export class PageScan {
       if (kind === 'fill') this.cf = k + 1; else this.cs = k + 1;
       // plain RGB and grey read the same from pdf.js: only other inks are worth keeping
       if (e.cs === null || e.cs === 'rg') return undefined;
-      return { cs: e.cs, v: e.v, rgb: hex };
+      return { cs: e.cs, v: e.v, rgb: e.cs === 'k' ? cmykHex(e.v) : hex };
     }
     return undefined;
   }

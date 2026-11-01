@@ -169,9 +169,11 @@ export class Renderer {
       if (!info || !tf) continue;
       const { glyphs } = placeGlyphs(run, info.widths, info.bytes, info.scale ?? 1);
       if (!glyphs.length) continue;
-      const ids = new Uint16Array(glyphs.length), pos = new Float32Array(glyphs.length * 2);
+      // a code with no glyph (spaces, often) draws nothing, never the "missing" box
+      const shown = glyphs.filter((g) => info.gids[g.code]);
+      const ids = new Uint16Array(shown.length), pos = new Float32Array(shown.length * 2);
       const sgn = run.size < 0 ? -1 : 1;
-      glyphs.forEach((g, i) => { ids[i] = info.gids[g.code] ?? 0; pos[i * 2] = g.x * sgn; });
+      shown.forEach((g, i) => { ids[i] = info.gids[g.code]!; pos[i * 2] = g.x * sgn; });
       const font: Font = new ck.Font(tf, Math.abs(run.size));
       font.setHinting(ck.FontHinting.None);
       font.setSubpixel(true);

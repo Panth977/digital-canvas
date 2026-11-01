@@ -661,8 +661,8 @@ class PageWalker {
         case OPS.setMiterLimit: st.miter = a[0]; break;
         case OPS.setDash: st.dash = { array: [...a[0]], phase: a[1] }; break;
         case OPS.setGState: await this.gstate(a[0]); break;
-        case OPS.setFillRGBColor: st.fill = { rgb: a[0], alpha: st.fill.alpha, src: this.scan?.nextColor('fill', a[0]) }; break;
-        case OPS.setStrokeRGBColor: st.stroke = { rgb: a[0], alpha: st.stroke.alpha, src: this.scan?.nextColor('stroke', a[0]) }; break;
+        case OPS.setFillRGBColor: { const src = this.scan?.nextColor('fill', a[0]); st.fill = { rgb: src?.rgb ?? a[0], alpha: st.fill.alpha, src }; break; }
+        case OPS.setStrokeRGBColor: { const src = this.scan?.nextColor('stroke', a[0]); st.stroke = { rgb: src?.rgb ?? a[0], alpha: st.stroke.alpha, src }; break; }
         case OPS.setFillTransparent: st.fill = { ...st.fill, alpha: 0 }; break;
         case OPS.setStrokeTransparent: st.stroke = { ...st.stroke, alpha: 0 }; break;
         case OPS.setFillColorN: st.fill = { rgb: st.fill.rgb, alpha: st.fill.alpha, pattern: a }; break;
