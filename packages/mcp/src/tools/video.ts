@@ -1,8 +1,9 @@
 /** Video: assemble a reel from clips, sound, captions. */
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { assetId, type ProjectFile } from '@digital-canvas/storage';
 import { z } from 'zod';
 import {
-  addAudio, createDoc, isVideo, newId, pageDuration, pageStart, removeAudio, removeElements, totalDuration, updateAudio, walk,
+  addAudio, addSpeech, applyCaptionStyle, createDoc, emptyTrack, encodeWav, fitSamples, isVideo, levelSpeech, lineVoice, parseCues, setLines, setSpeech, splitScript, staleLines, syncCaptions, timeScript, trimSilence, newId, pageDuration, pageStart, removeAudio, removeElements, totalDuration, updateAudio, walk,
   type Doc, type Element, type Page, type TextElement,
   type Transition,
 } from '@digital-canvas/scene';
@@ -12,6 +13,7 @@ import { embedFonts } from '../fonts.ts';
 import { designOutline } from '../outline.ts';
 import { animation, transition as transitionSchema, color, fill as fillSchema, textEffect } from '../schemas.ts';
 import { sizeFrom } from './designs.ts';
+import { platform } from '../platform.ts';
 import { json, safe } from './util.ts';
 
 const media = {
@@ -224,3 +226,82 @@ export function registerVideoTools(server: McpServer, ctx: Context): void {
 }
 
 export type { TextElement };
+
+const CLOUD_SPEECH = 'speech runs on the user\'s device, and this call is running in the cloud (or a plain server), where no speech model can run';
+
+/** Give each changed caption box the height of its text. */
+async function fitCaptions(file: ProjectFile, changed: string[]): Promise<void> {
+  await fitTexts(file, new Map(changed.map((id) => [id, { autoW: false, autoH: true, shrink: false, centreX: false }])));
+}
+
+export function registerSpeechTools(server: McpServer, ctx: Context): void {
+  server.registerTool('set_subtitles', {
+    title: 'Set subtitles',
+    description: 'Set a video\'s subtitles: the script of timed lines, shown on the video as editable caption text, which generate_speech can then speak. Give `lines` with exact times, or a `script` (split into lines, one per scene when the numbers match, else timed by length). Hindi lines get a Hindi voice by themselves. Also sets the look, voice and how speech fits. Replaces existing lines when `lines` or `script` is given.',
+    inputSchema: {
+      design_id: z.string(),
+      lines: z.array(z.object({
+        start: z.number().min(0), end: z.number().min(0), text: z.string(),
+        voice: z.string().optional().describe('Overrides `voice` for this line.'), speed: z.number().min(0.5).max(2).optional(),
+      })).optional(),
+      script: z.string().optional(),
+      srt: z.string().optional().describe('SRT or VTT text instead of `lines`.'),
+      show: z.boolean().optional().describe('Show as captions (default true).'),
+      style: z.enum(['bar', 'clean', 'outline', 'yellow', 'loud', 'top']).optional(),
+      voice: z.string().optional().describe('Kokoro voice. English: af_heart (best), af_bella, af_nicole, af_sarah, am_michael, am_fenrir, am_puck; UK: bf_emma, bf_isabella, bm_george, bm_fable; Hindi: hf_alpha, hf_beta, hm_omega, hm_psi.'),
+      speed: z.number().min(0.5).max(2).optional(),
+      volume: z.number().min(0).max(1).optional(),
+      fit: z.enum(['stretch', 'speed']).optional().describe('Speech longer than its line: "stretch" (default) makes the line and scene longer, "speed" speeds the speech up.'),
+      duck: z.number().min(0).max(1).nullable().optional().describe('Level of other sounds during speech, e.g. 0.25; null = off.'),
+    },
+  }, safe(async (a) => {
+    const r = await ctx.edit(a.design_id, async (file) => {
+      if (!isVideo(file.doc)) throw new ToolError('this design is not a video', 'give its pages durations (set_page duration) or use assemble_video');
+      const tr = file.doc.subtitles ?? emptyTrack();
+      let doc: Doc = { ...file.doc, subtitles: { ...tr, show: a.show ?? tr.show } };
+      const { volume, speed, voice, fit, duck } = a;
+      doc = setSpeech(doc, { ...(voice ? { voice } : {}), ...(speed ? { speed } : {}), ...(volume !== undefined ? { volume } : {}), ...(fit ? { fit } : {}), ...(duck !== undefined ? { duck: duck ?? undefined } : {}) });
+      const parts = a.lines?.map((l) => ({ id: newId('l_'), ...l })) ?? (a.srt ? parseCues(a.srt).map((c) => ({ id: newId('l_'), ...c })) : a.script ? timeScript(doc, splitScript(a.script)) : null);
+      for (const l of parts ?? []) if (!(l.end > l.start)) throw new ToolError(`line "${l.text.slice(0, 30)}": end must be after start`);
+      const res = parts ? setLines(doc, parts) : syncCaptions(doc);
+      doc = a.style ? applyCaptionStyle(res.doc, a.style) : res.doc;
+      file.doc = doc;
+      await embedFonts(file);
+      await fitCaptions(file, res.changed);
+      return { lines: file.doc.subtitles!.lines.map((l) => ({ id: l.id, start: l.start, end: l.end, text: l.text })), speechNeeded: staleLines(file.doc).length };
+    });
+    return json({ ...r, next: 'generate_speech to voice the lines, then render_page with `at` inside a line to see the caption.' });
+  }));
+
+  server.registerTool('generate_speech', {
+    title: 'Generate speech',
+    description: 'Speak the subtitles with a local open-source model (Kokoro-82M) on the user\'s device, in device or desktop mode only; the first run downloads the model there. Only lines that changed are generated. The clips go on the timeline as ordinary audio; with fit "stretch" lines and scenes grow to hold them. Stops after about 30 seconds and returns `remaining`: call it again until that is 0.',
+    inputSchema: { design_id: z.string(), line_ids: z.array(z.string()).optional().describe('Only these lines (default every changed line).') },
+  }, safe(async (a) => {
+    const speak = platform().speak;
+    if (!speak) throw new ToolError(CLOUD_SPEECH, 'ask the user to switch to device mode (get_processing_mode, Settings › AI and devices) with the app open, or to press Generate speech in the Subtitles panel. set_subtitles works anywhere.');
+    const until = Date.now() + 30_000;
+    return json(await ctx.edit(a.design_id, async (file) => {
+      if (!file.doc.subtitles?.lines.length) throw new ToolError('this video has no subtitles', 'call set_subtitles first');
+      const hasAsset = (id: string) => file.assets.has(id);
+      const todo = staleLines(file.doc, hasAsset).filter((l) => !a.line_ids || a.line_ids.includes(l.id));
+      const changed: string[] = [];
+      let done = 0;
+      for (const l of todo) {
+        if (Date.now() > until) break;
+        const s = file.doc.subtitles!.speech;
+        const said = await speak.call(platform(), l.text, { voice: lineVoice(l, s), speed: l.speed ?? s.speed }).catch((e: unknown) => { throw new ToolError(`speech failed: ${e instanceof Error ? e.message : String(e)}`, 'the subtitles are saved; try again, or generate from the Subtitles panel'); });
+        const { pcm, factor } = fitSamples(file.doc, l.id, levelSpeech(trimSilence(said.pcm, said.rate)), said.rate);
+        const bytes = encodeWav(pcm, said.rate);
+        const asset = await assetId(bytes, 'audio/wav');
+        file.assets.set(asset, bytes);
+        const r = addSpeech(file.doc, l.id, asset, pcm.length / said.rate, factor);
+        file.doc = r.doc;
+        changed.push(...r.changed);
+        done++;
+      }
+      await fitCaptions(file, changed);
+      return { generated: done, remaining: todo.length - done, duration: round(totalDuration(file.doc), 2) };
+    }));
+  }));
+}

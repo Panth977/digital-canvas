@@ -8,7 +8,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Image } from 'canvaskit-wasm';
 import { ALL_FORMATS, BufferSource, Input } from 'mediabunny';
-import { clipLength, clipSpeed, clipTime, frameAt, pageDuration, pageStart, totalDuration, walk, type Page, type VideoElement } from '@digital-canvas/scene';
+import { clipLength, clipSpeed, clipTime, frameAt, pageDuration, pageStart, totalDuration, walk, type Page, speechSpans, type Doc, type VideoElement } from '@digital-canvas/scene';
 import type { ProjectFile } from '@digital-canvas/storage';
 import { withRenderer } from '../engine.ts';
 import type { VideoExportOptions } from '../platform.ts';
@@ -86,6 +86,15 @@ async function hasAudioTrack(bytes: Uint8Array): Promise<boolean> {
 }
 
 /** The design as an MP4 (H.264 + AAC). Needs ffmpeg. */
+/** Music under speech, as an ffmpeg filter: the `duckGain` curve (scene/subtitles.ts). */
+function duckFilter(doc: Doc): string | null {
+  const level = doc.subtitles?.speech.duck;
+  if (level === undefined) return null;
+  const R = 0.2;
+  const dips = speechSpans(doc).map((s) => `(1-${1 - level}*clip(min(t-${s.start - R},${s.end + R}-t)/${R},0,1))`);
+  return dips.length ? `volume=volume='${dips.join('*')}':eval=frame` : null;
+}
+
 export async function exportMp4Ffmpeg(file: ProjectFile, opts: VideoExportOptions = {}): Promise<Uint8Array> {
   const bin = ffmpeg();
   if (!bin) throw new Error('video export needs ffmpeg: install it (brew install ffmpeg / apt install ffmpeg) or `npm i ffmpeg-static` next to this server, or set DC_FFMPEG');
@@ -104,8 +113,8 @@ export async function exportMp4Ffmpeg(file: ProjectFile, opts: VideoExportOption
       return path.get(asset)!;
     };
     // ---- sound
-    type Src = { asset: string; at: number; offset: number; dur: number; volume: number; loop?: boolean; fadeIn?: number; fadeOut?: number; speed?: number };
-    const srcs: Src[] = (doc.audio ?? []).filter((a) => file.assets.has(a.asset)).map((a) => ({ asset: a.asset, at: a.start, offset: a.offset, dur: a.duration, volume: a.volume ?? 1, fadeIn: a.fadeIn, fadeOut: a.fadeOut }));
+    type Src = { asset: string; at: number; offset: number; dur: number; volume: number; loop?: boolean; fadeIn?: number; fadeOut?: number; speed?: number; speech?: boolean };
+    const srcs: Src[] = (doc.audio ?? []).filter((a) => file.assets.has(a.asset)).map((a) => ({ asset: a.asset, at: a.start, offset: a.offset, dur: a.duration, volume: a.volume ?? 1, speech: !!a.speech, fadeIn: a.fadeIn, fadeOut: a.fadeOut }));
     for (const p of doc.pages) {
       if (p.hidden) continue;
       for (const e of walk(p.elements)) {
@@ -115,6 +124,7 @@ export async function exportMp4Ffmpeg(file: ProjectFile, opts: VideoExportOption
         srcs.push({ asset: e.asset, at: pageStart(doc, p.id), offset: e.trimStart ?? 0, dur: Math.min(pageDuration(p), e.loop ? pageDuration(p) : clipLength(e, fileDur)), volume: e.volume ?? 1, loop: e.loop, speed: clipSpeed(e) });
       }
     }
+    const duck = duckFilter(doc);
     const audioArgs: string[] = [];
     const filters: string[] = [];
     srcs.forEach((s, i) => {
@@ -127,6 +137,7 @@ export async function exportMp4Ffmpeg(file: ProjectFile, opts: VideoExportOption
       if (s.fadeOut) chain.push(`afade=t=out:st=${Math.max(0, dur - s.fadeOut)}:d=${Math.min(s.fadeOut, dur)}`);
       const ms = Math.round(s.at * 1000);
       chain.push(`adelay=${ms}|${ms}`, 'aformat=sample_rates=48000:channel_layouts=stereo');
+      if (duck && !s.speech) chain.push(duck);
       filters.push(`[${filters.length + 1}:a]${chain.join(',')}[a${i}]`);
     });
     const nAudio = filters.length;

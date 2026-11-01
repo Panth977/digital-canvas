@@ -74,13 +74,16 @@ async function keep(url) {
 try {
   const list = JSON.parse(await keep(API));
   const index = JSON.parse(readFileSync(join(root, 'apps/web/src/templates/index.json'), 'utf8'));
-  const families = new Set(index.flatMap((t) => t.fonts));
+  // Noto Sans Devanagari: Hindi captions have to work offline
+  const families = new Set([...index.flatMap((t) => t.fonts), 'Noto Sans Devanagari']);
   for (const f of list.filter((x) => families.has(x.family))) {
     const d = JSON.parse(await keep(`${API}/${f.id}`));
     const near = (w) => [...f.weights].sort((a, b) => Math.abs(a - w) - Math.abs(b - w) || b - a)[0];
     for (const w of new Set([near(400), near(700)])) for (const style of f.styles.filter((s) => s === 'normal' || s === 'italic')) {
-      const url = d.variants[String(w)]?.[style]?.latin?.url.ttf;
-      if (url) await keep(url);
+      for (const sub of ['latin', 'devanagari']) {
+        const url = d.variants[String(w)]?.[style]?.[sub]?.url.ttf;
+        if (url && (sub === 'latin' || f.family === 'Noto Sans Devanagari')) await keep(url);
+      }
     }
   }
 } catch (e) {
@@ -89,6 +92,6 @@ try {
 }
 // SIL OFL 1.1 asks for the licence to travel with the fonts.
 writeFileSync(join(packDir, 'LICENSE.txt'), `The fonts in this folder come from Fontsource (Google Fonts) under the SIL Open Font License 1.1:
-https://openfontlicense.org. Source Sans 3, Inter, Playfair Display, Abhaya Libre, Ms Madi, Plus Jakarta Sans, DM Sans.
+https://openfontlicense.org. Source Sans 3, Inter, Playfair Display, Abhaya Libre, Ms Madi, Plus Jakarta Sans, DM Sans, Noto Sans Devanagari.
 Copyright belongs to their authors; each font's copyright notice is in its name table.\n`);
 console.log(`built ${out}${skipWeb ? ' (web reused)' : ''}`);

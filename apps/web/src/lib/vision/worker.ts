@@ -1,12 +1,9 @@
 /**
- * The on-device image models, off the main thread. onnxruntime-web (MIT) comes
- * from jsDelivr (the service worker keeps it), models from Hugging Face at a
- * pinned revision (kept in the Cache API `dc-models`, so later runs work
- * offline). WebGPU when it works, else WebAssembly.
+ * The on-device image models, off the main thread (runtime and downloads in
+ * lib/models.ts). WebGPU when it works, else WebAssembly.
  */
+import { fetchCached, hasGpu, loadOrt, type Ort, type OrtSession } from '../models.ts';
 import { boxBlur, coverage, dilate, feather, guidedFilter, inpaintWindow, subjectBox, type Box } from './matte.ts';
-
-const ORT_URL = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.31.1/dist/';
 
 export interface Model {
   name: string;
@@ -48,53 +45,7 @@ const LAMA: Model = {
   mb: 208, size: fixed512, mean: [0, 0, 0], std: [1, 1, 1], logits: false,
 };
 
-interface OrtTensor { data: Float32Array; dims: readonly number[] }
-interface OrtSession { inputNames: readonly string[]; outputNames: readonly string[]; run(feeds: Record<string, OrtTensor>): Promise<Record<string, OrtTensor>>; release(): Promise<void> }
-interface Ort {
-  env: { wasm: { wasmPaths: string; numThreads: number }; logLevel: string };
-  Tensor: new (type: string, data: Float32Array, dims: number[]) => OrtTensor;
-  InferenceSession: { create(model: Uint8Array, opts: Record<string, unknown>): Promise<OrtSession> };
-}
-
 type Progress = (msg: string, fraction?: number) => void;
-
-let ortP: Promise<Ort> | null = null;
-
-function loadOrt(): Promise<Ort> {
-  ortP ??= (async () => {
-    const ort = (await import(/* @vite-ignore */ `${ORT_URL}ort.webgpu.min.mjs`)) as Ort;
-    ort.env.wasm.wasmPaths = ORT_URL;
-    ort.env.wasm.numThreads = (self as unknown as { crossOriginIsolated?: boolean }).crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 1) : 1;
-    ort.env.logLevel = 'error';
-    return ort;
-  })();
-  ortP.catch(() => (ortP = null));
-  return ortP;
-}
-
-async function fetchModel(m: Model, progress: Progress): Promise<Uint8Array> {
-  const cache = 'caches' in self ? await caches.open('dc-models').catch(() => null) : null;
-  const hit = await cache?.match(m.url);
-  if (hit) return new Uint8Array(await hit.arrayBuffer());
-  const res = await fetch(m.url);
-  if (!res.ok || !res.body) throw new Error(`model download failed (${res.status})`);
-  const total = Number(res.headers.get('content-length')) || m.mb * 1e6;
-  const chunks: Uint8Array[] = [];
-  let got = 0;
-  const reader = res.body.getReader();
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-    got += value.length;
-    progress(`Downloading ${m.name}: ${Math.round(got / 1e6)} of ${Math.round(total / 1e6)} MB, first time only`, Math.min(1, got / total));
-  }
-  const all = new Uint8Array(got);
-  let o = 0;
-  for (const c of chunks) { all.set(c, o); o += c.length; }
-  await cache?.put(m.url, new Response(all)).catch(() => {});
-  return all;
-}
 
 /** Only one model at a time stays in memory: they are big. */
 let live: { model: Model; ep: string; session: OrtSession } | null = null;
@@ -103,17 +54,12 @@ async function session(m: Model, ep: string, progress: Progress): Promise<OrtSes
   if (live?.model === m && live.ep === ep) return live.session;
   if (live) { await live.session.release().catch(() => {}); live = null; }
   const ort = await loadOrt();
-  const bytes = await fetchModel(m, progress);
+  const bytes = await fetchCached(m.url, m.name, m.mb, progress);
   progress(`Starting ${m.name}…`);
   const s = await ort.InferenceSession.create(bytes, { executionProviders: [ep] });
   live = { model: m, ep, session: s };
   return s;
 }
-
-const hasGpu = async (): Promise<boolean> => {
-  const gpu = (navigator as unknown as { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
-  return !!gpu && !!(await gpu.requestAdapter().catch(() => null));
-};
 
 /** Run a model on the GPU if it can, and on the CPU if that fails or gives nonsense. */
 async function run<T>(m: Model, progress: Progress, job: (s: OrtSession, ort: Ort) => Promise<T>, ok: (r: T) => boolean): Promise<T> {

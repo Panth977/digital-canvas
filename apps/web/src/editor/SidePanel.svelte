@@ -1,6 +1,6 @@
 <script lang="ts">
   import { BRUSHES, type EditorState } from '../lib/editor.svelte.ts';
-  import type { Brush } from '@digital-canvas/scene';
+  import { isVideo, type Brush } from '@digital-canvas/scene';
   import ColorField from './ColorField.svelte';
   import Icon, { type IconName } from '../lib/Icon.svelte';
   import { IMAGE_TYPES, objectUrl, pickFiles } from '../lib/files.ts';
@@ -25,8 +25,10 @@
     { id: 'apps', label: 'Apps', icon: 'apps' },
     { id: 'photos', label: 'Photos', icon: 'image' },
     { id: 'videos', label: 'Videos', icon: 'video' },
+    { id: 'subtitles', label: 'Subtitles', icon: 'captions' },
     { id: 'sounds', label: 'Audio', icon: 'music' },
   ];
+  const tabs = $derived(TABS.filter((t) => t.id !== 'subtitles' || isVideo(ed.doc)));
   /** The rail item lit: the open section, or the one a contextual panel came from. */
   const lit = $derived(ui.panel ? (ui.isRail ? ui.panel : null) : null);
 
@@ -85,7 +87,7 @@
 <aside class="side">
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <nav class="rail" aria-label="Side panel" bind:this={railEl} onkeydown={railKey}>
-    {#each TABS as t}
+    {#each tabs as t}
       <button class:on={lit === t.id} aria-pressed={lit === t.id} onclick={() => ui.rail(t.id)} onkeydown={(e) => openFromKeys(e, t.id)} data-testid="tab-{t.id}">
         <span class="ri"><Icon name={t.icon} size={24} /></span>
         <span>{t.label}</span>

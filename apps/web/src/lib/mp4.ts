@@ -9,7 +9,7 @@ import {
   ALL_FORMATS, AudioBufferSource, BlobSource, BufferTarget, CanvasSource, Input, Mp3OutputFormat, Mp4OutputFormat, Output, QUALITY_HIGH,
   VideoSampleSink, canEncodeAudio, getFirstEncodableAudioCodec, getFirstEncodableVideoCodec,
 } from 'mediabunny';
-import { clipLength, clipSpeed, clipTime, frameAt, pageDuration, pageStart, stretchAudio, totalDuration, walk, type Doc, type Page, type VideoElement } from '@digital-canvas/scene';
+import { clipLength, clipSpeed, clipTime, duckPoints, frameAt, pageDuration, pageStart, stretchAudio, totalDuration, walk, type Doc, type Page, type VideoElement } from '@digital-canvas/scene';
 import { drawFrameAt } from '@digital-canvas/render';
 import type { EditorState } from './editor.svelte.ts';
 import { soundDuration, videoSize } from './exportutil.ts';
@@ -30,8 +30,9 @@ const RATE = 48000;
 
 /** Mix every sound of the design (timeline sounds and the clips' own sound) into one buffer. */
 export async function mixAudio(doc: Doc, assets: Map<string, Uint8Array>, total: number): Promise<AudioBuffer | null> {
-  type Src = { asset: string; at: number; offset: number; dur: number; volume: number; loop?: boolean; fadeIn?: number; fadeOut?: number; speed?: number; loopEnd?: number };
-  const srcs: Src[] = (doc.audio ?? []).map((a) => ({ asset: a.asset, at: a.start, offset: a.offset, dur: a.duration, volume: a.volume ?? 1, fadeIn: a.fadeIn, fadeOut: a.fadeOut }));
+  type Src = { asset: string; at: number; offset: number; dur: number; volume: number; loop?: boolean; fadeIn?: number; fadeOut?: number; speed?: number; loopEnd?: number; speech?: boolean };
+  const srcs: Src[] = (doc.audio ?? []).map((a) => ({ asset: a.asset, at: a.start, offset: a.offset, dur: a.duration, volume: a.volume ?? 1, fadeIn: a.fadeIn, fadeOut: a.fadeOut, speech: !!a.speech }));
+  const duck = duckPoints(doc);
   for (const p of doc.pages) {
     if (p.hidden) continue;
     for (const e of walk(p.elements)) {
@@ -73,7 +74,14 @@ export async function mixAudio(doc: Doc, assets: Map<string, Uint8Array>, total:
     const len = Math.min(s.dur, total - s.at);
     if (s.fadeIn && s.fadeIn > 0) { gain.gain.setValueAtTime(0, s.at); gain.gain.linearRampToValueAtTime(s.volume, s.at + Math.min(s.fadeIn, len)); }
     if (s.fadeOut && s.fadeOut > 0) { const end = s.at + len; gain.gain.setValueAtTime(s.volume, Math.max(s.at, end - s.fadeOut)); gain.gain.linearRampToValueAtTime(0, end); }
-    node.connect(gain).connect(ctx.destination);
+    let last: AudioNode = node.connect(gain);
+    if (duck.length && !s.speech) {
+      // music dips under speech, on the curve playback uses
+      const dip = ctx.createGain();
+      for (const [at, g] of duck) dip.gain.linearRampToValueAtTime(g, at);
+      last = last.connect(dip);
+    }
+    last.connect(ctx.destination);
     node.start(s.at, s.offset, s.loop ? undefined : Math.min(s.dur, total - s.at));
     if (s.loop) node.stop(Math.min(total, s.at + s.dur));
     any = true;

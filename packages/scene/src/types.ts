@@ -56,6 +56,8 @@ export interface ElementBase {
    * (captions, timed call-outs). Absent = the whole page. Still views show it.
    */
   timing?: { start?: number; end?: number };
+  /** Shows this subtitle line (`SubtitleLine.id`): edits to the element reach the line. */
+  caption?: string;
 }
 
 export type BlendMode = 'multiply' | 'screen' | 'overlay' | 'darken' | 'lighten' | 'color-dodge' | 'color-burn' | 'hard-light' | 'soft-light' | 'difference' | 'exclusion' | 'hue' | 'saturation' | 'color' | 'luminosity';
@@ -563,6 +565,50 @@ export interface AudioClip {
   fadeIn?: number;
   fadeOut?: number;
   name?: string;
+  /** Generated speech for a subtitle line. */
+  speech?: ClipSpeech;
+}
+
+/** What a speech clip says: enough to tell when it has gone stale. */
+export interface ClipSpeech {
+  line: string;
+  /** `speechKey` of the line when this was generated. */
+  key: string;
+  /** How much faster than spoken it was squeezed to fit its line (absent = 1). */
+  fitted?: number;
+}
+
+/** One timed line of the script, in seconds of the whole video. */
+export interface SubtitleLine {
+  id: string;
+  start: number;
+  end: number;
+  text: string;
+  /** Overrides `SpeechSettings` for this line. */
+  voice?: string;
+  speed?: number;
+}
+
+export interface SpeechSettings {
+  voice: string;
+  /** 0.5..2, the model's own speed. */
+  speed: number;
+  /** Speech clips' volume, 0..1. */
+  volume: number;
+  /** When speech is longer than its line: make the line (and scene) longer, or speed the speech up. */
+  fit: 'stretch' | 'speed';
+  /** Other sounds drop to this level while speech plays (absent = no ducking). */
+  duck?: number;
+}
+
+/** The video's script: its lines, how they show, how they are spoken. */
+export interface SubtitleTrack {
+  lines: SubtitleLine[];
+  /** Lines show on the video as caption text elements. */
+  show: boolean;
+  /** `CAPTION_STYLES` id. */
+  style: string;
+  speech: SpeechSettings;
 }
 
 export interface AssetMeta {
@@ -577,6 +623,8 @@ export interface AssetMeta {
   duration?: number;
   /** Made by an AI model (AI panel ▸ Generate image / video). */
   ai?: AssetAI;
+  /** Generated speech: what it says and with which voice and model. */
+  speech?: { text: string; voice: string; model: string; speed: number };
 }
 
 /** Where a generated asset came from. */
@@ -623,6 +671,8 @@ export interface Doc {
   fonts?: EmbeddedFont[];
   /** Sounds on the timeline. */
   audio?: AudioClip[];
+  /** The video's subtitles and speech. */
+  subtitles?: SubtitleTrack;
   createdAt: string;
   updatedAt: string;
 }

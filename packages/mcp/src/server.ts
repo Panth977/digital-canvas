@@ -14,7 +14,7 @@ import { registerDesignTools } from './tools/designs.ts';
 import { registerEditTools } from './tools/edit.ts';
 import { registerExportTools, runJob } from './tools/export.ts';
 import { registerMockupTools } from './tools/mockups.ts';
-import { registerVideoTools } from './tools/video.ts';
+import { registerSpeechTools, registerVideoTools } from './tools/video.ts';
 import { registerViewTools } from './tools/view.ts';
 import type { Workspace } from './workspace.ts';
 
@@ -47,6 +47,7 @@ export function createServer(ws: Workspace, opts: ServerOptions = {}): McpServer
   registerAssetTools(server, ctx);
   registerViewTools(server, ctx);
   registerVideoTools(server, ctx);
+  registerSpeechTools(server, ctx);
   registerExportTools(server, ctx);
   registerMockupTools(server, ctx);
 

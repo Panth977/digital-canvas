@@ -76,11 +76,11 @@ function onServerMessage(m: { id?: number; ok?: boolean; value?: never; error?: 
 
 async function answerServer(op: string, args?: { force?: boolean }): Promise<unknown> {
   if (op === 'drive.token') return drive.token(args?.force);
-  if (op === 'video.export' || op === 'video.frame') return askWindow(op, args);
+  if (op === 'video.export' || op === 'video.frame' || op === 'speech.say') return askWindow(op, args);
   throw new Error(`unknown request ${op}`);
 }
 
-// ---- asking the window (video runs on its WebCodecs)
+// ---- asking the window (video runs on its WebCodecs, speech on its worker)
 
 const windowWaits = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
 async function askWindow(op: string, args: unknown): Promise<unknown> {

@@ -1,4 +1,5 @@
 /** Exports: images, PDF, GIF, MP4 — saved to "Digital Canvas/Exports" (or the folder's Exports/). */
+import { withoutCaptions } from '@digital-canvas/scene';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { exportPdf, exportVectorPdf } from '@digital-canvas/render';
@@ -23,6 +24,7 @@ const link = (r: ExportResult): Result['content'][number] => ({ type: 'resource_
 /** Run a job (video export) for a design: used in-process and by the Cloud Function's task queue. */
 export async function runJob(ws: Workspace, spec: JobSpec, onProgress?: (p: number) => void): Promise<ExportResult> {
   const file = await ws.store.open(spec.designId);
+  if (spec.noCaptions) file.doc = withoutCaptions(file.doc);
   const bytes = await exportMp4(file, { fps: spec.fps, maxSide: spec.maxSide, onProgress });
   return ws.saveExport(`${safeName(spec.name ?? file.doc.title)}.mp4`, bytes, 'video/mp4');
 }
@@ -91,15 +93,16 @@ export function registerExportTools(server: McpServer, ctx: Context): void {
       max_side: z.number().int().min(240).max(3840).optional().describe('Longest side in px (default 1920 = 1080p).'),
       wait_seconds: z.number().min(0).max(300).optional(),
       name: z.string().optional(),
+      burn_subtitles: z.boolean().optional().describe('Default true. False leaves the captions out of the picture (for a sidecar .srt).'),
     },
-  }, safe(async ({ design_id, fps, max_side, wait_seconds, name }, extra) => {
+  }, safe(async ({ design_id, fps, max_side, wait_seconds, name, burn_subtitles }, extra) => {
     const file: ProjectFile = await ctx.open(design_id);
     const total = totalDuration(file.doc);
     const why = ctx.opts.jobs ? null : platform().videoProblem();
     if (why) throw new ToolError(why, 'export_gif works everywhere');
     if (total > 600) throw new ToolError(`the video is ${round(total)}s; exports are limited to 10 minutes`);
     const report = progress(extra);
-    const spec: JobSpec = { kind: 'video', designId: design_id, ...(fps ? { fps } : {}), ...(max_side ? { maxSide: max_side } : {}), ...(name ? { name } : {}) };
+    const spec: JobSpec = { kind: 'video', designId: design_id, ...(fps ? { fps } : {}), ...(max_side ? { maxSide: max_side } : {}), ...(name ? { name } : {}), ...(burn_subtitles === false ? { noCaptions: true } : {}) };
     const id = await jobs.start(spec, (p) => runJob(ctx.ws, spec, (x) => { p(x); report(x); }));
     const st = await waitFor(jobs, id, (wait_seconds ?? (ctx.remote ? 40 : 50)) * 1000);
     if (!st) throw new Error('the export job was lost');

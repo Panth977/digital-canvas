@@ -2,12 +2,14 @@
  * Every tool against a local folder workspace (no network: fonts are offline,
  * Iconify and downloads are served locally or stubbed).
  */
+import { execFileSync } from 'node:child_process';
 import { createServer as httpServer, type Server } from 'node:http';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { emptyBrand } from '@digital-canvas/storage';
 import { ffmpeg } from '../src/node/index.ts';
+import { platform, setPlatform } from '../src/platform.ts';
 import { chunkTranscript } from '../src/tools/video.ts';
 import { clipWebm, harness, isPng, samplePng, toneMp3, type Harness } from './helpers.ts';
 
@@ -438,5 +440,88 @@ describe('exports', () => {
     expect(gif.isError, gif.text).toBe(false);
     expect(gif.images[0]!.mimeType).toBe('image/gif');
     expect(readdirSync(join(h.dir, 'Exports')).filter((f) => f.startsWith('Exported')).sort()).toEqual(['Exported - page 1.jpg', 'Exported - page 2.jpg', 'Exported.gif', 'Exported.pdf']);
+  });
+});
+
+describe('subtitles and speech', () => {
+  let h: Harness;
+  beforeAll(async () => { h = await harness(); });
+  afterAll(() => h.close());
+
+  async function reel(): Promise<string> {
+    const r = await h.call('create_design', { title: 'Spoken', preset: 'instagram-reel' });
+    await h.call('set_page', { design_id: r.json.id, page: 1, duration: 3 });
+    return r.json.id;
+  }
+
+  it('set_subtitles makes caption text from a script', async () => {
+    const id = await reel();
+    const r = await h.call('set_subtitles', { design_id: id, script: 'Hello there, friend.', style: 'yellow', voice: 'bf_emma', duck: 0.3 });
+    expect(r.isError, r.text).toBe(false);
+    expect(r.json.lines).toHaveLength(1);
+    expect(r.json.lines[0]).toMatchObject({ start: 0, end: 3, text: 'Hello there, friend.' });
+    expect(r.json.speechNeeded).toBe(1);
+    const file = await h.ws.store.open(id);
+    const cap = file.doc.pages[0]!.elements.find((e) => e.caption)!;
+    expect(cap).toMatchObject({ type: 'text', timing: { start: 0, end: 3 } });
+    expect((cap as { style: { color: string } }).style.color).toBe('#ffd400');
+    expect(file.doc.subtitles!.speech).toMatchObject({ voice: 'bf_emma', duck: 0.3 });
+  });
+
+  it('reads SRT and refuses backwards lines', async () => {
+    const id = await reel();
+    const r = await h.call('set_subtitles', { design_id: id, srt: '1\n00:00:00,500 --> 00:00:02,000\nFrom a file\n' });
+    expect(r.json.lines[0]).toMatchObject({ start: 0.5, end: 2 });
+    const bad = await h.call('set_subtitles', { design_id: id, lines: [{ start: 2, end: 1, text: 'no' }] });
+    expect(bad.isError).toBe(true);
+  });
+
+  it('generate_speech says clearly when no model can run here', async () => {
+    const id = await reel();
+    await h.call('set_subtitles', { design_id: id, script: 'Hello.' });
+    const r = await h.call('generate_speech', { design_id: id });
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/runs on the user's device/);
+    expect(r.text).toMatch(/device mode/);
+  });
+
+  it('generate_speech on a device: clips on the timeline, only changed lines again', async () => {
+    const said: string[] = [];
+    const before = platform();
+    setPlatform({ ...before, speak: async (text) => { said.push(text); return { pcm: new Float32Array(24000 * 4).map((_, i) => Math.sin(i / 8) / 4), rate: 24000 }; } });
+    try {
+      const id = await reel();
+      await h.call('set_subtitles', { design_id: id, lines: [{ start: 0, end: 3, text: 'One line' }] });
+      const r = await h.call('generate_speech', { design_id: id });
+      expect(r.json).toMatchObject({ generated: 1, remaining: 0 });
+      const file = await h.ws.store.open(id);
+      expect(file.doc.audio![0]).toMatchObject({ start: 0, speech: { line: file.doc.subtitles!.lines[0]!.id } });
+      expect(file.doc.audio![0]!.duration).toBeCloseTo(4);
+      expect(file.doc.pages[0]!.duration).toBeCloseTo(4.15); // the scene grew to hold it
+      const meta = file.doc.assets[file.doc.audio![0]!.asset]!;
+      expect(meta).toMatchObject({ mime: 'audio/wav', speech: { text: 'One line', voice: 'af_heart', model: 'Kokoro-82M' } });
+      const again = await h.call('generate_speech', { design_id: id });
+      expect(again.json.generated).toBe(0);
+      expect(said).toEqual(['One line']);
+    } finally {
+      setPlatform(before);
+    }
+  });
+
+  it.skipIf(!hasFfmpeg)('export_video carries the speech, with or without captions in the picture', async () => {
+    const before = platform();
+    setPlatform({ ...before, speak: async () => ({ pcm: new Float32Array(24000).map((_, i) => Math.sin(i / 8) / 4), rate: 24000 }) });
+    try {
+      const id = await reel();
+      await h.call('set_subtitles', { design_id: id, script: 'Spoken.', duck: 0.2 });
+      await h.call('generate_speech', { design_id: id });
+      const e = await h.call('export_video', { design_id: id, max_side: 320, fps: 10, burn_subtitles: false });
+      expect(e.isError, e.text).toBe(false);
+      const done = e.json.state === 'done' ? e.json : (await h.call('get_export', { job_id: e.json.job_id, wait_seconds: 60 })).json;
+      const probe = execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', done.path]).toString();
+      expect(probe).toContain('audio');
+    } finally {
+      setPlatform(before);
+    }
   });
 });

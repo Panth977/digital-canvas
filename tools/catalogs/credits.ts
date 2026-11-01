@@ -72,6 +72,14 @@ const SECTIONS: { title: string; intro?: string; rows: Row[] }[] = [
     row('Tesseract.js', 'https://github.com/naptha/tesseract.js', 'Project Naptha and contributors', L.Apache, 'Grab Text'),
     row('ONNX Runtime Web', 'https://github.com/microsoft/onnxruntime', 'Microsoft', L.MIT, 'runs the models'),
   ] },
+  { title: 'Speech', intro: 'Text to speech for video subtitles. Downloaded to your device on first use and run there; nothing you type leaves it. eSpeak NG (GPL-3) is not used: kokoro-js and the npm phonemizer package bundle it, so we use neither.', rows: [
+    row('Kokoro-82M', 'https://huggingface.co/hexgrad/Kokoro-82M', 'hexgrad', L.Apache, 'the speech model and its voices; ONNX export by onnx-community. Trained on permissively licensed and public-domain audio; the CC BY sets are listed next'),
+    row('misaki', 'https://github.com/hexgrad/misaki', 'hexgrad', L.Apache, 'English pronunciation dictionaries and phoneme set'),
+    row('SIWIS French Speech Synthesis Database', 'https://datashare.ed.ac.uk/handle/10283/2353', 'Pierre-Edouard Honnet and co-authors', L.BY, 'part of Kokoro’s training data'),
+    row('Koniwa', 'https://github.com/koniwa/koniwa', 'its contributors', ['CC BY 3.0', 'https://creativecommons.org/licenses/by/3.0/'], 'part of Kokoro’s training data'),
+    row('Noto Sans Devanagari', 'https://fonts.google.com/noto/specimen/Noto+Sans+Devanagari', 'Google', L.OFL, 'Hindi captions'),
+    row('ONNX Runtime Web', 'https://github.com/microsoft/onnxruntime', 'Microsoft', L.MIT, 'runs the model'),
+  ] },
   { title: 'Mockups', rows: [ row('Mockup photographs', 'https://unsplash.com', '38 photographers on Unsplash', ['Unsplash License', 'https://unsplash.com/license'], 'author and URL per photo in /mockups/LICENSES.md') ] },
 ];
 
