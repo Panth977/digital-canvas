@@ -8,7 +8,7 @@
  */
 import {
   applyMatrix, closestFamily, DEFAULT_TEXT_STYLE, FORMAT, mulMatrix, newId, partSig, textSig, VERSION,
-  type AssetMeta, type Doc, type Element, type ExactRun, type ImageElement, type Matrix, type Page, type PageLink, type PathElement, type PathExact, type PathPart, type PathShade, type PdfClipPath, type PdfFont, type PdfImageSource, type PdfPatternFill, type PdfVectorSource, type BlendMode, type SourceColor, type TextElement, type TextRun,
+  type AssetMeta, type Doc, type Element, type ExactRun, type ImageElement, type Matrix, type Page, type PageLink, type PathElement, type PathExact, type PathPart, type PathShade, type PdfClipPath, type PdfFont, type PdfImageSource, type PdfPatternFill, type PdfTile, type PdfVectorSource, type BlendMode, type SourceColor, type TextElement, type TextRun,
 } from '@digital-canvas/scene';
 import { readCmap, withUnicodeCmap } from './fontfile.ts';
 import { encodePng } from './png.ts';
@@ -492,8 +492,9 @@ class PageWalker {
       if (!shade) {
         this.flat(i, st.fill.pattern[0] === 'TilingPattern' ? 'tiling pattern' : 'mesh shading', shown);
         const f = this.lastFlat();
-        if (f && st.fill.pattern[0] === 'TilingPattern' && st.fill.patternObj !== undefined && !strokes && !keepCtm && !this.flatNow) {
-          (f.fills ??= []).push({ d, ...(evenOdd ? { evenOdd } : {}), obj: st.fill.patternObj, base: this.baseOf(), alpha: st.fill.alpha * st.ga, clips: [...st.clips] });
+        const tile = st.fill.pattern[0] === 'TilingPattern' && st.fill.patternObj === undefined ? tileOf(st.fill.pattern, this.pdfjs.OPS) : null;
+        if (f && st.fill.pattern[0] === 'TilingPattern' && (st.fill.patternObj !== undefined || tile) && !strokes && !keepCtm && !this.flatNow) {
+          (f.fills ??= []).push({ d, ...(evenOdd ? { evenOdd } : {}), ...(st.fill.patternObj !== undefined ? { obj: st.fill.patternObj } : { tile: tile! }), base: this.baseOf(), alpha: st.fill.alpha * st.ga, clips: [...st.clips] });
         } else if (f) f.fills = undefined, f.noVector = true;
         return;
       }
@@ -916,6 +917,56 @@ export function invert(m: Matrix): Matrix | null {
 function isConformal(m: Matrix): boolean {
   const a = Math.hypot(m[0], m[1]), b = Math.hypot(m[2], m[3]);
   return Math.abs(a - b) < 1e-4 * Math.max(a, b) && Math.abs(m[0] * m[2] + m[1] * m[3]) < 1e-4 * a * b;
+}
+
+/** A tiling cell of plain paths as content-stream text; null when it holds anything else. */
+export function tileOf(p: any[], OPS: Record<string, number>): PdfTile | null {
+  const [, color, list, matrix, bbox, xstep, ystep, paintType] = p;
+  if (!list?.fnArray) return null;
+  const n = (v: number) => String(Math.round(v * 1e5) / 1e5);
+  const rgb = (hex: string) => rgbOf(hex).map(n).join(' ');
+  const out: string[] = [];
+  if (paintType === 2 && color) out.push(`${n(color[0] / 255)} ${n(color[1] / 255)} ${n(color[2] / 255)} rg ${n(color[0] / 255)} ${n(color[1] / 255)} ${n(color[2] / 255)} RG`);
+  const pathOf = (data: ArrayLike<number>) => {
+    const o: string[] = [];
+    for (let i = 0; i < data.length;) {
+      const c = data[i++]!;
+      if (c === DRAW.moveTo) { o.push(`${n(data[i]!)} ${n(data[i + 1]!)} m`); i += 2; }
+      else if (c === DRAW.lineTo) { o.push(`${n(data[i]!)} ${n(data[i + 1]!)} l`); i += 2; }
+      else if (c === DRAW.curveTo) { o.push(`${[0, 1, 2, 3, 4, 5].map((k) => n(data[i + k]!)).join(' ')} c`); i += 6; }
+      else if (c === DRAW.closePath) o.push('h');
+      else return null;
+    }
+    return o.join(' ');
+  };
+  const paint: [number, string][] = [[OPS.fill!, 'f'], [OPS.eoFill!, 'f*'], [OPS.stroke!, 'S'], [OPS.closeStroke!, 's'], [OPS.fillStroke!, 'B'], [OPS.eoFillStroke!, 'B*'], [OPS.closeFillStroke!, 'b'], [OPS.closeEOFillStroke!, 'b*'], [OPS.endPath!, 'n']];
+  for (let i = 0; i < list.fnArray.length; i++) {
+    const fn = list.fnArray[i], a = list.argsArray[i];
+    if (fn === OPS.save) out.push('q');
+    else if (fn === OPS.restore) out.push('Q');
+    else if (fn === OPS.transform) out.push(`${toMatrix(a).map(n).join(' ')} cm`);
+    else if (fn === OPS.setFillRGBColor) out.push(`${rgb(a[0])} rg`);
+    else if (fn === OPS.setStrokeRGBColor) out.push(`${rgb(a[0])} RG`);
+    else if (fn === OPS.setLineWidth) out.push(`${n(a[0])} w`);
+    else if (fn === OPS.setLineCap) out.push(`${a[0]} J`);
+    else if (fn === OPS.setLineJoin) out.push(`${a[0]} j`);
+    else if (fn === OPS.setMiterLimit) out.push(`${n(a[0])} M`);
+    else if (fn === OPS.setDash) out.push(`[${[...a[0]].map(n).join(' ')}] ${n(a[1])} d`);
+    else if (fn === OPS.clip) out.push('W');
+    else if (fn === OPS.eoClip) out.push('W*');
+    else if (fn === OPS.constructPath) {
+      const op = paint.find(([k]) => k === a[0])?.[1];
+      const path = pathOf(a[1]?.[0] ?? []);
+      if (!op || path === null) return null;
+      const w = out.pop();
+      const clipped = w === 'W' || w === 'W*' ? w : null;
+      if (w && !clipped) out.push(w);
+      out.push(clipped ? `${path} ${clipped} ${op}` : `${path} ${op}`);
+    } else if (fn === OPS.setGState) { if (a[0].some(([k, v]: [string, unknown]) => (k === 'ca' || k === 'CA' ? v !== 1 : k === 'SMask' ? !!v : k === 'BM' ? v !== 'source-over' : false))) return null; }
+    else if (fn === OPS.beginMarkedContent || fn === OPS.endMarkedContent || fn === OPS.beginMarkedContentProps || fn === OPS.dependency) continue;
+    else return null;
+  }
+  return { content: out.join('\n'), bbox: [...bbox], xstep, ystep, matrix: matrix ? toMatrix(matrix) : [1, 0, 0, 1, 0, 0] };
 }
 
 function rectOps(p: number[], Draw: Record<string, number>): number[] {

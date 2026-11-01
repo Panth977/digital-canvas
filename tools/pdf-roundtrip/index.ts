@@ -36,7 +36,7 @@ if (quick) args.splice(args.indexOf('--quick'), 1);
 const files = args.flatMap((a) => (statSync(a).isDirectory() ? readdirSync(a).filter((f) => f.endsWith('.pdf')).map((f) => join(a, f)) : [a])).filter((f) => basename(f).includes(only));
 
 const require = createRequire(import.meta.url);
-const ck = await require('canvaskit-wasm/bin/full/canvaskit.js')();
+const ckInit = require('canvaskit-wasm/bin/full/canvaskit.js');
 const fontDir = new URL('../../apps/web/public/fonts/', import.meta.url).href;
 const assetsDir = out.replace(/\.html$/, '');
 mkdirSync(assetsDir, { recursive: true });
@@ -142,11 +142,11 @@ for (const f of files) {
     row.flat = [...new Set(r.report.flattened.map((x) => x.why))];
     const packed = pack({ doc: r.doc, assets: r.assets });
     const { doc, assets } = unpack(packed);
+    const ck = await ckInit(); // a fresh WebAssembly heap per file
     const fonts = new FontLibrary(ck);
     await fonts.loadBundled(fontDir, async (u) => readFileSync(new URL(u)).buffer as ArrayBuffer);
     const renderer = new Renderer(ck, fonts);
     for (const fnt of doc.fonts ?? []) { const b = assets.get(fnt.asset); if (b) fonts.add(fnt.family, b, fnt.subset); }
-    for (const [id, b] of assets) if (doc.assets[id]?.mime.startsWith('image/')) renderer.setImage(id, b);
     // --no-source: what a file exports like without its original objects (encrypted files, or the source removed)
     if (noSource) delete doc.pdf!.source;
     const bytes = await exportVectorPdf(renderer, doc, { assets, title: name });
@@ -173,6 +173,8 @@ for (const f of files) {
         // a smaller page sits letterboxed on the design: render all of it, cut the page out
         const b = page.pdfPage;
         const zoom = b ? (DPI / 72) / b.scale : s.w / doc.width;
+        const used = page.elements.flatMap((e) => (e.type === 'image' ? [e.asset] : []));
+        for (const id of used) { const b = assets.get(id); if (b) renderer.setImage(id, b); }
         const png = renderer.renderPageRgba(doc, page, Math.round(doc.width * zoom), Math.round(doc.height * zoom));
         const ox = Math.round((b?.x ?? 0) * zoom), oy = Math.round((b?.y ?? 0) * zoom);
         const rgb = new Uint8Array(s.w * s.h * 3);
@@ -181,6 +183,7 @@ for (const f of files) {
           const al = (png.data[at + 3] ?? 0) / 255;
           for (let c = 0; c < 3; c++) rgb[q * 3 + c] = (png.data[at + c] ?? 255) * al + 255 * (1 - al);
         }
+        for (const id of used) renderer.forgetImage(id); // long files: the WebAssembly heap is finite
         const c = { w: s.w, h: s.h, px: rgb };
         const cd = diff(s, c);
         cShare = cd.share;

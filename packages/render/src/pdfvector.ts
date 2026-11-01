@@ -360,7 +360,7 @@ export async function exportVectorPdf(renderer: Renderer, doc: Doc, opts: Vector
         const sx = v.box.w > 0 ? el.w / v.box.w : 1, sy = v.box.h > 0 ? el.h / v.box.h : 1;
         const move = mulMatrix(mulMatrix(root, frameOf(el)), [sx, 0, 0, sy, el.x - v.box.x * sx, el.y - v.box.y * sy]);
         const form = v.form ? w.form(p, v.form.obj) : null;
-        const fills = (v.fills ?? []).map((f) => ({ f, name: w.pattern(p, f.obj, fine(mulMatrix(move, f.base))) }));
+        const fills = (v.fills ?? []).map((f) => ({ f, name: f.tile ? w.tile(p, f.tile, fine(mulMatrix(move, f.base))) : w.pattern(p, f.obj!, fine(mulMatrix(move, f.base))) }));
         if ((v.form && !form) || fills.some((f) => !f.name)) return false;
         if (v.form && form) {
           ops(pushGraphicsState());

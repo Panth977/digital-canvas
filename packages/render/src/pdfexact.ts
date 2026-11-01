@@ -8,7 +8,7 @@ import {
   popGraphicsState, pushGraphicsState, setCharacterSpacing, setDashPattern, setFillingCmykColor, setFillingGrayscaleColor, setFillingRgbColor, setCharacterSqueeze, setFontAndSize, setLineCap, setLineJoin, setLineWidth,
   setStrokingCmykColor, setStrokingGrayscaleColor, setStrokingRgbColor, setTextRenderingMode, setTextRise, setWordSpacing, type PDFPage,
 } from 'pdf-lib';
-import { mulMatrix, type Doc, type ExactRun, type Matrix, type PageLink, type PathShade, type PdfFont, type SourceColor } from '@digital-canvas/scene';
+import { mulMatrix, type Doc, type ExactRun, type Matrix, type PageLink, type PathShade, type PdfFont, type PdfTile, type SourceColor } from '@digital-canvas/scene';
 import { rgba, type Cmd } from './vectorpath.ts';
 
 export interface ExactWriter {
@@ -18,6 +18,7 @@ export interface ExactWriter {
   colorSpace(page: PDFPage, obj: number): PDFName | null;
   shading(page: PDFPage, s: PathShade): PDFName;
   form(page: PDFPage, obj: number): PDFName | null;
+  tile(page: PDFPage, t: PdfTile, base: Matrix): PDFName;
   shadingObject(page: PDFPage, obj: number): PDFName | null;
   /** A copy of a tiling pattern under this matrix (sheet points). Null: not one we can place. */
   pattern(page: PDFPage, obj: number, base: Matrix): PDFName | null;
@@ -143,6 +144,19 @@ export async function exactWriter(pdf: PDFDocument, doc: Doc, assets: ReadonlyMa
         const d = res(page, 'Shading');
         const n = PDFName.of(`PSh${d.keys().length}`);
         d.set(n, ref);
+        return n;
+      });
+    },
+    tile(page, t, base) {
+      return nameOn(page, 'Pattern', `tile/${t.xstep}/${t.ystep}/${t.content.length}/${base.join(',')}/${t.matrix.join(',')}`, () => {
+        const ctx = pdf.context;
+        const s = ctx.flateStream(new TextEncoder().encode(t.content), {
+          Type: 'Pattern', PatternType: 1, PaintType: 1, TilingType: 1, BBox: t.bbox, XStep: t.xstep, YStep: t.ystep, Resources: {},
+          Matrix: mulMatrix(base, t.matrix).map((v) => Math.round(v * 1e6) / 1e6),
+        });
+        const d = res(page, 'Pattern');
+        const n = PDFName.of(`PPt${d.keys().length}`);
+        d.set(n, ctx.register(s));
         return n;
       });
     },

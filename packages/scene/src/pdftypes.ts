@@ -109,13 +109,24 @@ export interface PdfImageSource {
   stencil?: SourceColor;
 }
 
+/** A tiling pattern's cell as content-stream operators. */
+export interface PdfTile {
+  content: string;
+  bbox: number[];
+  xstep: number;
+  ystep: number;
+  matrix: Matrix;
+}
+
 /** A fill with a tiling pattern from the source file. */
 export interface PdfPatternFill {
   /** Page px at import. */
   d: string;
   evenOdd?: boolean;
   /** Pattern object in the source file. */
-  obj: number;
+  obj?: number;
+  /** Or the pattern itself, when the file can't be read for objects. */
+  tile?: PdfTile;
   /** Pattern space's parent → page px. */
   base: Matrix;
   alpha: number;
