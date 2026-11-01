@@ -163,7 +163,7 @@ export async function pickSharedFile(token: string, fileId: string): Promise<boo
 }
 
 /** What a `.dcanvas` can look like in Drive: ours, or a copy someone uploaded (zip / unknown type). */
-export const DESIGN_MIMES = 'application/vnd.digital-canvas+zip,application/zip,application/x-zip-compressed,application/octet-stream';
+export const DESIGN_MIMES = 'application/pdf,application/vnd.digital-canvas+zip,application/zip,application/x-zip-compressed,application/octet-stream';
 
 export interface PickedDesign { id: string; name: string; mimeType: string }
 

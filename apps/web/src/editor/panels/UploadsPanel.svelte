@@ -3,6 +3,7 @@
   import type { EditorState } from '../../lib/editor.svelte.ts';
   import Icon from '../../lib/Icon.svelte';
   import { IMAGE_TYPES, objectUrl, pickFiles } from '../../lib/files.ts';
+  import { isPdfFile, pdfImport } from '../../lib/pdfimport.svelte.ts';
   import { AUDIO_TYPES, VIDEO_TYPES, formatTime } from '../../lib/media.ts';
   import { account } from '../../lib/account.svelte.ts';
   import { driveLib } from '../../lib/drivelib.svelte.ts';
@@ -77,7 +78,7 @@
   const native = isNative();
 
   async function upload(): Promise<void> {
-    const files = await pickFiles([...IMAGE_TYPES, 'image/svg+xml', ...VIDEO_TYPES, ...AUDIO_TYPES, '.mov', '.m4a', '.mp3'].join(','));
+    const files = await pickFiles([...IMAGE_TYPES, 'image/svg+xml', ...VIDEO_TYPES, ...AUDIO_TYPES, '.mov', '.m4a', '.mp3', '.pdf', 'application/pdf'].join(','));
     await addFiles(files);
   }
 
@@ -89,7 +90,9 @@
     }
   }
 
-  async function addFiles(files: Iterable<File>): Promise<void> {
+  async function addFiles(all: Iterable<File>): Promise<void> {
+    const files = [...all].filter((f) => !isPdfFile(f));
+    for (const f of all) if (isPdfFile(f)) await pdfImport.openFile(f); // a PDF opens as a design of its own
     uploadError = '';
     for (const f of files) {
       const ok = f.type === 'image/svg+xml' ? ed.addSvg(await f.text(), f.name) : await ed.addMediaFile(f);

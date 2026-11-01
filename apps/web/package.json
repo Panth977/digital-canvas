@@ -21,6 +21,7 @@
     "@capacitor/splash-screen": "^8.0.2",
     "@digital-canvas/backend": "*",
     "@digital-canvas/mcp": "*",
+    "@digital-canvas/pdf": "*",
     "@digital-canvas/render": "*",
     "@digital-canvas/scene": "*",
     "@digital-canvas/storage": "*",
@@ -30,7 +31,8 @@
     "fflate": "^0.8.2",
     "firebase": "^13.1.0",
     "gifenc": "^1.0.3",
-    "mediabunny": "^1.62.1"
+    "mediabunny": "^1.62.1",
+    "pdfjs-dist": "^6.4.299"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^6.2.0",

@@ -11,7 +11,7 @@
   "scripts": {
     "dev": "npm run dev -w @digital-canvas/web",
     "build": "npm run build -w @digital-canvas/web",
-    "check": "tsc -p packages/scene && tsc -p packages/render && tsc -p packages/storage && tsc -p packages/mcp && tsc -p backend && tsc -p backend/mcp && tsc -p apps/desktop && npm run check -w @digital-canvas/web",
+    "check": "tsc -p packages/scene && tsc -p packages/render && tsc -p packages/pdf && tsc -p packages/storage && tsc -p packages/mcp && tsc -p backend && tsc -p backend/mcp && tsc -p apps/desktop && npm run check -w @digital-canvas/web",
     "test": "vitest run",
     "e2e": "playwright test",
     "deploy:functions": "node backend/scripts/deploy-functions.mjs",

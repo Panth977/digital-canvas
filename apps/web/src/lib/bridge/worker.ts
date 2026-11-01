@@ -23,6 +23,12 @@ setPlatform(browserPlatform({
   fontsBase: `${base}fonts/`,
   mockupsBase: `${base}mockups/`,
   templateAssetsBase: `${base}templates/assets/`,
+  importPdf: async (bytes, opts) => {
+    const [pdfjs, { importPdf, OffscreenCanvasFactory }] = await Promise.all([import('pdfjs-dist'), import('@digital-canvas/pdf')]);
+    pdfjs.GlobalWorkerOptions.workerPort ??= new Worker(new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url), { type: 'module' });
+    const data = (d: string) => new URL(`${base}pdfjs/${d}/`, self.location.origin).href;
+    return importPdf(pdfjs, bytes, { ...opts, standardFontDataUrl: data('standard_fonts'), cMapUrl: data('cmaps'), wasmUrl: data('wasm'), documentOptions: { CanvasFactory: OffscreenCanvasFactory } });
+  },
   // generate_speech: the app's speech worker, started from here
   speak: async (text, o) => (await import('../tts/client.ts')).speak(text, { ...o, engine: /Android|iPhone|iPad/.test(navigator.userAgent) ? 'small' : 'gpu' }),
   templateIndex: INDEX as TemplateEntry[],

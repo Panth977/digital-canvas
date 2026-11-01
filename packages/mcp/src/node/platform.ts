@@ -74,5 +74,6 @@ export const nodePlatform: Platform = {
     if (!r.ok) throw new Error(`template picture ${id}: HTTP ${r.status}`);
     return new Uint8Array(await r.arrayBuffer());
   },
+  importPdf: async (bytes, opts) => (await import('@digital-canvas/pdf/node')).importPdfNode(bytes, opts),
   lookup: async (host) => (await lookup(host, { all: true })).map((a) => a.address),
 };

@@ -6,6 +6,7 @@
   import { toast } from '../lib/toast.svelte.ts';
   import { copyDesign, trashIsUndoable } from '../lib/designs.ts';
   import { IMAGE_TYPES, pickFiles } from '../lib/files.ts';
+  import { pdfImport } from '../lib/pdfimport.svelte.ts';
   import { AUDIO_TYPES, VIDEO_TYPES } from '../lib/media.ts';
   import Icon from '../lib/Icon.svelte';
   import { ui } from '../lib/ui.svelte.ts';
@@ -39,6 +40,12 @@
     let n = 0;
     for (const f of files) if (await ed.addMediaFile(f)) n++;
     if (files.length) toast.show(n === files.length ? `Uploaded ${n} file${n === 1 ? '' : 's'}` : `${files.length - n} file${files.length - n === 1 ? ' is' : 's are'} not a picture, video or sound`);
+  }
+
+  async function importPdfFile(): Promise<void> {
+    onclose();
+    const [f] = await pickFiles('.pdf,application/pdf', false, 'files');
+    if (f) await pdfImport.openFile(f);
   }
 
   async function copy(): Promise<void> {
@@ -97,6 +104,7 @@
     {/if}
   </div>
   <button role="menuitem" data-testid="file-upload" onclick={upload}><Icon name="upload" size={18} /> Upload files</button>
+  <button role="menuitem" data-testid="file-import-pdf" onclick={importPdfFile}><Icon name="upload" size={18} /> Import a PDF</button>
   <div class="has-sub" role="none" onmouseenter={() => (sub = 'settings')} onmouseleave={() => (sub = null)}>
     <button role="menuitem" aria-haspopup="menu" aria-expanded={sub === 'settings'} data-testid="file-settings" onclick={() => (sub = 'settings')}><Icon name="sliders" size={18} /> Settings <Icon name="right" size={16} /></button>
     {#if sub === 'settings'}

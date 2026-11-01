@@ -1,5 +1,5 @@
 import type { Element, PathPart, TextElement } from './types.ts';
-import type { Matrix, PdfClip, TextExact } from './pdftypes.ts';
+import type { Matrix, PdfClip, PdfFont, TextExact } from './pdftypes.ts';
 
 /** What makes a text box "the same text": its characters and fonts. Colour may change without losing the glyphs. */
 export function textSig(el: Pick<TextElement, 'text' | 'style' | 'runs'>): string {
@@ -51,4 +51,29 @@ export function placeGlyphs(run: { size: number; tc?: number; tw?: number; tj: (
     }
   }
   return { glyphs, end: x };
+}
+
+/** The characters of `text` a font from a PDF has no glyph for: embedded fonts hold only what the file used. */
+export function missingGlyphs(text: string, font: PdfFont): string[] {
+  const have = new Set<string>();
+  for (const [code, u] of Object.entries(font.unicode)) if (font.gids[code]) for (const c of u) have.add(c);
+  const out = new Set<string>();
+  for (const c of text) if (!/\s/.test(c) && !have.has(c)) out.add(c);
+  return [...out];
+}
+
+const SAFE: [RegExp, string][] = [
+  [/arial|helvetica|liberation ?sans|nimbus ?sans/i, 'Arimo'], [/times|liberation ?serif|nimbus ?rom/i, 'Tinos'], [/courier|liberation ?mono|nimbus ?mon/i, 'Cousine'],
+  [/calibri/i, 'Carlito'], [/cambria/i, 'Caladea'], [/georgia/i, 'Gelasio'], [/verdana|dejavu ?sans/i, 'DejaVu Sans'], [/garamond/i, 'EB Garamond'], [/palatino|book ?antiqua/i, 'Crimson Text'],
+  [/devanagari|mangal|kokila|hind/i, 'Noto Sans Devanagari'],
+];
+
+/** The nearest full font for text a PDF's subset can't show. */
+export function closestFamily(f: Pick<PdfFont, 'name' | 'serif' | 'mono'> | undefined): string {
+  if (!f) return 'Inter';
+  const name = f.name.replace(/([a-z])([A-Z])/g, '$1 $2');
+  for (const [re, fam] of SAFE) if (re.test(f.name) || re.test(name)) return fam;
+  // the font's own family, when a full one exists under that name, is tried by the caller's catalogue first
+  if (f.mono) return 'Roboto Mono';
+  return f.serif ? 'Noto Serif' : 'Inter';
 }

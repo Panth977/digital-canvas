@@ -7,7 +7,7 @@
  * reads the original objects so CMYK, spot colours, fonts and images go back as they came.
  */
 import {
-  applyMatrix, DEFAULT_TEXT_STYLE, FORMAT, mulMatrix, newId, partSig, textSig, VERSION,
+  applyMatrix, closestFamily, DEFAULT_TEXT_STYLE, FORMAT, mulMatrix, newId, partSig, textSig, VERSION,
   type AssetMeta, type Doc, type Element, type ExactRun, type ImageElement, type Matrix, type Page, type PageLink, type PathElement, type PathExact, type PathPart, type PathShade, type PdfClipPath, type PdfFont, type PdfImageSource, type PdfPatternFill, type PdfVectorSource, type BlendMode, type SourceColor, type TextElement, type TextRun,
 } from '@digital-canvas/scene';
 import { readCmap, withUnicodeCmap } from './fontfile.ts';
@@ -33,6 +33,18 @@ export interface ImportOptions {
   flattenDpi?: number;
   /** Only these 1-based pages. */
   pages?: number[];
+  /** Passed to pdf.js's getDocument (a worker has no DOM canvas: see `offscreenCanvasFactory`). */
+  documentOptions?: Record<string, unknown>;
+}
+
+/** pdf.js canvases where there is no document: a web worker. */
+export class OffscreenCanvasFactory {
+  create(width: number, height: number) {
+    const canvas = new OffscreenCanvas(Math.max(1, width), Math.max(1, height));
+    return { canvas, context: canvas.getContext('2d', { willReadFrequently: true }) };
+  }
+  reset(e: { canvas: OffscreenCanvas }, width: number, height: number): void { e.canvas.width = width; e.canvas.height = height; }
+  destroy(e: { canvas: OffscreenCanvas | null; context: unknown }): void { if (e.canvas) e.canvas.width = e.canvas.height = 0; e.canvas = null; e.context = null; }
 }
 
 export interface Flattened {
@@ -1107,21 +1119,6 @@ function renameFamilies(page: Page, fonts: Record<string, PdfFont>): void {
   page.elements.forEach(fix);
 }
 
-const SAFE: [RegExp, string][] = [
-  [/arial|helvetica|liberation ?sans|nimbus ?sans/i, 'Arimo'], [/times|liberation ?serif|nimbus ?rom/i, 'Tinos'], [/courier|liberation ?mono|nimbus ?mon/i, 'Cousine'],
-  [/calibri/i, 'Carlito'], [/cambria/i, 'Caladea'], [/georgia/i, 'Gelasio'], [/verdana|dejavu ?sans/i, 'DejaVu Sans'], [/garamond/i, 'EB Garamond'], [/palatino|book ?antiqua/i, 'Crimson Text'],
-  [/devanagari|mangal|kokila|hind/i, 'Noto Sans Devanagari'],
-];
-
-/** The nearest full font for text a PDF's subset can't show. */
-export function closestFamily(f: Pick<PdfFont, 'name' | 'serif' | 'mono'> | undefined): string {
-  if (!f) return 'Inter';
-  const clean = f.name.replace(/[-,_ ]?(bold|italic|oblique|regular|roman|medium|light|semibold|black|mt|ps)\b/gi, '').replace(/([a-z])([A-Z])/g, '$1 $2').trim();
-  for (const [re, fam] of SAFE) if (re.test(f.name) || re.test(clean)) return fam;
-  if (f.mono) return 'Roboto Mono';
-  return f.serif ? 'Noto Serif' : 'Inter';
-}
-
 async function renderFlats(pdfjs: Pdfjs, doc: any, page: any, list: { fnArray: number[] }, viewport: any, flats: Flat[], always: Set<number>, dpi: number, b: Builder, num: number, W: number, H: number): Promise<void> {
   const paints = paintFns(pdfjs.OPS);
   const scale = dpi / 96;
@@ -1218,7 +1215,7 @@ export async function importPdf(pdfjs: Pdfjs, bytes: Uint8Array, opts: ImportOpt
   const data = new Uint8Array(bytes); // pdf.js takes the buffer over to its worker
   const task = pdfjs.getDocument({
     data, fontExtraProperties: true, disableFontFace: true, isOffscreenCanvasSupported: false, isImageDecoderSupported: false, useSystemFonts: false, verbosity: 0,
-    stopAtErrors: false, password: opts.password, standardFontDataUrl: opts.standardFontDataUrl, cMapUrl: opts.cMapUrl, cMapPacked: true, wasmUrl: opts.wasmUrl,
+    stopAtErrors: false, password: opts.password, standardFontDataUrl: opts.standardFontDataUrl, cMapUrl: opts.cMapUrl, cMapPacked: true, wasmUrl: opts.wasmUrl, ...opts.documentOptions,
   });
   let asked = false;
   let cancelled = false;

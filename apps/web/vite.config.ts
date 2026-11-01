@@ -1,8 +1,9 @@
 import { defineConfig, type Plugin } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { createHash } from 'node:crypto';
-import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
+import { cpSync, existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, join, relative, sep } from 'node:path';
 
 /**
  * Writes dist/sw.js after a production build: lib/pwa-sw.js with the list of
@@ -31,7 +32,7 @@ function serviceWorker(): Plugin {
       // The mockup library (large photos and maps) is fetched on demand too.
       // The AI device worker (2.5 MB) is fetched only when "Let AI use this device" is on (it needs the network anyway).
       // The desktop app's video worker runs only there, from its own local server.
-      const precache = files.filter((f) => !f.startsWith('templates/') && !f.startsWith('mockups/') && !f.startsWith('illustrations/') && !f.endsWith('.map') && f !== 'sw.js' && !f.endsWith('OFL.txt') && !/^assets\/(video)?worker-/.test(f)).sort();
+      const precache = files.filter((f) => !f.startsWith('templates/') && !f.startsWith('mockups/') && !f.startsWith('illustrations/') && !f.startsWith('pdfjs/') && !f.endsWith('.map') && f !== 'sw.js' && !f.endsWith('OFL.txt') && !/^assets\/(video)?worker-/.test(f)).sort();
       const hash = createHash('sha256');
       for (const f of precache) hash.update(f).update(readFileSync(join(outDir, f)));
       const src = readFileSync(new URL('./src/lib/pwa-sw.js', import.meta.url), 'utf8');
@@ -43,8 +44,28 @@ function serviceWorker(): Plugin {
   };
 }
 
+/** pdf.js's data files (fonts for PDFs that embed none, CMaps, decoders): served in dev, copied on build, fetched on demand. */
+function pdfjsData(): Plugin {
+  const root = join(dirname(createRequire(import.meta.url).resolve('pdfjs-dist/package.json')));
+  const dirs = ['standard_fonts', 'cmaps', 'wasm'];
+  return {
+    name: 'dc-pdfjs-data',
+    configureServer(server) {
+      server.middlewares.use('/pdfjs', (req, res, next) => {
+        const path = join(root, decodeURIComponent((req.url ?? '').split('?')[0]!));
+        if (!dirs.some((d) => path.startsWith(join(root, d))) || !existsSync(path) || !statSync(path).isFile()) return next();
+        res.setHeader('Content-Type', path.endsWith('.wasm') ? 'application/wasm' : 'application/octet-stream');
+        res.end(readFileSync(path));
+      });
+    },
+    writeBundle(o) {
+      for (const d of dirs) cpSync(join(root, d), join(o.dir!, 'pdfjs', d), { recursive: true });
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [svelte(), serviceWorker()],
+  plugins: [svelte(), pdfjsData(), serviceWorker()],
   optimizeDeps: { include: ['canvaskit-wasm/bin/full/canvaskit.js'] },
   // The AI device worker (lib/bridge/worker.ts) is a module worker: templates load as separate chunks.
   worker: { format: 'es' },

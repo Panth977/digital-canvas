@@ -22,11 +22,14 @@ export interface BrowserPlatformOptions {
   mockupsBase?: string;
   /** Text to speech, where the app has given the worker its model. */
   speak?: Platform['speak'];
+  /** PDF import, where the app gives the worker pdf.js. */
+  importPdf?: Platform['importPdf'];
 }
 
 export function browserPlatform(o: BrowserPlatformOptions): Platform {
   return {
     name: 'browser',
+    importPdf: o.importPdf,
     canvasKit: o.canvasKit,
     loadBundledFonts: (fonts) => fonts.loadBundled(o.fontsBase),
     templateIndex: () => o.templateIndex,
