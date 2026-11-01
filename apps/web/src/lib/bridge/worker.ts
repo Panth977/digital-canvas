@@ -24,6 +24,9 @@ setPlatform(browserPlatform({
   mockupsBase: `${base}mockups/`,
   templateAssetsBase: `${base}templates/assets/`,
   importPdf: async (bytes, opts) => {
+    // pdf.js reaches for `document` for a scratch canvas even with its factories replaced; a worker has none
+    const self_ = globalThis as unknown as { document?: unknown };
+    self_.document ??= { createElement: () => new OffscreenCanvas(1, 1), querySelector: () => null, querySelectorAll: () => [], getElementsByTagName: () => [], documentElement: { style: {} }, head: { append() {} }, baseURI: self.location.href };
     const [pdfjs, { importPdf, OffscreenCanvasFactory }] = await Promise.all([import('pdfjs-dist'), import('@digital-canvas/pdf')]);
     pdfjs.GlobalWorkerOptions.workerPort ??= new Worker(new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url), { type: 'module' });
     const data = (d: string) => new URL(`${base}pdfjs/${d}/`, self.location.origin).href;

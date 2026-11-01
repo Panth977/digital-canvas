@@ -1,5 +1,9 @@
-import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test, expect, type Page } from '@playwright/test';
+import { FakeDrive, FOLDER, fakeSignIn } from './fake-drive.ts';
 import { CONTENT_HOSTS, doc, elements, waitSaved } from './helpers.ts';
 
 const pdf = (n: string) => readFileSync(new URL(`./fixtures/${n}`, import.meta.url));
@@ -15,6 +19,22 @@ async function openPdf(page: Page, name = 'roundtrip.pdf'): Promise<void> {
   const chooser = page.waitForEvent('filechooser');
   await page.getByTestId('open-file').click();
   await (await chooser).setFiles({ name, mimeType: 'application/pdf', buffer: pdf(name) });
+}
+
+/** Rows that differ between two PDFs' first pages, rendered at 96 dpi by poppler. */
+function changedRows(a: Buffer, b: Buffer): number[] {
+  const dir = mkdtempSync(join(tmpdir(), 'pdfe2e-'));
+  const page = (bytes: Buffer, n: string) => {
+    writeFileSync(join(dir, `${n}.pdf`), bytes);
+    execFileSync('pdftoppm', ['-r', '96', '-f', '1', '-l', '1', '-singlefile', join(dir, `${n}.pdf`), join(dir, n)]);
+    const f = readFileSync(join(dir, `${n}.ppm`));
+    const head = /^P6\s+(\d+)\s+(\d+)\s+255\s/.exec(f.subarray(0, 40).toString('latin1'))!;
+    return { w: +head[1]!, h: +head[2]!, px: f.subarray(head[0].length) };
+  };
+  const A = page(a, 'a'), B = page(b, 'b');
+  const rows = new Set<number>();
+  for (let y = 0; y < A.h; y++) for (let x = 0; x < A.w * 3; x++) if (Math.abs(A.px[y * A.w * 3 + x]! - B.px[y * A.w * 3 + x]!) > 16) { rows.add(y); break; }
+  return [...rows];
 }
 
 const inEditor = (page: Page) => page.waitForFunction(() => !!(window as any).__dc?.doc?.pdf, null, { timeout: 25_000 });
@@ -36,7 +56,7 @@ test('Home › Import opens a PDF as a design with real text', async ({ page }) 
   await waitSaved(page);
 });
 
-test('edit a word, export a vector PDF: only that text changes', async ({ page }) => {
+test('type a new word on the canvas, export a vector PDF: only that line changes', async ({ page }) => {
   await home(page);
   await openPdf(page);
   await inEditor(page);
@@ -44,7 +64,7 @@ test('edit a word, export a vector PDF: only that text changes', async ({ page }
   const bytes = async () => {
     const b64: string = await page.evaluate(async () => {
       const ed = (window as any).__dc;
-      const out: Uint8Array = await ed.exportVectorPdfBytes();
+      const out: Uint8Array = await ed.exportVectorPdf(ed.doc.pages.map((p: { id: string }) => p.id));
       let s = '';
       for (const b of out) s += String.fromCharCode(b);
       return btoa(s);
@@ -54,13 +74,18 @@ test('edit a word, export a vector PDF: only that text changes', async ({ page }
   const before = await bytes();
   expect(before.subarray(0, 5).toString()).toBe('%PDF-');
   const hello = (await elements(page)).find((e) => e.text?.startsWith('Hello'))!;
+  await page.evaluate((id) => (window as any).__dc.select?.([id]), hello.id);
   await page.evaluate((id) => (window as any).__dc.setText(id, 'Hello from the editor'), hello.id);
+  await page.waitForTimeout(150);
   const after = await elements(page);
   const edited = after.find((e) => e.id === hello.id)!;
   expect(edited.text).toBe('Hello from the editor');
   expect(edited.y).toBe(hello.y); // the line stays where the PDF put it
   const out = await bytes();
-  expect(out.length).toBeGreaterThan(1000);
+  const rows = changedRows(before, out);
+  expect(rows.length).toBeGreaterThan(5);
+  // every changed pixel row sits in that text box
+  for (const y of rows) { expect(y).toBeGreaterThanOrEqual(hello.y - 2); expect(y).toBeLessThanOrEqual(hello.y + hello.h + 2); }
   // the other line still carries its exact glyphs
   const other = after.find((e) => e.text === 'Standard font line')!;
   expect(await page.evaluate((id) => {
@@ -69,7 +94,7 @@ test('edit a word, export a vector PDF: only that text changes', async ({ page }
   }, other.id)).toBe(true);
 });
 
-test('canvas shows the page: pixels match the export path', async ({ page }) => {
+test('the editor renderer draws the imported page', async ({ page }) => {
   await home(page);
   await openPdf(page);
   await inEditor(page);
@@ -110,6 +135,34 @@ test('cancel stops at the password prompt and stays on Home', async ({ page }) =
   await expect(page.getByTestId('open-file')).toBeVisible();
 });
 
+test('Uploads panel takes a PDF and opens it as a design', async ({ page }) => {
+  await home(page);
+  await page.getByTestId('preset-instagram-post').click();
+  await page.waitForFunction(() => !!(window as any).__dc);
+  await page.getByRole('button', { name: /^Uploads/ }).first().click();
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByTestId('upload').first().click();
+  await (await chooser).setFiles({ name: 'from-uploads.pdf', mimeType: 'application/pdf', buffer: pdf('roundtrip.pdf') });
+  await expect(page.getByTestId('title')).toHaveValue('from-uploads', { timeout: 25_000 });
+});
+
+test('a word the subset has no glyph for moves that box to a full font and says so', async ({ page }) => {
+  await home(page);
+  await openPdf(page);
+  await inEditor(page);
+  await page.getByTestId('pdf-report-ok').click();
+  // no network for fonts here: the catalogue answers with what the app has, Inter
+  const hello = (await elements(page)).find((e) => e.text?.startsWith('Hello'))!;
+  await page.evaluate(([id]) => {
+    const ed = (window as any).__dc;
+    ed.engine.fonts.families.add('Arimo');
+    ed.setText(id, 'Hello QZ');
+  }, [hello.id]);
+  await expect(page.getByText(/closest full font/)).toBeVisible();
+  const el = (await elements(page)).find((e) => e.id === hello.id)!;
+  expect(el.style.fontFamily).toBe('Arimo');
+});
+
 test('a broken file says so', async ({ page }) => {
   await home(page);
   const chooser = page.waitForEvent('filechooser');
@@ -138,9 +191,33 @@ test('drop on Home, and File › Import a PDF in the editor', async ({ page }) =
   await inEditor(page);
   await expect(page.getByTestId('title')).toHaveValue('dropped');
   await page.getByTestId('pdf-report-ok').click();
-  await page.getByTestId('file-menu').click();
+  await page.getByRole('button', { name: /^File/ }).first().click();
   const chooser = page.waitForEvent('filechooser');
   await page.getByTestId('file-import-pdf').click();
   await (await chooser).setFiles({ name: 'second.pdf', mimeType: 'application/pdf', buffer: pdf('roundtrip.pdf') });
   await expect(page.getByTestId('title')).toHaveValue('second', { timeout: 25_000 });
+});
+
+test('saved to Drive and opened again: fonts and the source come back, text is still exact', async ({ page }) => {
+  const d = new FakeDrive();
+  d.add({ id: FOLDER, name: 'Digital Canvas', mimeType: 'application/vnd.google-apps.folder' } as never);
+  await d.install(page);
+  await page.context().route(CONTENT_HOSTS, (r) => r.fulfill({ status: 503, body: 'offline in tests' }));
+  await page.goto('/');
+  await fakeSignIn(page);
+  await openPdf(page);
+  await inEditor(page);
+  await page.getByTestId('pdf-report-ok').click();
+  await waitSaved(page);
+  const id = (await doc(page)).id;
+  await page.goto('/');
+  await fakeSignIn(page);
+  await page.evaluate((i) => { location.hash = `#/d/${i}`; }, id);
+  await inEditor(page);
+  const exact = await page.evaluate(() => {
+    const ed = (window as any).__dc;
+    const t = ed.doc.pages[0].elements.find((e: { text?: string }) => e.text?.startsWith('Hello'));
+    return { exact: !!t.exact, source: !!ed.assets.get(ed.doc.pdf.source), font: ed.doc.fonts.every((f: { asset: string }) => ed.assets.has(f.asset)) };
+  });
+  expect(exact).toEqual({ exact: true, source: true, font: true });
 });

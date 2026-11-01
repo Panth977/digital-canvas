@@ -70,6 +70,7 @@ const SECTIONS: { title: string; intro?: string; rows: Row[] }[] = [
     row('MODNet', 'https://github.com/ZHKKKe/MODNet', 'Zhanghan Ke and co-authors', L.Apache, 'fallback background remover'),
     row('LaMa', 'https://github.com/advimman/lama', 'Roman Suvorov and co-authors', L.Apache, 'Magic Eraser, Magic Grab, Grab Text; ONNX export by Carve'),
     row('Tesseract.js', 'https://github.com/naptha/tesseract.js', 'Project Naptha and contributors', L.Apache, 'Grab Text'),
+    row('PDF.js', 'https://github.com/mozilla/pdf.js', 'Mozilla and contributors', L.Apache, 'reads PDFs for import; its fonts for PDFs that embed none are Foxit (BSD-style) and Liberation (OFL)'),
     row('ONNX Runtime Web', 'https://github.com/microsoft/onnxruntime', 'Microsoft', L.MIT, 'runs the models'),
   ] },
   { title: 'Speech', intro: 'Text to speech for video subtitles. Downloaded to your device on first use and run there; nothing you type leaves it. eSpeak NG (GPL-3) is not used: kokoro-js and the npm phonemizer package bundle it, so we use neither.', rows: [

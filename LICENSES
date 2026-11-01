@@ -79,6 +79,7 @@ BiRefNet-lite by Peng Zheng and co-authors. MIT. https://github.com/ZhengPeng7/B
 MODNet by Zhanghan Ke and co-authors. Apache-2.0. https://github.com/ZHKKKe/MODNet (fallback background remover)
 LaMa by Roman Suvorov and co-authors. Apache-2.0. https://github.com/advimman/lama (Magic Eraser, Magic Grab, Grab Text; ONNX export by Carve)
 Tesseract.js by Project Naptha and contributors. Apache-2.0. https://github.com/naptha/tesseract.js (Grab Text)
+PDF.js by Mozilla and contributors. Apache-2.0. https://github.com/mozilla/pdf.js (reads PDFs for import; its fonts for PDFs that embed none are Foxit (BSD-style) and Liberation (OFL))
 ONNX Runtime Web by Microsoft. MIT. https://github.com/microsoft/onnxruntime (runs the models)
 
 Speech
