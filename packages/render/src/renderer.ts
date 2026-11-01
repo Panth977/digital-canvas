@@ -211,7 +211,7 @@ export class Renderer {
     const fs = el.style.fontSize;
     const fx = el.effect;
     canvas.save();
-    canvas.translate(el.x, el.y);
+    canvas.translate(el.x, el.y + T.baselineShift(el));
     const dir = (deg: number, dist: number) => [Math.cos((deg * Math.PI) / 180) * dist, Math.sin((deg * Math.PI) / 180) * dist] as const;
     const layer = (filter: ReturnType<typeof ck.ImageFilter.MakeBlur>, draw: () => void) => {
       const p = new ck.Paint();

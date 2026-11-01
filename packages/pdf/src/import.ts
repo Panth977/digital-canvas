@@ -77,7 +77,7 @@ const PX = 96 / 72;
 const MAX_PARTS = 1500;
 /** pdf.js path opcodes (not exported by the library). */
 const DRAW = { moveTo: 0, lineTo: 1, curveTo: 2, quadraticCurveTo: 3, closePath: 4 };
-const n4 = (v: number) => Math.round(v * 10000) / 10000;
+const n4 = (v: number) => Math.round(v * 1e6) / 1e6;
 
 const BLENDS: Record<string, BlendMode> = {
   multiply: 'multiply', screen: 'screen', overlay: 'overlay', darken: 'darken', lighten: 'lighten', 'color-dodge': 'color-dodge', 'color-burn': 'color-burn',
@@ -105,6 +105,8 @@ interface State {
   smask: boolean;
   clips: readonly PdfClipPath[];
   clipBox: [number, number, number, number];
+  /** Alpha of an enclosing group that has nothing to composite (one drawing inside). */
+  ga: number;
   font: string | null;
   fontSrc?: number;
   size: number;
@@ -207,7 +209,7 @@ class PageWalker {
   constructor(readonly pdfjs: Pdfjs, readonly b: Builder, readonly page: any, readonly list: { fnArray: number[]; argsArray: any[] }, base: Matrix, readonly pageW: number, readonly pageH: number, readonly scan: PageScan | null, readonly source: Source | null, readonly ocConfig: any, readonly num: number) {
     const black: Paint = { rgb: '#000000', alpha: 1 };
     this.st = {
-      ctm: base, fill: black, stroke: black, lw: 1, cap: 0, join: 0, miter: 10, dash: null, blend: 'source-over', smask: false, clips: [], clipBox: [0, 0, pageW, pageH],
+      ctm: base, fill: black, stroke: black, lw: 1, cap: 0, join: 0, miter: 10, dash: null, blend: 'source-over', smask: false, clips: [], clipBox: [0, 0, pageW, pageH], ga: 1,
       font: null, size: 0, tc: 0, tw: 0, th: 1, leading: 0, rise: 0, mode: 0, tm: [1, 0, 0, 1, 0, 0], tlm: [1, 0, 0, 1, 0, 0],
     };
   }
@@ -325,7 +327,7 @@ class PageWalker {
     if (this.b.fonts[st.font!]?.type3) this.btFlat ??= 'Type 3 font';
     const m = mulMatrix(st.ctm, st.tm);
     const prev = this.bt[this.bt.length - 1];
-    const fillC = hexOf(st.fill.rgb, st.fill.alpha), strokeC = st.mode === 1 || st.mode === 2 ? hexOf(st.stroke.rgb, st.stroke.alpha) : undefined;
+    const fillC = hexOf(st.fill.rgb, st.fill.alpha * st.ga), strokeC = st.mode === 1 || st.mode === 2 ? hexOf(st.stroke.rgb, st.stroke.alpha * st.ga) : undefined;
     const clipKey = st.clips.map((c) => c.d).join('|');
     if (prev) {
       const r = prev.run;
@@ -459,12 +461,12 @@ class PageWalker {
     const part: PathPart = { d, fill: null, stroke: null };
     const ex: Omit<PathExact, 'sig'> = {};
     if (fills) {
-      part.fill = { type: 'solid', color: shade ? hexOf(shade.stops[0]!.color, st.fill.alpha) : hexOf(st.fill.rgb, st.fill.alpha) };
+      part.fill = { type: 'solid', color: shade ? hexOf(shade.stops[0]!.color, st.fill.alpha * st.ga) : hexOf(st.fill.rgb, st.fill.alpha * st.ga) };
       if (st.fill.src && !shade) ex.fillSrc = st.fill.src;
     }
     if (evenOdd) part.evenOdd = true;
     if (strokes) {
-      part.stroke = { color: hexOf(st.stroke.rgb, st.stroke.alpha), width: Math.max(lw, 0.25) };
+      part.stroke = { color: hexOf(st.stroke.rgb, st.stroke.alpha * st.ga), width: Math.max(lw, 0.25) };
       ex.width = lw;
       if (st.cap) ex.cap = st.cap;
       if (st.join) ex.join = st.join;
@@ -517,7 +519,7 @@ class PageWalker {
     this.flushPath();
     const [x0, y0, x1, y1] = box;
     if (x1 <= x0 || y1 <= y0) return;
-    const part: PathPart = { d: `M${n4(x0)} ${n4(y0)}L${n4(x1)} ${n4(y0)}L${n4(x1)} ${n4(y1)}L${n4(x0)} ${n4(y1)}Z`, fill: { type: 'solid', color: hexOf(shade.stops[0]!.color, st.fill.alpha) }, stroke: null };
+    const part: PathPart = { d: `M${n4(x0)} ${n4(y0)}L${n4(x1)} ${n4(y0)}L${n4(x1)} ${n4(y1)}L${n4(x0)} ${n4(y1)}Z`, fill: { type: 'solid', color: hexOf(shade.stops[0]!.color, st.fill.alpha * st.ga) }, stroke: null };
     part.exact = { shade, sig: partSig(part) };
     const el: PathElement = { id: newId(), type: 'path', name: 'PDF gradient', x: x0, y: y0, w: x1 - x0, h: y1 - y0, rotation: 0, opacity: 1, viewBox: { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }, paths: [part] };
     if (blend) el.blend = blend;
@@ -550,7 +552,7 @@ class PageWalker {
     const rotation = ((Math.atan2(m[1], m[0]) * 180) / Math.PI);
     const c = applyMatrix(m, 0.5, 0.5);
     const el: ImageElement = {
-      id: newId(), type: 'image', name: stencil ? 'PDF mask' : 'PDF image', x: c[0] - ux / 2, y: c[1] - uy / 2, w: ux, h: uy, rotation: Math.abs(rotation) < 1e-6 ? 0 : rotation, opacity: st.fill.alpha, asset: asset.id, radius: 0, crop: { x: 0, y: 0, w: 1, h: 1 },
+      id: newId(), type: 'image', name: stencil ? 'PDF mask' : 'PDF image', x: c[0] - ux / 2, y: c[1] - uy / 2, w: ux, h: uy, rotation: Math.abs(rotation) < 1e-6 ? 0 : rotation, opacity: st.fill.alpha * st.ga, asset: asset.id, radius: 0, crop: { x: 0, y: 0, w: 1, h: 1 },
     };
     if (det > 0) el.flipY = true; // y runs down here, so an upright image has a negative determinant
     const blend = this.blendMode();
@@ -791,6 +793,14 @@ class PageWalker {
       this.groups.push({ flat: false, mask: true });
       return;
     }
+    // alpha on a group of one drawing, or of text alone, is just that drawing's alpha
+    if (st.fill.alpha < 0.999 && st.blend === 'source-over' && !st.smask && !g.knockout && !g.hasSoftMask && !this.flatDepth && this.simpleGroup(i)) {
+      st.ga *= st.fill.alpha;
+      st.fill = { ...st.fill, alpha: 1 };
+      st.stroke = { ...st.stroke, alpha: 1 };
+      this.groups.push({ flat: false, mask: false });
+      return;
+    }
     const needs = st.fill.alpha < 0.999 || st.blend !== 'source-over' || st.smask || g.knockout || g.hasSoftMask || (g.needsIsolation && (g.isolated || g.hasSoftMask));
     const flat = needs || this.flatDepth > 0;
     this.groups.push({ flat, mask: false });
@@ -807,6 +817,22 @@ class PageWalker {
       // inside the group its own blend starts over
       this.st = { ...this.st, smask: false };
     }
+  }
+
+  /** True when nothing inside this group overlaps anything else in it. */
+  private simpleGroup(i: number): boolean {
+    const { OPS } = this.pdfjs;
+    const paints = paintFns(OPS);
+    const texts = new Set([OPS.showText, OPS.showSpacedText, OPS.nextLineShowText, OPS.nextLineSetSpacingShowText]);
+    let depth = 0, drawings = 0, text = 0;
+    for (let k = i; k < this.list.fnArray.length; k++) {
+      const fn = this.list.fnArray[k]!;
+      if (fn === OPS.beginGroup) { if (this.list.argsArray[k]?.[0]?.smask) return false; depth++; }
+      else if (fn === OPS.endGroup) { if (--depth === 0) break; }
+      else if (texts.has(fn)) text++;
+      else if (paints.has(fn) || (fn === OPS.constructPath && this.list.argsArray[k]?.[0] !== OPS.endPath)) drawings++;
+    }
+    return drawings + (text ? 1 : 0) <= 1;
   }
 
   private endGroup(_i: number): void {
@@ -986,7 +1012,7 @@ function textElement(line: Chunk[], b: Builder, ascents: Map<string, [number, nu
     text += t;
     parts.push({ text: t, style: { fontFamily: famOf(c.run.font), fontSize: Math.abs(c.run.size) * Math.hypot(c.m[2], c.m[3]), color: c.run.color } });
   });
-  const style = { ...DEFAULT_TEXT_STYLE, fontFamily: famOf(first.run.font), fontSize: pxSize, color: first.run.color, lineHeight: h / Math.max(pxSize, 0.01), letterSpacing: (first.run.tc ?? 0) * ux };
+  const style = { ...DEFAULT_TEXT_STYLE, align: 'left' as const, fontFamily: famOf(first.run.font), fontSize: pxSize, color: first.run.color, lineHeight: h / Math.max(pxSize, 0.01), letterSpacing: (first.run.tc ?? 0) * ux };
   const el: TextElement = { id: newId(), type: 'text', name: text.slice(0, 40) || 'PDF text', x, y, w: L, h, rotation, opacity: 1, text, style };
   const merged = parts.filter((p, i) => i === 0 || p.style?.fontFamily !== parts[i - 1]!.style?.fontFamily || p.style?.color !== parts[i - 1]!.style?.color || p.style?.fontSize !== parts[i - 1]!.style?.fontSize);
   if (merged.length > 1) el.runs = parts;

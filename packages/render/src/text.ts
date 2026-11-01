@@ -270,6 +270,8 @@ export class TextLayouts {
   }
 
   layout(el: TextElement, pass: TextPass = { kind: 'fill' }): TextLayout {
+    // imported text is one line where the PDF put it: an edit never re-flows it
+    if (el.exact) el = { ...el, w: 100000, style: { ...el.style, align: 'left' } };
     const key = `${el.id}|${passKey(pass)}`;
     const sig = `${this.fonts.version}|${el.w}|${el.h}|${el.text}|${JSON.stringify(el.style)}|${el.runs ? JSON.stringify(el.runs) : ''}|${el.curve ?? 0}|${el.list ?? ''}|${el.gradient ? JSON.stringify(el.gradient) : ''}`;
     const hit = this.cache.get(key);
@@ -325,6 +327,14 @@ export class TextLayouts {
   }
 
   /** Draw one pass of the text at the box's local origin, offset by (dx, dy). */
+  /** How far to move edited imported text so its first baseline stays where the PDF had it. */
+  baselineShift(el: TextElement): number {
+    if (!el.exact) return 0;
+    const first = this.layout(el).blocks[0];
+    const line = first?.p.getLineMetrics()[0];
+    return line ? el.exact.baseline - (first!.y + line.baseline) : 0;
+  }
+
   draw(canvas: Canvas, el: TextElement, pass: TextPass, dx = 0, dy = 0): void {
     const L = this.layout(el, pass);
     if (L.glyphs.length) {
@@ -387,6 +397,8 @@ export class TextLayouts {
       add(b.p, b.src, b.x, b.y);
       if (b.marker) add(b.marker.p, b.marker.src, b.marker.x, b.y);
     }
+    const shift = this.baselineShift(el);
+    if (shift) for (const p of out) p.y += shift;
     return out;
   }
 

@@ -7,8 +7,8 @@ import {
 import fontkit from '@pdf-lib/fontkit';
 import type { Path } from 'canvaskit-wasm';
 import type { Color, Doc, Element, Fill, ImageElement, Page, PathElement, ShapeElement, Stroke, TextElement, VideoElement } from '@digital-canvas/scene';
-import { clipOf, dashArray, exactPart, exactText, posterOf, walk, type Decomposed, type Matrix, type PathPart, type TextExact } from '@digital-canvas/scene';
-import { addLinks, cm, colorOps, exactWriter, strokeOps, textStateOps, tjOp, type ExactWriter } from './pdfexact.ts';
+import { applyMatrix, clipOf, dashArray, exactPart, exactText, mulMatrix, posterOf, walk, type Decomposed, type Matrix, type PathPart, type TextExact } from '@digital-canvas/scene';
+import { addLinks, cm, colorOps, exactWriter, parseD, strokeOps, textStateOps, tjOp, type ExactWriter } from './pdfexact.ts';
 import type { FontFace } from './fonts.ts';
 import { shapePath, transformPath, type Renderer } from './renderer.ts';
 import { loadPicture, pictureNeedsRaster, textNeedsRaster, type VectorExportOptions } from './svgexport.ts';
@@ -186,11 +186,37 @@ export async function exportVectorPdf(renderer: Renderer, doc: Doc, opts: Vector
       ops(pushGraphicsState(), ...alpha(opacity, opacity), concatTransformationMatrix(w, 0, 0, -h, x, y + h), drawObject(name), popGraphicsState());
     };
 
+    let root: Matrix = [1, 0, 0, 1, 0, 0];
+    /** Rotation and flips of an element, as a matrix from its unrotated frame to page px. */
+    const frameOf = (el: Element): Matrix => {
+      const cx = el.x + el.w / 2, cy = el.y + el.h / 2;
+      let m: Matrix = [1, 0, 0, 1, 0, 0];
+      if (el.rotation) {
+        const r = (el.rotation * Math.PI) / 180, cos = Math.cos(r), sin = Math.sin(r);
+        m = mulMatrix(m, [cos, sin, -sin, cos, cx - cx * cos + cy * sin, cy - cx * sin - cy * cos]);
+      }
+      if (el.flipX || el.flipY) {
+        const fx = el.flipX ? -1 : 1, fy = el.flipY ? -1 : 1;
+        m = mulMatrix(m, [fx, 0, 0, fy, cx - fx * cx, cy - fy * cy]);
+      }
+      return m;
+    };
+    const fine = (m: Matrix): Matrix => m.map((v) => Math.round(v * 1e6) / 1e6) as Matrix;
+    /** Path commands of an SVG `d`, moved by `m` straight to sheet points. */
+    const absPath = (d: string, m: Matrix): PDFOperator[] => pathOps(parseD(d).map((c) => {
+      if (c.op === 'Z') return c;
+      const p = applyMatrix(m, c.x, c.y);
+      if (c.op !== 'C') return { op: c.op, x: Math.round(p[0] * 1e4) / 1e4, y: Math.round(p[1] * 1e4) / 1e4 };
+      const a = applyMatrix(m, c.x1, c.y1), b = applyMatrix(m, c.x2, c.y2);
+      const f = (v: number) => Math.round(v * 1e4) / 1e4;
+      return { op: 'C' as const, x1: f(a[0]), y1: f(a[1]), x2: f(b[0]), y2: f(b[1]), x: f(p[0]), y: f(p[1]) };
+    }));
+
     /** The exact glyphs of an imported text box. */
     const exactRuns = (el: TextElement, x: TextExact, w: ExactWriter) => {
       const sx = x.w > 0 ? el.w / x.w : 1, sy = x.h > 0 ? el.h / x.h : 1;
       const recolor = el.style.color !== x.color ? el.style.color : null;
-      ops(pushGraphicsState(), concatTransformationMatrix(sx, 0, 0, sy, el.x, el.y));
+      const toSheet = mulMatrix(mulMatrix(root, frameOf(el)), [sx, 0, 0, sy, el.x, el.y]);
       for (const run of x.runs) {
         const f = w.font(p, run.font);
         const info = doc.pdf!.fonts[run.font]!;
@@ -199,7 +225,7 @@ export async function exportVectorPdf(renderer: Renderer, doc: Doc, opts: Vector
           continue;
         }
         const fill = rgba(recolor ?? run.color), st = run.stroke ? rgba(run.stroke) : null;
-        const o: PDFOperator[] = [pushGraphicsState(), ...alpha(el.opacity * fill.a, el.opacity * (st?.a ?? 1)), cm(run.m as Matrix)];
+        const o: PDFOperator[] = [pushGraphicsState(), ...alpha(el.opacity * fill.a, el.opacity * (st?.a ?? 1)), cm(fine(mulMatrix(toSheet, run.m)))];
         const fillSrc = !recolor && run.colorSrc ? colorOps(w, p, run.colorSrc, false) : null;
         o.push(...(fillSrc ?? [fillOp(fill)]));
         if (st) {
@@ -209,14 +235,9 @@ export async function exportVectorPdf(renderer: Renderer, doc: Doc, opts: Vector
         o.push(...textStateOps(run, f.name), tjOp(run, info.bytes, f.gidCodes ? (c) => info.gids[c] ?? 0 : null), PDFOperator.of(PDFOperatorNames.EndText), popGraphicsState());
         ops(...o);
       }
-      ops(popGraphicsState());
     };
 
     const text = async (el: TextElement, opacity: number) => {
-      const x = exact ? exactText(el) : null;
-      if (x && exact) {
-        if (x.runs.every((r) => exact.ok(r))) { exactRuns(el, x, exact); return; }
-      }
       for (const piece of renderer.textPieces(el)) {
         const st = piece.style;
         const chain = [...pickFaces(renderer.fonts.faces, st.fontFamily, st.bold, st.italic), ...pickFaces(renderer.fonts.faces, 'Inter', st.bold, st.italic)];
@@ -278,25 +299,23 @@ export async function exportVectorPdf(renderer: Renderer, doc: Doc, opts: Vector
     };
 
     /** A part as the PDF drew it, in viewBox units. */
-    const exactPartOps = (part: PathPart, ex: NonNullable<ReturnType<typeof exactPart>>, w: ExactWriter, opacity: number) => {
-      const raw = ck.Path.MakeFromSVGString(part.d);
-      if (!raw) return;
-      const cmds = pathOps(pathCmds(ck, raw));
-      raw.delete();
+    const exactPartOps = (part: PathPart, ex: NonNullable<ReturnType<typeof exactPart>>, w: ExactWriter, opacity: number, toSheet: Matrix) => {
+      const cmds = ex.ctm ? absPath(part.d, [1, 0, 0, 1, 0, 0]) : absPath(part.d, toSheet);
+      const k = ex.ctm ? 1 : Math.sqrt(Math.abs(toSheet[0] * toSheet[3] - toSheet[1] * toSheet[2]));
       const fill = part.fill?.type === 'solid' ? rgba(part.fill.color) : null;
       const st = part.stroke ? rgba(part.stroke.color) : null;
       const o: PDFOperator[] = [pushGraphicsState(), ...alpha(opacity * (fill?.a ?? 1), opacity * (st?.a ?? 1))];
-      if (ex.ctm) o.push(cm(ex.ctm));
+      if (ex.ctm) o.push(cm(fine(mulMatrix(toSheet, ex.ctm))));
       if (ex.shade) {
         const name = w.shading(p, ex.shade);
-        ops(...o, pushGraphicsState(), ...cmds, part.evenOdd ? clipEvenOdd() : clip(), endPath(), cm(ex.shade.matrix), PDFOperator.of(PDFOperatorNames.ShadingFill, [name]), popGraphicsState());
+        ops(...o, pushGraphicsState(), ...cmds, part.evenOdd ? clipEvenOdd() : clip(), endPath(), cm(fine(mulMatrix(toSheet, ex.shade.matrix))), PDFOperator.of(PDFOperatorNames.ShadingFill, [name]), popGraphicsState());
         o.length = 0;
-        if (st) o.push(...strokeOps(ex), ...((ex.strokeSrc ? colorOps(w, p, ex.strokeSrc, true) : null) ?? [strokeOp(st)]), ...cmds, PDFOperator.of(PDFOperatorNames.StrokePath));
+        if (st) o.push(...strokeOps(ex, k), ...((ex.strokeSrc ? colorOps(w, p, ex.strokeSrc, true) : null) ?? [strokeOp(st)]), ...cmds, PDFOperator.of(PDFOperatorNames.StrokePath));
         ops(...o, popGraphicsState());
         return;
       }
       if (fill) o.push(...((ex.fillSrc ? colorOps(w, p, ex.fillSrc, false) : null) ?? [fillOp(fill)]));
-      if (st) o.push(...strokeOps(ex), ...((ex.strokeSrc ? colorOps(w, p, ex.strokeSrc, true) : null) ?? [strokeOp(st)]));
+      if (st) o.push(...strokeOps(ex, k), ...((ex.strokeSrc ? colorOps(w, p, ex.strokeSrc, true) : null) ?? [strokeOp(st)]));
       o.push(...cmds);
       const eo = part.evenOdd;
       o.push(PDFOperator.of(fill && st ? (eo ? PDFOperatorNames.FillEvenOddAndStroke : PDFOperatorNames.FillNonZeroAndStroke) : fill ? (eo ? PDFOperatorNames.FillEvenOdd : PDFOperatorNames.FillNonZero) : PDFOperatorNames.StrokePath), popGraphicsState());
@@ -307,30 +326,46 @@ export async function exportVectorPdf(renderer: Renderer, doc: Doc, opts: Vector
       const vb = el.viewBox;
       if (vb.w <= 0 || vb.h <= 0) return;
       const sx = el.w / vb.w, sy = el.h / vb.h;
-      if (exact && el.paths.some((q) => q.exact)) ops(pushGraphicsState(), concatTransformationMatrix(sx, 0, 0, sy, el.x - vb.x * sx, el.y - vb.y * sy));
       for (const part of el.paths) {
-        const ex = exact ? exactPart(part) : null;
-        if (ex && exact) { exactPartOps(part, ex, exact, el.opacity); continue; }
         const raw = ck.Path.MakeFromSVGString(part.d);
         if (!raw) continue;
         const path = transformPath(ck, raw, [sx, 0, el.x - vb.x * sx, 0, sy, el.y - vb.y * sy, 0, 0, 1]);
         paint(path, { fill: solid(part.fill), stroke: part.stroke ? { ...part.stroke, cap: 'round', dashes: null } : null, evenOdd: part.evenOdd }, el.opacity);
         path.delete();
       }
-      if (exact && el.paths.some((q) => q.exact)) ops(popGraphicsState());
+    };
+
+    /** Whatever of an element keeps its PDF form, written in sheet points. True when nothing is left to draw. */
+    const exactElement = (el: Exclude<Element, { type: 'group' }>, w: ExactWriter): boolean => {
+      if (el.type === 'text') {
+        const x = exactText(el);
+        if (!x || !x.runs.every((r) => w.ok(r))) return false;
+        exactRuns(el, x, w);
+        return true;
+      }
+      if (el.type === 'path') {
+        const vb = el.viewBox;
+        if (vb.w <= 0 || vb.h <= 0 || el.paths.some((q) => !exactPart(q))) return false;
+        const sx = el.w / vb.w, sy = el.h / vb.h;
+        const toSheet = mulMatrix(mulMatrix(root, frameOf(el)), [sx, 0, 0, sy, el.x - vb.x * sx, el.y - vb.y * sy]);
+        for (const part of el.paths) exactPartOps(part, exactPart(part)!, w, el.opacity, toSheet);
+        return true;
+      }
+      if (el.type === 'image' && el.pdfImage?.asset === el.asset) {
+        const ref = w.image(el.pdfImage.obj);
+        if (!ref) return false;
+        const sc = el.pdfImage.stencil;
+        if (sc) ops(...(colorOps(w, p, sc, false) ?? [fillOp(rgba(sc.rgb))]));
+        let name = xobjects.get(ref);
+        if (!name) xobjects.set(ref, (name = p.node.newXObject('Image', ref)));
+        ops(...alpha(el.opacity, el.opacity), cm(fine(mulMatrix(mulMatrix(root, frameOf(el)), [el.w, 0, 0, -el.h, el.x, el.y + el.h]))), drawObject(name));
+        return true;
+      }
+      return false;
     };
 
     const picture = async (el: ImageElement | VideoElement) => {
       const assetId = el.type === 'video' ? posterOf(el) : el.asset;
-      if (el.type === 'image' && exact && el.pdfImage?.asset === el.asset) {
-        const ref = exact.image(el.pdfImage.obj);
-        if (ref) {
-          const sc = el.pdfImage.stencil;
-          if (sc) ops(...(colorOps(exact, p, sc, false) ?? [fillOp(rgba(sc.rgb))]));
-          placeImage(ref, el.x, el.y, el.w, el.h, el.opacity);
-          return;
-        }
-      }
       const bytes = assetId ? opts.assets.get(assetId) : undefined;
       const size = bytes ? renderer.setImage(assetId, bytes) : null;
       const clipPath = (el.type === 'image' ? renderer.maskPath(el) : null) ?? shapePath(ck, 'rect', el.x, el.y, el.w, el.h, el.radius);
@@ -357,7 +392,11 @@ export async function exportVectorPdf(renderer: Renderer, doc: Doc, opts: Vector
 
     // sheet px (y down) → PDF points (y up); then page px (0,0 = the trim's top-left)
     const pt = box ? 1 / box.scale : 0.75;
-    ops(pushGraphicsState(), concatTransformationMatrix(pt, 0, 0, -pt, 0, sheetH), concatTransformationMatrix(1, 0, 0, 1, box ? -box.x : lay.trim.x, box ? -box.y : lay.trim.y));
+    const rootMatrix: Matrix = [pt, 0, 0, -pt, (box ? -box.x : lay.trim.x) * pt, sheetH - (box ? -box.y : lay.trim.y) * pt];
+    root = rootMatrix;
+    // imported pages write absolute points, element by element: Splash floors device boxes, so a CTM
+    // that lands 1e-13 under an integer moves an image by a pixel
+    if (!doc.pdf) ops(pushGraphicsState(), concatTransformationMatrix(pt, 0, 0, -pt, 0, sheetH), concatTransformationMatrix(1, 0, 0, 1, lay.trim.x, lay.trim.y));
     if (page.links?.length) {
       const ox = box ? box.x : -lay.trim.x, oy = box ? box.y : -lay.trim.y;
       pendingLinks.push({ page: p, links: page.links, toSheet: (x, y) => [(x - ox) * pt, sheetH - (y - oy) * pt] });
@@ -367,6 +406,7 @@ export async function exportVectorPdf(renderer: Renderer, doc: Doc, opts: Vector
     // a blend mixes with what's under it, which vectors drawn one by one can't do: draw the page whole
     const blended = !doc.pdf && [...walk(page.elements)].some((e) => e.blend);
     if (opts.flatten || blended) {
+      if (doc.pdf) ops(pushGraphicsState(), cm(root));
       // the whole page as one picture (bleed included)
       const scale = (opts.flatten?.dpi ?? 300) / 96;
       const bytes = renderer.exportPage(doc, page, { scale, format: isCmyk ? 'png' : 'jpeg', quality: 92, bleed: bl });
@@ -378,6 +418,7 @@ export async function exportVectorPdf(renderer: Renderer, doc: Doc, opts: Vector
       continue;
     }
     const plain = doc.pdf && page.background.type === 'solid' && /^#fff(fff)?$/i.test(page.background.color);
+    if (doc.pdf) ops(pushGraphicsState(), cm(root));
     if (plain) { /* paper is white: an imported page adds nothing under its own content */ } else if (page.background.type === 'solid') {
       const b = new ck.PathBuilder();
       b.addRect(ck.XYWHRect(-bl, -bl, doc.width + 2 * bl, doc.height + 2 * bl));
@@ -388,26 +429,29 @@ export async function exportVectorPdf(renderer: Renderer, doc: Doc, opts: Vector
       const bg = await embedPng(renderer.exportPage(doc, { ...page, elements: [] }, { format: 'png', bleed: bl }));
       if (bg) placeImage(bg, -bl, -bl, doc.width + 2 * bl, doc.height + 2 * bl);
     }
+    if (doc.pdf) ops(popGraphicsState());
     for (const el of flattenGroups(page.elements)) {
       if (el.hidden) continue;
       if (needsRaster(el) && ((el.type !== 'image' && el.type !== 'video') || loadPicture(renderer, el, opts.assets))) {
         const r = renderer.rasterElement(el);
         const img = r ? await embedPng(r.png) : null;
-        if (r && img) placeImage(img, r.x, r.y, r.w, r.h);
+        if (r && img) {
+          if (doc.pdf) ops(pushGraphicsState(), cm(root));
+          placeImage(img, r.x, r.y, r.w, r.h);
+          if (doc.pdf) ops(popGraphicsState());
+        }
         continue;
       }
       ops(pushGraphicsState());
       if (el.blend && doc.pdf) ops(blendOp(el.blend));
       const cl = clipOf(el);
       if (cl) {
-        for (const c of cl.clip.paths) {
-          const raw = ck.Path.MakeFromSVGString(c.d);
-          if (!raw) continue;
-          const m = cl.m;
-          const path = transformPath(ck, raw, [m[0], m[2], m[4], m[1], m[3], m[5], 0, 0, 1]);
-          ops(...pathOps(pathCmds(ck, path)), c.evenOdd ? clipEvenOdd() : clip(), endPath());
-          path.delete();
-        }
+        const m = mulMatrix(root, cl.m);
+        for (const c of cl.clip.paths) ops(...absPath(c.d, m), c.evenOdd ? clipEvenOdd() : clip(), endPath());
+      }
+      if (exact) {
+        if (exactElement(el, exact)) { ops(popGraphicsState()); continue; }
+        ops(cm(root));
       }
       const cx = el.x + el.w / 2, cy = el.y + el.h / 2;
       if (el.rotation) {
@@ -425,7 +469,7 @@ export async function exportVectorPdf(renderer: Renderer, doc: Doc, opts: Vector
       else await picture(el);
       ops(popGraphicsState());
     }
-    ops(popGraphicsState());
+    if (!doc.pdf) ops(popGraphicsState());
     cropMarks(p);
     await notesPage(page);
   }

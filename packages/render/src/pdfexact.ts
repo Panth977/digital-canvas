@@ -9,7 +9,7 @@ import {
   setStrokingCmykColor, setStrokingGrayscaleColor, setStrokingRgbColor, setTextRenderingMode, setTextRise, setWordSpacing, type PDFPage,
 } from 'pdf-lib';
 import type { Doc, ExactRun, Matrix, PageLink, PathShade, PdfFont, SourceColor } from '@digital-canvas/scene';
-import { rgba } from './vectorpath.ts';
+import { rgba, type Cmd } from './vectorpath.ts';
 
 export interface ExactWriter {
   ok(run: ExactRun): boolean;
@@ -166,9 +166,11 @@ export function colorOps(w: ExactWriter, page: PDFPage, c: SourceColor, stroke: 
     PDFOperator.of(stroke ? PDFOperatorNames.StrokingColorN : PDFOperatorNames.NonStrokingColorN, c.v.map((v) => PDFNumber.of(v)))];
 }
 
-export function strokeOps(ex: { width?: number; cap?: 0 | 1 | 2; join?: 0 | 1 | 2; miter?: number; dash?: { array: number[]; phase: number } }): PDFOperator[] {
-  const o: PDFOperator[] = [setLineWidth(ex.width ?? 1), setLineCap(ex.cap ?? 0), setLineJoin(ex.join ?? 0), PDFOperator.of(PDFOperatorNames.SetLineMiterLimit, [PDFNumber.of(ex.miter ?? 10)])];
-  if (ex.dash) o.push(setDashPattern(ex.dash.array, ex.dash.phase));
+/** `k` converts the part's units to the space the operators run in. */
+export function strokeOps(ex: { width?: number; cap?: 0 | 1 | 2; join?: 0 | 1 | 2; miter?: number; dash?: { array: number[]; phase: number } }, k = 1): PDFOperator[] {
+  const fine = (v: number) => Math.round(v * k * 1e5) / 1e5;
+  const o: PDFOperator[] = [setLineWidth(fine(ex.width ?? 1)), setLineCap(ex.cap ?? 0), setLineJoin(ex.join ?? 0), PDFOperator.of(PDFOperatorNames.SetLineMiterLimit, [PDFNumber.of(ex.miter ?? 10)])];
+  if (ex.dash) o.push(setDashPattern(ex.dash.array.map(fine), fine(ex.dash.phase)));
   return o;
 }
 
@@ -216,3 +218,23 @@ export function addLinks(page: PDFPage, links: PageLink[], toSheet: (x: number, 
   if (annots.size()) page.node.set(PDFName.of('Annots'), annots);
 }
 
+
+/** SVG path data with absolute commands only (what the importer writes), as doubles: Skia paths are 32-bit. */
+export function parseD(d: string): Cmd[] {
+  const out: Cmd[] = [];
+  let cx = 0, cy = 0;
+  for (const m of d.matchAll(/([MLCQZ])([^MLCQZ]*)/g)) {
+    const v = m[2]!.trim().split(/[\s,]+/).filter(Boolean).map(Number);
+    if (m[1] === 'Z') { out.push({ op: 'Z' }); continue; }
+    if (m[1] === 'C') { out.push({ op: 'C', x1: v[0]!, y1: v[1]!, x2: v[2]!, y2: v[3]!, x: v[4]!, y: v[5]! }); cx = v[4]!; cy = v[5]!; continue; }
+    if (m[1] === 'Q') {
+      const [x1, y1, x, y] = v as [number, number, number, number];
+      out.push({ op: 'C', x1: cx + ((x1 - cx) * 2) / 3, y1: cy + ((y1 - cy) * 2) / 3, x2: x + ((x1 - x) * 2) / 3, y2: y + ((y1 - y) * 2) / 3, x, y });
+      cx = x; cy = y;
+      continue;
+    }
+    out.push({ op: m[1] as 'M' | 'L', x: v[0]!, y: v[1]! });
+    cx = v[0]!; cy = v[1]!;
+  }
+  return out;
+}
