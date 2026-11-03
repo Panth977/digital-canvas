@@ -58,6 +58,11 @@ export interface ElementBase {
    * (captions, timed call-outs). Absent = the whole page. Still views show it.
    */
   timing?: { start?: number; end?: number };
+  /**
+   * Layout key: which node of the page's HTML layout source (`Page.layout`)
+   * made this element, with its role (`k12:t` text, `:bg` box, `:g` group…).
+   */
+  lk?: string;
   /** Shows this subtitle line (`SubtitleLine.id`): edits to the element reach the line. */
   caption?: string;
   /** Imported from a PDF: the clip it was under. See pdfscene.ts. */
@@ -549,6 +554,19 @@ export interface Page {
   pdfPage?: PdfPageBox;
   /** Clickable areas, kept in PDF exports. */
   links?: PageLink[];
+  /** The HTML/CSS this page was laid out from (MCP set_page_html), kept so later edits reflow. */
+  layout?: PageLayout;
+}
+
+/**
+ * A page's layout source: the HTML (every node carries `data-k`) and, per
+ * element layout key, a signature of what the layout made: [hash of the
+ * CSS-visible fields, x, y, w, h]. Edits made on the canvas show up as
+ * differences and are written back into the HTML (packages/mcp/src/html/sync.ts).
+ */
+export interface PageLayout {
+  html: string;
+  sig: Record<string, [string, number, number, number, number]>;
 }
 
 export type TransitionType = 'dissolve' | 'fade' | 'slide' | 'wipe' | 'zoom' | 'match' | 'circle' | 'line' | 'stack' | 'chop' | 'flow' | 'colorwipe' | 'iris' | 'clock' | 'doors' | 'checker';

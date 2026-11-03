@@ -6,13 +6,15 @@ import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mc
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { Context, type ServerOptions } from './context.ts';
-import { GUIDE, WORKFLOW } from './guide.ts';
+import { EFFICIENT, GUIDE, WORKFLOW } from './guide.ts';
 import { loadTemplate, templateThumb, templates } from './library.ts';
 import { designOutline } from './outline.ts';
 import { registerAssetTools } from './tools/assets.ts';
 import { registerDesignTools } from './tools/designs.ts';
 import { registerEditTools } from './tools/edit.ts';
 import { registerExportTools, runJob } from './tools/export.ts';
+import { registerHtmlTools } from './tools/html.ts';
+import { registerScriptTool } from './tools/script.ts';
 import { registerMockupTools } from './tools/mockups.ts';
 import { registerSpeechTools, registerVideoTools } from './tools/video.ts';
 import { registerViewTools } from './tools/view.ts';
@@ -22,12 +24,27 @@ export const VERSION = '0.1.0';
 
 const INSTRUCTIONS = `Digital Canvas is an open-source design editor (like Canva). With these tools you make posters, social posts, carousels, thumbnails, slides and video reels from the user's own assets (Google Drive) and free stock, and export PNG/JPG/PDF/GIF/MP4 to their Drive.
 
+${EFFICIENT}
+
 How to work well:
 ${WORKFLOW}
 
 Read the resource dcanvas://guide for sizes, type scales, font pairings, filters, animations and video tips. Always look at your work with render_page before you call it done.
 
 To show a design on a real product (T-shirt, tote bag, mug, poster on a wall, billboard, phone…): list_mockups, then render_mockup with the page and a mockup id (and a product colour where the mockup allows it).`;
+
+/** Every tool but run_script (which runs these inside its sandbox). */
+function registerAllTools(server: McpServer, ctx: Context): void {
+  registerDesignTools(server, ctx);
+  registerEditTools(server, ctx);
+  registerHtmlTools(server, ctx);
+  registerAssetTools(server, ctx);
+  registerViewTools(server, ctx);
+  registerVideoTools(server, ctx);
+  registerSpeechTools(server, ctx);
+  registerExportTools(server, ctx);
+  registerMockupTools(server, ctx);
+}
 
 export function createServer(ws: Workspace, opts: ServerOptions = {}): McpServer {
   const ctx = new Context(ws, opts);
@@ -42,14 +59,8 @@ export function createServer(ws: Workspace, opts: ServerOptions = {}): McpServer
     relay.registerTools?.({ registerTool: register } as unknown as McpServer);
   }
 
-  registerDesignTools(server, ctx);
-  registerEditTools(server, ctx);
-  registerAssetTools(server, ctx);
-  registerViewTools(server, ctx);
-  registerVideoTools(server, ctx);
-  registerSpeechTools(server, ctx);
-  registerExportTools(server, ctx);
-  registerMockupTools(server, ctx);
+  registerAllTools(server, ctx);
+  registerScriptTool(server, ctx, registerAllTools);
 
   // ---- resources
 
@@ -93,8 +104,8 @@ ${assets ? `Use these assets: ${assets}\n` : ''}
 Work like a senior designer:
 1. get_brand_kit; find the pictures (${assets ? 'search_drive / list_assets for the ones named' : 'list_assets, then search_drive, then search_stock if needed'}) and import the best 1–3.
 2. list_templates for this format (design_id or preset); use one if it fits the brief, else create_design with preset "${format ?? 'poster-a3'}".
-3. Compose: one clear focal point, a strong headline (2–6 words), supporting line, call to action / details; generous margins; at most 2 fonts and 3 colours (brand first).
-4. render_page with show_ids; improve hierarchy, spacing and alignment. Then check_design and fix every error and warning; render again.
+3. Compose it as HTML/CSS with set_page_html (flex/grid, padding, font sizes; pictures as <img src="asset:…">): one clear focal point, a strong headline (2–6 words), supporting line, call to action / details; generous margins; at most 2 fonts and 3 colours (brand first).
+4. render_page; improve hierarchy, spacing and alignment by editing the CSS (get_page_html → set_page_html). Then check_design and fix every error and warning; render again.
 5. export_image (png) — and export_pdf if it is for print. Give me the link and the editor link (open_in_editor).` } }],
   }));
 
@@ -138,7 +149,7 @@ Sizes: ${sizes ?? 'instagram-post, instagram-story, linkedin-post, youtube-thumb
     description: 'Look at an existing design, list what to improve, and fix it.',
     argsSchema: { design_id: z.string() },
   }, ({ design_id }) => ({
-    messages: [{ role: 'user', content: { type: 'text', text: `Improve design ${design_id}: open_design, render_page (show_ids) for each page, check_design. Write down the 3–6 most important improvements (hierarchy, contrast, spacing, alignment, consistency, text length), make them with update_elements / add_elements, then render again to confirm and summarise what changed.` } }],
+    messages: [{ role: 'user', content: { type: 'text', text: `Improve design ${design_id}: open_design, render_page (show_ids) for each page, check_design. Write down the 3–6 most important improvements (hierarchy, contrast, spacing, alignment, consistency, text length), make them in one go (get_page_html → edit → set_page_html, or one run_script with the update_elements calls), then render again to confirm and summarise what changed.` } }],
   }));
 
   return server;

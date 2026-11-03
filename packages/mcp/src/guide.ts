@@ -1,18 +1,30 @@
 /** The design guide served as a resource and quoted by the prompts. */
 import { DUOTONES, FILTER_GROUPS, IMAGE_FILTERS } from '@digital-canvas/scene';
+import { HTML_GUIDE } from './tools/html.ts';
+import { SCRIPT_GUIDE } from './tools/script.ts';
+
+/** The two rules that save the most tokens and guesswork; first in the server instructions. */
+export const EFFICIENT = `Work efficiently (this matters more than anything below):
+- Lay pages out with set_page_html: write the page as HTML + CSS (flexbox, grid, padding, gap, font sizes) and the engine places and measures everything with the real fonts. Do not compute x/y/w/h by hand for rows, columns, cards, lists or menus. get_page_html gives the page back as HTML; edit the CSS (e.g. a bigger font-size on one class) and send it again: everything reflows and keeps its ids.
+- More than ~3 tool calls for one job? Write ONE run_script instead: a short JavaScript program that calls the tools (await dc.update_elements({...}) in a loop, dc.render_page, checks) and returns a small summary. It saves each design once (much faster) and keeps your context free of tool chatter. Never send dozens of separate add_elements / update_elements calls.
+- Ask for little back: open_design with pages, get_page_html with element_id, render_page only when you need to look.`;
 
 export const WORKFLOW = `1. Understand the brief: format (post, story, reel, poster, thumbnail…), message, audience, brand.
 2. A PDF to edit? import_pdf (URL or Drive file) makes it a design with real text, shapes and images; untouched content exports the same as the source. Gather material first: list_assets / search_drive (the user's own photos and clips are best), get_brand_kit, search_stock for anything missing. Import what you'll use.
 3. Pick a starting point: list_templates (pass design_id or a preset to rank by fit) or a blank create_design with the right preset.
-4. Compose with few, large, batched calls: add_elements with several elements at once; set_page background_media for full-bleed photos/videos with an overlay tint.
+4. Compose the page as HTML/CSS with set_page_html (layout, text sizes and pictures in one call; set_page background_media for full-bleed video). Use add_elements for a few one-off extras; batch anything bigger in run_script.
 5. LOOK at it: render_page (show_ids: true to point at elements). Judge hierarchy, balance, spacing, legibility.
-6. Critique: check_design. Fix every error and warning (update_elements), re-render.
+6. Critique: check_design. Fix every error and warning (edit the HTML, or update_elements in one run_script), re-render.
 7. Export: export_image / export_pdf / export_video (check the reel with render_page at a few times first). Share the link and open_in_editor for hand edits.`;
 
 export const GUIDE = `# Digital Canvas — design guide for agents
 
 ## Workflow
 ${WORKFLOW}
+
+${HTML_GUIDE}
+
+${SCRIPT_GUIDE}
 
 ## Coordinates
 Pixels, origin top-left of the page, boxes are [x, y, w, h]. A 1080×1080 post: centre x = 540. Keep text ≥ 5% of the short side from edges (54 px on 1080).

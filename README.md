@@ -70,7 +70,8 @@ All lengths are CSS pixels (96 per inch); `unit` only says how sizes are shown. 
 - [x] **M5** Layout tools + 270+ presets: snapping and smart guides (edges, centres, equal spacing; Alt/⌘ to place freely), rulers with draggable guides, print bleed and safe margins, groups (⌘G / ⇧⌘G, double-click into a group), distribute and tidy up, aspect-ratio lock, searchable preset picker (social, video, presentations, documents, print, marketing, web and IAB ads), resize a copy to other sizes
 - [x] **M6** Elements + export: lines & arrows, connectors that follow shapes, freehand draw (pen/marker/highlighter), 13 frames, 12 photo grids, tables, charts (column/bar/line/area/pie/donut), QR codes, icon search ([Iconify](https://iconify.design)), CC photo search ([Openverse](https://openverse.org)); SVG export and vector PDF (real text in embedded fonts)
 
-- [x] **MCP**: connect Claude or any agent (`packages/mcp`): 42 tools to create, edit, look at, critique and export designs and video reels
+- [x] **MCP**: connect Claude or any agent (`packages/mcp`): tools to create, edit, look at, critique and export designs and video reels
+- [x] **MCP pages as HTML + scripts**: agents write a page as HTML/CSS (`set_page_html`, laid out with [Yoga](https://yogalayout.dev), MIT; parsed with htmlparser2/css-select) and read it back (`get_page_html`); `run_script` runs many tool calls as one sandboxed script ([QuickJS](https://github.com/justjake/quickjs-emscripten), MIT) with one save
 
 Later phases: presentations, whiteboards, video, data-bound designs (live menus).
 

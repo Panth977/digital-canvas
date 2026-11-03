@@ -204,3 +204,11 @@ Panth's rule: no generated design content. Templates, stickers, illustrations, f
 - `/ActualText` (BDC) comes through `source.ts` too: `ExactRun.actual`, written back as `/Span` BDC. pdf.js drops it, and shaped scripts need it for `el.text`.
 - pdf.js data (`standard_fonts`, `cmaps`, `wasm`) is served at `/pdfjs/` by a Vite plugin and copied on build, never precached. `getOperatorList` runs in pdf.js's worker. The bridge worker has no DOM: `OffscreenCanvasFactory` and a stub `document` in `lib/bridge/worker.ts`.
 - Proof: `npx tsx tools/pdf-roundtrip/index.ts <dir> [--max-pages N] [--no-source] [--quick]` writes `/tmp/orch27-rw/r18-pdf-report.html`. A pixel mismatches above 16/255 on any channel at 150 dpi; "canvas" compares the editor renderer with poppler, and a second score (3×3 blur, tolerance 64) looks past Skia and Splash anti-aliasing text differently.
+
+## MCP: pages as HTML + scripts (r19, ORCH-34, 2026-11-03)
+
+- Why: agents spent dozens of calls placing elements by x/y and re-sizing fonts box by box (VDP-15 board: 385 updates, 38 s per save). Now `set_page_html` lays a page out from HTML/CSS (Yoga + CanvasKit text measuring) and `run_script` batches tool calls in a QuickJS sandbox with one save per design. The server instructions (`EFFICIENT` in `packages/mcp/src/guide.ts`) tell agents to use both first.
+- Code: `packages/mcp/src/html/` (css, dom, layout, apply, sync), tools in `src/tools/html.ts` and `src/tools/script.ts`; tests `packages/mcp/test/html.test.ts`, `script.test.ts`.
+- Scene: `ElementBase.lk` (layout key + role) and `Page.layout` (`{ html, sig }`). Both are plain data: editor operations keep them (duplicate page clones them, so a copied page still reflows). Elements without `lk` on a layout page come back from `get_page_html` as absolutely placed nodes.
+- CSS that is not drawn: box-shadow, ::before/::after, overflow clipping, tables (use grid/flex). Margins do not collapse. Words never break; a word wider than its box sticks out and is reported.
+- Script limits: 50 s in cloud mode (Claude's proxy gives up near 60 s), 300 s local; 3000 calls; 128 MB.
