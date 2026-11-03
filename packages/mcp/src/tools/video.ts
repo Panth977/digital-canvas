@@ -9,7 +9,6 @@ import {
 } from '@digital-canvas/scene';
 import { ToolError, round, type Context, type MediaRef } from '../context.ts';
 import { buildElements, fitTexts } from '../build.ts';
-import { embedFonts } from '../fonts.ts';
 import { designOutline } from '../outline.ts';
 import { animation, transition as transitionSchema, color, fill as fillSchema, textEffect } from '../schemas.ts';
 import { sizeFrom } from './designs.ts';
@@ -147,7 +146,7 @@ export function registerVideoTools(server: McpServer, ctx: Context): void {
       file.doc = { ...(file.doc as Doc), pages: (file.doc as Doc).pages.map((p) => ({ ...p, elements: [...p.elements, ...(r.byPage.get(p.id) ?? [])] })) };
     }
     const f = file as unknown as { doc: Doc; assets: Map<string, Uint8Array> };
-    await embedFonts(f);
+    await ctx.embedFonts(f);
     await fitTexts(f, fit);
     await ctx.save(f);
     return json({ id: f.doc.id, title: f.doc.title, duration: round(totalDuration(f.doc)), pages: f.doc.pages.length, outline: designOutline(f.doc), ...(warnings.length ? { warnings } : {}), editorUrl: ctx.editorLink(f.doc.id), next: 'render_thumbnail_grid, render_page with `at` on a few pages, check_design, then export_video.' });
@@ -217,7 +216,7 @@ export function registerVideoTools(server: McpServer, ctx: Context): void {
       const caps = a.captions?.length ? a.captions : chunkTranscript(a.transcript!, a.start ?? 0.2, Math.min(a.end ?? total - 0.2, total), a.words_per_caption ?? 5);
       const { byPage, fit } = await captionElements(ctx, file, caps, a.style, warnings);
       file.doc = { ...file.doc, pages: file.doc.pages.map((p) => ({ ...p, elements: [...p.elements, ...(byPage.get(p.id) ?? [])] })) };
-      await embedFonts(file);
+      await ctx.embedFonts(file);
       await fitTexts(file, fit);
       return { captions: caps.length, elements: [...byPage.values()].reduce((n, l) => n + l.length, 0) };
     });
@@ -266,7 +265,7 @@ export function registerSpeechTools(server: McpServer, ctx: Context): void {
       const res = parts ? setLines(doc, parts) : syncCaptions(doc);
       doc = a.style ? applyCaptionStyle(res.doc, a.style) : res.doc;
       file.doc = doc;
-      await embedFonts(file);
+      await ctx.embedFonts(file);
       await fitCaptions(file, res.changed);
       return { lines: file.doc.subtitles!.lines.map((l) => ({ id: l.id, start: l.start, end: l.end, text: l.text })), speechNeeded: staleLines(file.doc).length };
     });

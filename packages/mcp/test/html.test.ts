@@ -118,4 +118,59 @@ describe('set_page_html / get_page_html', () => {
     }
     expect((after[2] as any).filter?.name).toBe('fresco');
   });
+
+  it('CSS animations: @keyframes, built-ins, delays, page transition, both ways', async () => {
+    const d = await h.call('create_design', { preset: 'instagram-post', title: 'anim' });
+    const id = d.json.id;
+    const html = `<style>
+@keyframes wobbleIn { 0% { transform: translate(-50%, 0) rotate(-10deg); opacity: 0 } 60% { transform: rotate(4deg) } 100% { transform: none; opacity: 1 } }
+body { --dc-transition: slide 0.6s left; --dc-duration: 6s; padding: 40px }
+h1 { animation: wobbleIn 1.2s 0.5s; margin: 0 }
+.tag { animation: rise 0.8s; --dc-by: word; background: #222; color: #fff; padding: 10px }
+</style><body><h1>Hello</h1><p class="tag">Fresh every day</p><img src="qr:x" style="width:100px;animation:pulse 1s infinite"></body>`;
+    const r = await h.call('set_page_html', { design_id: id, html });
+    expect(r.isError, r.text).toBe(false);
+    expect(r.json.warnings).toEqual([]);
+    const page = (await h.ws.store.open(id)).doc.pages[0]!;
+    expect(page.transition).toEqual({ type: 'slide', duration: 0.6, direction: 'left' });
+    expect(page.duration).toBe(6);
+    const flat: any[] = [];
+    const walk = (els: any[]) => els.forEach((e) => { flat.push(e); if (e.children) walk(e.children); });
+    walk(page.elements);
+    const h1 = flat.find((e) => e.text === 'Hello');
+    expect(h1.animation.type).toBe('keyframes');
+    expect(h1.animation.duration).toBe(1.2);
+    expect(h1.animation.keyframes.f.length).toBe(3);
+    expect(h1.timing).toEqual({ start: 0.5 });
+    const tag = flat.find((e) => e.type === 'group' && e.children.some((c: any) => c.text === 'Fresh every day'));
+    expect(tag.animation).toMatchObject({ type: 'rise', duration: 0.8, by: 'word' });
+    // canvas → HTML → canvas keeps them
+    const g = await h.call('get_page_html', { design_id: id });
+    expect(g.text).toContain('wobbleIn');
+    await h.call('update_elements', { design_id: id, updates: [{ id: h1.id, animation: { type: 'pop', duration: 0.4 } }] });
+    const g2 = await h.call('get_page_html', { design_id: id });
+    expect(g2.text).toMatch(/animation:\s*pop 0.4s/);
+    const r2 = await h.call('set_page_html', { design_id: id, html: g2.text });
+    expect(r2.isError, r2.text).toBe(false);
+    const p2 = (await h.ws.store.open(id)).doc.pages[0]!;
+    const flat2: any[] = [];
+    const walk2 = (els: any[]) => els.forEach((e) => { flat2.push(e); if (e.children) walk2(e.children); });
+    walk2(p2.elements);
+    expect(flat2.find((e) => e.text === 'Hello').animation).toMatchObject({ type: 'pop', duration: 0.4 });
+    expect(p2.transition?.type).toBe('slide');
+  });
+
+  it('absolute export carries keyframe animations and reads them back', async () => {
+    const d = await h.call('create_design', { preset: 'instagram-post', title: 'abs-anim' });
+    const id = d.json.id;
+    await h.call('add_elements', { design_id: id, elements: [{ type: 'text', text: 'Hi', x: 100, y: 100, fontSize: 60, animation: { type: 'bounceIn', duration: 1 } }] });
+    await h.call('set_page', { design_id: id, page: 1, transition: { type: 'dissolve', duration: 0.5 } }).catch(() => null);
+    const before = (await h.ws.store.open(id)).doc.pages[0]!.elements[0] as any;
+    const g = await h.call('get_page_html', { design_id: id });
+    expect(g.text).toContain('animation:bounceIn 1s');
+    await h.call('set_page_html', { design_id: id, html: g.text });
+    const after = (await h.ws.store.open(id)).doc.pages[0]!.elements[0] as any;
+    expect(after.id).toBe(before.id);
+    expect(after.animation).toEqual(before.animation);
+  });
 });

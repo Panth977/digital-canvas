@@ -33,6 +33,21 @@
 }</code></pre>
 <p>Start <code>gemini</code> and run <code>/mcp auth digital-canvas</code>: a browser opens for sign-in (the CLI listens on a local port; any port works).</p>
 
+<h2>Antigravity (Google's Gemini IDE)</h2>
+<p>In the Agent panel open <b>… › MCP Servers › Manage MCP Servers › View raw config</b> (the file is <code>~/.gemini/antigravity/mcp_config.json</code>) and add:</p>
+<pre><code>{
+  "mcpServers": {
+    "digital-canvas": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://digital-canvas-p977.web.app/mcp"]
+    }
+  }
+}</code></pre>
+<p>A browser opens once for sign-in (mcp-remote keeps the login; needs Node). With the desktop app, copy the ready-made <b>Antigravity</b> config from <b>Settings › AI and devices</b> instead: it talks to the app on your computer with its key, no sign-in.</p>
+
+<h2>Gemini API (your own code)</h2>
+<p>The Google Gen AI SDKs take MCP sessions as tools (<code>mcpToTool(client)</code> in JavaScript, <code>tools=[session]</code> in Python). Connect a <code>StreamableHTTPClientTransport</code> to the URL above (OAuth) or to the desktop app's local URL with its key. Tool schemas are served in the subset Gemini's function calling accepts (no <code>$ref</code>, string enums, <code>nullable</code>), so they load as they are.</p>
+
 <h2>Cursor</h2>
 <p><b>Settings › MCP › Add new MCP server</b>, or in <code>~/.cursor/mcp.json</code>:</p>
 <pre><code>{

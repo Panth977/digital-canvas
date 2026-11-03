@@ -3,7 +3,9 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { MOCKUP_CATEGORIES } from '@digital-canvas/render';
 import type { Context } from '../context.ts';
-import { listMockups, renderPageMockup } from '../mockups.ts';
+import { compositePage, listMockups, renderPageMockup } from '../mockups.ts';
+import { findPlugin, userMockup } from './plugins.ts';
+import type { MockupPlugin } from '@digital-canvas/scene';
 import { pageRef } from '../schemas.ts';
 import { b64, json, pageOf, safe, type Result } from './util.ts';
 
@@ -16,10 +18,13 @@ export function registerMockupTools(server: McpServer, ctx: Context): void {
     inputSchema: { category: z.string().optional().describe(`One of ${MOCKUP_CATEGORIES.join(', ')}.`) },
     annotations: { readOnlyHint: true },
   }, safe(async ({ category }) => {
-    const all = await listMockups();
-    const list = category ? all.filter((m) => m.category.toLowerCase() === category.toLowerCase()) : all;
+    const all = await listMockups().catch(() => []);
+    const mine = ((await (ctx.ws.store as { loadPlugins?: () => Promise<{ plugins: { kind: string }[] }> }).loadPlugins?.().catch(() => null))?.plugins ?? []).filter((p): p is MockupPlugin => p.kind === 'mockup' && !!(p as MockupPlugin).corners);
+    const own = mine.map((p) => { const c = p.corners; const d = (a: number[], b: number[]) => Math.hypot(a[0]! - b[0]!, a[1]! - b[1]!); return { id: p.id, label: p.name, category: `My mockups · ${p.category}`, aspect: Math.round(((d(c[0], c[1]) + d(c[3], c[2])) / Math.max(1, d(c[0], c[3]) + d(c[1], c[2]))) * 1000) / 1000 }; });
+    const lib = category ? all.filter((m) => m.category.toLowerCase() === category.toLowerCase()) : all;
+    const mineHit = category ? own.filter((m) => m.category.toLowerCase().includes(category.toLowerCase())) : own;
     return json({
-      mockups: list.map((m) => ({ id: m.id, label: m.label, category: m.category, aspect: m.aspect, ...(m.tint ? { colors: m.colors ?? [] } : {}) })),
+      mockups: [...mineHit, ...lib.map((m) => ({ id: m.id, label: m.label, category: m.category, aspect: m.aspect, ...(m.tint ? { colors: m.colors ?? [] } : {}) }))],
       ...(all.length ? {} : { note: 'The mockup library is not published yet.' }),
     });
   }));
@@ -42,7 +47,13 @@ export function registerMockupTools(server: McpServer, ctx: Context): void {
     const { page: pg, index } = pageOf(file.doc, page);
     const fmt = format ?? 'png';
     const mime = fmt === 'jpg' ? 'image/jpeg' : 'image/png';
-    const r = await renderPageMockup(file, pg, mockup_id, { color, ...(fit ? { fit } : {}), format: fmt === 'jpg' ? 'jpeg' : 'png', maxSide: size ?? 1024 });
+    const r = mockup_id.startsWith('pl_') || !/^[a-z0-9-]+$/.test(mockup_id) && !mockup_id.includes('/')
+      ? await (async () => {
+        const { plugin } = await findPlugin(ctx, mockup_id, 'mockup');
+        const u = await userMockup(ctx, plugin as MockupPlugin, size ?? 1024);
+        return compositePage(file, pg, u.entry, u.prepared, null, { format: fmt === 'jpg' ? 'jpeg' : 'png', fit: fit ?? 'cover' });
+      })()
+      : await renderPageMockup(file, pg, mockup_id, { color, ...(fit ? { fit } : {}), format: fmt === 'jpg' ? 'jpeg' : 'png', maxSide: size ?? 1024 });
     const info: Record<string, unknown> = { page: index + 1, mockup: r.mockup.id, label: r.mockup.label, imagePx: [r.width, r.height], ...(r.color ? { color: r.color } : {}), ...(r.mockup.credit ? { credit: r.mockup.credit } : {}) };
     if (save) {
       const res = await ctx.ws.saveExport(`${safeName(file.doc.title)} - ${safeName(r.mockup.label)}.${fmt}`, r.bytes, mime);

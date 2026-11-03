@@ -17,12 +17,13 @@ import { fitGroup, looseFill, newId, scaleElement, walk, type Element, type Fill
 import type { ProjectFile } from '@digital-canvas/storage';
 import { ToolError, round, type Context } from '../context.ts';
 import { buildElements } from '../build.ts';
-import { embedFonts } from '../fonts.ts';
 import { withRenderer } from '../engine.ts';
 import { cssColor, cssGradient, cssUrl, lenPx, words, type LenCtx } from './css.ts';
 import { parseHtml, type SNode } from './dom.ts';
 import { layout, type Box } from './layout.ts';
 import { keysOnPage, sigOf } from './sync.ts';
+import { animationOf, pageFrom, type AnimResolver } from './anim.ts';
+import { keyframesFromCss, type AnimationPlugin } from '@digital-canvas/scene';
 import type { ElementSpec } from '../schemas.ts';
 
 let yoga: Promise<Yoga> | null = null;
@@ -69,6 +70,8 @@ export async function applyHtml(ctx: Context, file: ProjectFile, pageId: string,
   const warnings = [...parsed.warnings];
   const warn = (w: string) => { if (!warnings.includes(w) && warnings.length < 60) warnings.push(w); };
   const root = parsed.root;
+  const plugins = /animation/i.test(html) ? ((await ctx.ws.store.loadPlugins?.().catch(() => null))?.plugins ?? []).filter((p): p is AnimationPlugin => p.kind === 'animation') : [];
+  const resolver: AnimResolver = { keyframes: keyframesFromCss(parsed.css), plugins, warn };
 
   const all: SNode[] = [];
   const collect = (n: SNode) => { all.push(n); n.children.forEach(collect); };
@@ -133,7 +136,7 @@ export async function applyHtml(ctx: Context, file: ProjectFile, pageId: string,
     // embed the faces with a scratch page holding the texts, then drop it
     const scratch: Page = { id: newId('p_'), background: { type: 'solid', color: '#ffffff' }, elements: [...measureEls.values()] };
     file.doc = { ...file.doc, pages: [...file.doc.pages, scratch] };
-    const { missing } = await embedFonts(file);
+    const { missing } = await ctx.embedFonts(file);
     file.doc = { ...file.doc, pages: file.doc.pages.filter((p) => p.id !== scratch.id) };
     if (missing.length) warn(`font(s) not found on Google Fonts, drawn with Inter: ${missing.join(', ')} (search_fonts lists real names)`);
   }
@@ -187,6 +190,7 @@ export async function applyHtml(ctx: Context, file: ProjectFile, pageId: string,
     color: cssColor(n.style[`border-${s}-color`]) ?? n.text.color, dash: n.style[`border-${s}-style`] === 'dashed' ? 'dashed' : n.style[`border-${s}-style`] === 'dotted' ? 'dotted' : 'solid',
   }));
 
+  const animSpec = (a: ReturnType<typeof animationOf>): Obj => ({ ...(a.animation ? { animation: a.animation } : {}), ...(a.start ? { timing: { start: a.start } } : {}) });
   const transformWarned = new Set<string>();
   const emit = (n: SNode, alpha: number, depth: number): Item[] => {
     const b = out.boxes.get(n);
@@ -208,7 +212,7 @@ export async function applyHtml(ctx: Context, file: ProjectFile, pageId: string,
       const pos = n.style['object-position'];
       const focus = pos ? (() => { const w = words(pos).map((x) => (x === 'left' || x === 'top' ? 0 : x === 'right' || x === 'bottom' ? 1 : x === 'center' ? 0.5 : x.endsWith('%') ? parseFloat(x) / 100 : 0.5)); return { x: w[0] ?? 0.5, y: w[1] ?? w[0] ?? 0.5 }; })() : undefined;
       const spec: Obj = { ...pic, x: b.x, y: b.y, w: b.w, h: b.h, ...(pic.type === 'image' || pic.type === 'video' ? { fit: fit === 'contain' || fit === 'scale-down' ? 'contain' : 'cover', ...(focus ? { focus } : {}), ...(radiusOf(n, b) ? { radius: round(radiusOf(n, b), 1) } : {}) } : {}), ...(name ? { name } : {}) };
-      return [{ spec: look(spec), lk: `${n.key}:img`, matchId: n.matchId }];
+      return [{ spec: { ...look(spec), ...animSpec(animationOf(n.style, resolver)) }, lk: `${n.key}:img`, matchId: n.matchId }];
     }
     // box
     const items: Item[] = [];
@@ -249,8 +253,10 @@ export async function applyHtml(ctx: Context, file: ProjectFile, pageId: string,
     const kids = out.order.get(n) ?? n.children;
     for (const c of kids) items.push(...emit(c, a, depth + 1));
     if (isRoot) return items;
-    const groupIt = n.group || (depth === 1 && items.length > 1);
-    if (groupIt && items.length > 1) return [{ spec: { type: 'group', ...(name ? { name } : {}), ...(rot(n) && n.group ? { rotation: rot(n) } : {}) }, children: items, lk: `${n.key}:g`, matchId: n.matchId, group: true }];
+    const anim = animationOf(n.style, resolver);
+    const groupIt = n.group || (depth === 1 && items.length > 1) || (!!anim.animation && items.length > 1);
+    if (groupIt && items.length > 1) return [{ spec: { type: 'group', ...(name ? { name } : {}), ...(rot(n) && n.group ? { rotation: rot(n) } : {}), ...animSpec(anim) }, children: items, lk: `${n.key}:g`, matchId: n.matchId, group: true }];
+    if ((anim.animation || n.spec) && items.length === 1) items[0] = { ...items[0]!, spec: { ...items[0]!.spec, ...(items[0]!.children ? {} : n.spec ?? {}), ...animSpec(anim) } };
     return items;
   };
   const items = emit(root, 1, 0);
@@ -279,6 +285,7 @@ export async function applyHtml(ctx: Context, file: ProjectFile, pageId: string,
     used.add(prev.id);
     const m: Element = { ...prev, ...made, id: prev.id } as Element;
     const p = prev as unknown as Obj, o = m as unknown as Obj;
+    for (const k of ['animation', 'timing'] as const) if ((made as unknown as Obj)[k] === undefined) delete o[k];
     if (made.type === 'text') {
       if (!(made as TextElement).runs) delete o.runs;
       const pt = prev as TextElement;
@@ -310,7 +317,7 @@ export async function applyHtml(ctx: Context, file: ProjectFile, pageId: string,
       const kids = assemble(it.children);
       if (!kids.length) return [];
       const prev = prevFor(it);
-      const g = fitGroup({ ...(prev && prev.type === 'group' && !used.has(prev.id) ? prev : {}), id: prev && prev.type === 'group' && !used.has(prev.id) ? prev.id : newId('e_'), type: 'group', x: 0, y: 0, w: 1, h: 1, rotation: (it.spec.rotation as number) ?? 0, opacity: 1, children: kids, ...(it.spec.name ? { name: it.spec.name as string } : {}), ...(it.lk ? { lk: it.lk } : {}) } as Element);
+      const g = fitGroup({ ...(prev && prev.type === 'group' && !used.has(prev.id) ? prev : {}), id: prev && prev.type === 'group' && !used.has(prev.id) ? prev.id : newId('e_'), type: 'group', x: 0, y: 0, w: 1, h: 1, rotation: (it.spec.rotation as number) ?? 0, opacity: 1, children: kids, ...(it.spec.name ? { name: it.spec.name as string } : {}), animation: it.spec.animation as never, timing: it.spec.timing as never, ...(it.lk ? { lk: it.lk } : {}) } as Element);
       if (prev) used.add(prev.id);
       count++;
       return [g];
@@ -335,12 +342,15 @@ export async function applyHtml(ctx: Context, file: ProjectFile, pageId: string,
   if (opts.mode === 'replace') {
     const sig: Record<string, [string, number, number, number, number]> = {};
     for (const e of walk(elements)) if (e.lk) sig[e.lk] = sigOf(e);
-    next = { ...page, elements, ...(bodyFill ? { background: bodyFill } : {}), layout: { html: sourceOf(parsed), sig } };
+    const ps = pageFrom(root.style, resolver);
+    const base: Page = { ...page };
+    delete base.animation; delete base.transition;
+    next = { ...base, elements, ...(bodyFill ? { background: bodyFill } : {}), ...ps, layout: { html: sourceOf(parsed), sig } };
   } else {
     next = { ...page, elements: [...page.elements, ...elements] };
   }
   file.doc = { ...file.doc, pages: file.doc.pages.map((p) => (p.id === pageId ? next : p)) };
-  const { missing } = await embedFonts(file);
+  const { missing } = await ctx.embedFonts(file);
   if (missing.length) warn(`font(s) not found: ${missing.join(', ')}`);
   return { ids: elements.map((e) => e.id), count, kept, removed: opts.mode === 'replace' ? countRemoved(page.elements, used, elements) : 0, warnings: warnings.slice(0, 40) };
 }

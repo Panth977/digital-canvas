@@ -33,6 +33,13 @@ export const animation = z.object({
   by: z.enum(['element', 'line', 'word', 'letter', 'page']).optional().describe('Text: move each line, word or letter. Page animation: "page" moves everything as one.'),
   order: z.enum(['forward', 'reverse', 'center', 'random', 'together']).optional().describe('Who goes first, for units of a text or the elements of a page.'),
   path: motionPath.optional(),
+  plugin: z.string().optional().describe('An animation plugin (id or name from list_plugins): type "keyframes" is filled in from it.'),
+  keyframes: z.object({
+    name: z.string().optional(),
+    ox: z.number().optional(), oy: z.number().optional(),
+    f: z.array(z.object({ a: z.number().describe('0..1') }).passthrough()).min(2).describe('Keyframes: a (0..1), tx/ty (box fractions), px/py (px at 1080), sx/sy, r (deg), kx/ky, o (opacity), b (blur), e (cubic-bezier [x1,y1,x2,y2]).'),
+    len: z.number().optional(), loop: z.boolean().optional(), exit: z.boolean().optional(),
+  }).optional().describe('type "keyframes": the motion itself. Easier: CSS @keyframes in set_page_html, or an animation plugin.'),
 }).describe('Animation, plays when the page starts (or ends, with phase) or the element\'s timing window opens. Shown in video/GIF exports and presentations.');
 
 const TRANSITION_TYPES = TRANSITIONS.map((t) => t.type) as unknown as [string, ...string[]];

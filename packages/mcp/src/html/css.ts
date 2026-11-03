@@ -4,6 +4,7 @@
  * layout needs; anything else is reported back as "not supported".
  */
 import { looseColor, type Fill } from '@digital-canvas/scene';
+import { expandAnimation } from './anim.ts';
 
 export type Decls = Record<string, string>;
 
@@ -187,6 +188,7 @@ export function expand(prop: string, v: string): Decls {
     case 'border-radius': return { 'border-radius': words(v.split('/')[0]!)[0] ?? v };
     case 'text-decoration-line': return { 'text-decoration': v };
     case 'overflow-x': case 'overflow-y': return { overflow: v };
+    case 'animation': return expandAnimation(v);
     default: return { [prop]: v };
   }
 }

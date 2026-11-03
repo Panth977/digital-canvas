@@ -7,7 +7,6 @@ import {
 } from '@digital-canvas/scene';
 import { ToolError, round, type Context } from '../context.ts';
 import { buildElements, fitTexts, patchElement } from '../build.ts';
-import { embedFonts } from '../fonts.ts';
 import { applyBrand, fitPages, loadTemplate, loadTemplateAssets, mergeAssets, replaceTexts, searchTemplates, templateThumb } from '../library.ts';
 import { elementOutline, pageOutline } from '../outline.ts';
 import { animation, transition as transitionSchema, elementPatch, elementSpec, fill as fillSchema, pageRef } from '../schemas.ts';
@@ -61,7 +60,7 @@ export function registerEditTools(server: McpServer, ctx: Context): void {
         const cur = file.doc.pages.find((p) => p.id === pg.id)!;
         if (cur.duration === undefined || (cur.duration < need && need < 600)) file.doc = updatePage(file.doc, pg.id, { duration: round(Math.max(need, 0.5), 2) });
       }
-      const { missing } = await embedFonts(file);
+      const { missing } = await ctx.embedFonts(file);
       if (missing.length) warnings.push(`font(s) not found on Google Fonts, drawn with Inter: ${missing.join(', ')} (search_fonts lists real names)`);
       await fitTexts(file, built.fit);
       return { ids: built.elements.map((e) => e.id) };
@@ -74,6 +73,8 @@ export function registerEditTools(server: McpServer, ctx: Context): void {
     description: 'Every animation and page transition with its set, options and default seconds. Use `type` in animation / transition fields.',
     inputSchema: {},
   }, safe(async () => json({
+    mine: ((await (ctx.ws.store as { loadPlugins?: () => Promise<{ plugins: { kind: string; id: string; name: string; recipe?: { len?: number; loop?: boolean; exit?: boolean } }[] }> }).loadPlugins?.().catch(() => null))?.plugins ?? [])
+      .filter((p) => p.kind === 'animation').map((p) => ({ plugin: p.id, name: p.name, seconds: p.recipe?.len, ...(p.recipe?.loop ? { loop: true } : {}), ...(p.recipe?.exit ? { exit: true } : {}), use: `animation {type:"keyframes", plugin:"${p.id}"} or CSS animation: ${p.name}` })),
     sets: ANIMATION_GROUPS.map((g) => ({
       set: g.label,
       animations: ANIMATIONS.filter((x) => x.groups.includes(g.id)).map((x) => ({
@@ -130,7 +131,7 @@ export function registerEditTools(server: McpServer, ctx: Context): void {
         if (el.type === 'text' && (refit || u.autoFit === 'shrink')) fit.set(u.id, { autoW: false, autoH: u.h === undefined, shrink: u.autoFit === 'shrink', centreX: false });
         ids.push(u.id);
       }
-      const { missing } = await embedFonts(file);
+      const { missing } = await ctx.embedFonts(file);
       if (missing.length) warnings.push(`font(s) not found on Google Fonts, drawn with Inter: ${missing.join(', ')}`);
       await fitTexts(file, fit);
     });
@@ -391,7 +392,7 @@ export function registerEditTools(server: McpServer, ctx: Context): void {
       else list.splice(index + 1, 0, ...pages);
       file.doc = { ...file.doc, pages: list };
       const changed = new Set(pages.flatMap((p) => [...walk(p.elements)]).filter((e) => e.type === 'text').map((e) => e.id));
-      await embedFonts(file);
+      await ctx.embedFonts(file);
       await fitTexts(file, new Map([...changed].map((id) => [id, { autoW: false, autoH: true, shrink: false, centreX: false }])));
       return { first: how === 'replace' ? index : index + 1, count: pages.length, ids: Object.fromEntries(fitted.ids) };
     });
@@ -434,7 +435,7 @@ export function registerEditTools(server: McpServer, ctx: Context): void {
       const ids = pages?.map((p) => pageOf(file.doc, p).page.id);
       const res = await applyBrand(file, brand, { colors, fonts, logo, ...(ids ? { pages: ids } : {}) });
       const texts = new Set(Object.keys(res.fonts));
-      await embedFonts(file);
+      await ctx.embedFonts(file);
       await fitTexts(file, new Map([...texts].map((id) => [id, { autoW: false, autoH: true, shrink: false, centreX: false }])));
       return res;
     });

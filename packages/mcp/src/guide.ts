@@ -7,7 +7,8 @@ import { SCRIPT_GUIDE } from './tools/script.ts';
 export const EFFICIENT = `Work efficiently (this matters more than anything below):
 - Lay pages out with set_page_html: write the page as HTML + CSS (flexbox, grid, padding, gap, font sizes) and the engine places and measures everything with the real fonts. Do not compute x/y/w/h by hand for rows, columns, cards, lists or menus. get_page_html gives the page back as HTML; edit the CSS (e.g. a bigger font-size on one class) and send it again: everything reflows and keeps its ids.
 - More than ~3 tool calls for one job? Write ONE run_script instead: a short JavaScript program that calls the tools (await dc.update_elements({...}) in a loop, dc.render_page, checks) and returns a small summary. It saves each design once (much faster) and keeps your context free of tool chatter. Never send dozens of separate add_elements / update_elements calls.
-- Ask for little back: open_design with pages, get_page_html with element_id, render_page only when you need to look.`;
+- Ask for little back: open_design with pages, get_page_html with element_id, render_page only when you need to look.
+- The user's own plugins (list_plugins: animations, effects incl. SkSL shaders, fonts, photo mockups) come first when they fit; you can make new ones with create_plugin.`;
 
 export const WORKFLOW = `1. Understand the brief: format (post, story, reel, poster, thumbnail…), message, audience, brand.
 2. A PDF to edit? import_pdf (URL or Drive file) makes it a design with real text, shapes and images; untouched content exports the same as the source. Gather material first: list_assets / search_drive (the user's own photos and clips are best), get_brand_kit, search_stock for anything missing. Import what you'll use.
