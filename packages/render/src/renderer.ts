@@ -1,8 +1,9 @@
 import type { Canvas, CanvasKit, Font, Image, ImageFilter, Paint, Path, RuntimeEffect, Shader, Typeface } from 'canvaskit-wasm';
 import { addAdjust, childrenOf, colorEditUniforms, cropOf, duotoneOf, movesBox, posterOf, effectiveAdjust, hasLook, imageBox, shadowOf, zoomCrop, type Fx, straightenMatrix, stylizeOf, type BlendMode, type ImageAdjust, type ImageShadow, type Doc, type Element, type Fill, type ImageElement, type Page, type PathElement, type ShapeElement, type ShapeKind, type TextElement, type VideoElement } from '@digital-canvas/scene';
-import { aabb, clipOf, dashArray, decompose, exactPart, exactText, placeGlyphs, type Decomposed, type PathPart, type PdfSource, type Prim, type PrimText, type TextExact } from '@digital-canvas/scene';
+import { aabb, union, clipOf, dashArray, decompose, exactPart, exactText, placeGlyphs, type Decomposed, type PathPart, type PdfSource, type Prim, type PrimText, type TextExact } from '@digital-canvas/scene';
 import { colorMatrix, LOOK_SKSL, lookFloats, needsLookShader, STYLE_ID, type LookUniforms } from './look.ts';
 import { color, FontLibrary } from './fonts.ts';
+import { ShaderCache } from './shader.ts';
 import { listIndent, TextLayouts, type TextPiece } from './text.ts';
 
 export { color, FontLibrary };
@@ -358,6 +359,99 @@ export class Renderer {
   }
 
   drawElement(canvas: Canvas, el: Element, skip?: ReadonlySet<string>): void {
+    if (el.shader?.sksl && this.drawShaded(canvas, el, skip)) return;
+    this.drawPlain(canvas, el, skip);
+  }
+
+  /**
+   * Seconds the shader effects see as `time` (`uniform float time`). Video
+   * frames (`drawFrameAt`) set it to the page's local time; stills keep 0.
+   */
+  time = 0;
+
+  private shaders: ShaderCache | undefined;
+
+  /** The box (page units) an element may paint into: its rotated box plus room for shadows, glows and strokes. */
+  private paintBounds(el: Element): { x: number; y: number; w: number; h: number } {
+    const kids = childrenOf(el);
+    let r: { x: number; y: number; w: number; h: number };
+    if (kids?.length) r = union([aabb(el), ...kids.map((k) => this.paintBounds(k))])!;
+    else {
+      const b = aabb(el), pad = paintPad(el);
+      r = { x: b.x - pad, y: b.y - pad, w: b.w + 2 * pad, h: b.h + 2 * pad };
+    }
+    const live = el.live;
+    if (live) {
+      const s = Math.max(1, Math.abs(live.sx ?? 1), Math.abs(live.sy ?? 1));
+      const cx = r.x + r.w / 2 + (live.tx ?? 0), cy = r.y + r.h / 2 + (live.ty ?? 0);
+      const half = live.r || live.kx || live.ky ? Math.hypot(r.w, r.h) / 2 : 0;
+      const hw = Math.max(r.w / 2, half) * s, hh = Math.max(r.h / 2, half) * s;
+      r = { x: cx - hw, y: cy - hh, w: 2 * hw, h: 2 * hh };
+    }
+    return r;
+  }
+
+  /**
+   * Draw an element through its shader: the element is drawn to a layer at
+   * device resolution, then the layer goes through the SkSL effect. False
+   * when the shader can't be used (compile error…): the caller draws the
+   * element as it is.
+   */
+  private drawShaded(canvas: Canvas, el: Element, skip?: ReadonlySet<string>): boolean {
+    const ck = this.ck, fx = el.shader!;
+    this.shaders ??= new ShaderCache(ck);
+    const entry = this.shaders.get(fx.sksl);
+    if (!entry) return false;
+    const M = canvas.getTotalMatrix();
+    const b = this.paintBounds(el);
+    const pts = [[b.x, b.y], [b.x + b.w, b.y], [b.x, b.y + b.h], [b.x + b.w, b.y + b.h]].map(([x, y]) => {
+      const w = M[6]! * x! + M[7]! * y! + M[8]!;
+      return [(M[0]! * x! + M[1]! * y! + M[2]!) / w, (M[3]! * x! + M[4]! * y! + M[5]!) / w];
+    });
+    const x0 = Math.floor(Math.min(...pts.map((p) => p[0]!))), y0 = Math.floor(Math.min(...pts.map((p) => p[1]!)));
+    const x1 = Math.ceil(Math.max(...pts.map((p) => p[0]!))), y1 = Math.ceil(Math.max(...pts.map((p) => p[1]!)));
+    if (!(x1 > x0 && y1 > y0) || !Number.isFinite(x0 + y0 + x1 + y1)) return true; // nothing visible
+    const inv = ck.Matrix.invert(M);
+    if (!inv) return true;
+    // the layer is the whole element (so uv = p / resolution spans it), capped at 4096² px
+    const k = Math.min(1, Math.sqrt((4096 * 4096) / ((x1 - x0) * (y1 - y0))));
+    const W = Math.max(1, Math.ceil((x1 - x0) * k)), H = Math.max(1, Math.ceil((y1 - y0) * k));
+    const surface = ck.MakeSurface(W, H);
+    if (!surface) return false;
+    let img: Image | null = null, child: Shader | null = null, shader: Shader | null = null;
+    const paint = new ck.Paint();
+    try {
+      const c = surface.getCanvas();
+      c.clear(ck.TRANSPARENT);
+      c.scale(k, k);
+      c.translate(-x0, -y0);
+      c.concat(M);
+      this.drawPlain(c, el, skip);
+      surface.flush();
+      img = surface.makeImageSnapshot();
+      child = img.makeShaderOptions(ck.TileMode.Decal, ck.TileMode.Decal, ck.FilterMode.Linear, ck.MipmapMode.None);
+      try {
+        shader = entry.effect.makeShaderWithChildren(this.shaders.uniforms(entry, { resolution: [W, H], time: this.time, params: fx.params }), [child]);
+      } catch { shader = null; }
+      if (!shader) return false;
+      paint.setShader(shader);
+      canvas.save();
+      canvas.concat(inv);
+      canvas.translate(x0, y0);
+      canvas.scale(1 / k, 1 / k);
+      canvas.drawRect(ck.XYWHRect(0, 0, W, H), paint);
+      canvas.restore();
+      return true;
+    } finally {
+      paint.delete();
+      shader?.delete();
+      child?.delete();
+      img?.delete();
+      surface.delete();
+    }
+  }
+
+  private drawPlain(canvas: Canvas, el: Element, skip?: ReadonlySet<string>): void {
     const live = el.live;
     if (!live || !movesBox(live)) { this.drawStill(canvas, el, skip); return; }
     // the recipe moves the box in page axes, and turns, clips and scales it in the element's own axes
@@ -973,11 +1067,8 @@ export class Renderer {
    */
   rasterElement(el: Element, scale = 3): { png: Uint8Array; x: number; y: number; w: number; h: number } | null {
     const ck = this.ck;
-    const b = aabb(el);
-    const pad = el.type === 'text' ? el.style.fontSize * 0.8
-      : (el.type === 'image' || el.type === 'video') && (el.effect || el.shadow || el.border) ? 4 + Math.min(el.w, el.h) * 0.5 // shadow, glow, outline reach outside the box
-      : 4 + ('stroke' in el && el.stroke ? el.stroke.width * 4 : 0);
-    const x = Math.floor(b.x - pad), y = Math.floor(b.y - pad), w = Math.ceil(b.w + 2 * pad), h = Math.ceil(b.h + 2 * pad);
+    const b = this.paintBounds(el);
+    const x = Math.floor(b.x), y = Math.floor(b.y), w = Math.ceil(b.x + b.w) - x, h = Math.ceil(b.y + b.h) - y;
     const surface = ck.MakeSurface(Math.max(1, Math.round(w * scale)), Math.max(1, Math.round(h * scale)));
     if (!surface) return null;
     try {
@@ -1080,7 +1171,15 @@ export class Renderer {
     this.images.clear();
     this.paint.delete();
     this.lookEffect?.delete();
+    this.shaders?.dispose();
   }
+}
+
+/** Room (page units) around an element's box for what paints outside it: text effects, shadows, glows, strokes. */
+function paintPad(el: Element): number {
+  return el.type === 'text' ? el.style.fontSize * 0.8
+    : (el.type === 'image' || el.type === 'video') && (el.effect || el.shadow || el.border) ? 4 + Math.min(el.w, el.h) * 0.5 // shadow, glow, outline reach outside the box
+    : 4 + ('stroke' in el && el.stroke ? el.stroke.width * 4 : 0);
 }
 
 /** Outline of a shape kind inside the box (x, y, w, h). The caller deletes it. */

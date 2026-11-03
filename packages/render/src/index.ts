@@ -10,3 +10,5 @@ export { drawFrameAt } from './frame.ts';
 export { buildPptx, exportPptx, pptxDeck, textMapsToPptx, textParagraphs, type PptxDeck, type PptxItem, type PptxOptions, type PptxParagraph, type PptxRun, type PptxSlide } from './pptx.ts';
 export { printLayout, rgbToCmyk, rgbaToCmyk, MM, type PrintLayout, type PrintOptions } from './print.ts';
 export * from './mockup.ts';
+export { compileShader, type ShaderCompile, type ShaderUniform } from './shader.ts';
+
