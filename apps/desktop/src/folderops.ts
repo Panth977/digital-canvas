@@ -3,7 +3,7 @@
  * `.dcanvas` itself, so designs cross as bytes.
  */
 import { FolderWorkspace } from '@digital-canvas/mcp';
-import { brandJson, parseBrand, unpack, type ProjectMeta } from '@digital-canvas/storage';
+import { brandJson, libraryJson, parseBrand, readLibrary, unpack, type ProjectMeta } from '@digital-canvas/storage';
 
 export interface FolderApi {
   list(): Promise<ProjectMeta[]>;
@@ -17,6 +17,10 @@ export interface FolderApi {
   hideAsset(id: string): Promise<void>;
   loadBrand(): Promise<{ json: string; assets: [string, Uint8Array][] } | null>;
   saveBrand(json: string, assets: [string, Uint8Array][]): Promise<void>;
+  /** plugins.json as text; plugin files by asset id. */
+  loadPlugins(): Promise<string>;
+  savePlugins(json: string, assets: [string, Uint8Array][]): Promise<void>;
+  pluginAsset(id: string): Promise<Uint8Array | null>;
 }
 
 /** Fonts stay inside designs; the folder's `assets/` is for what the user uploads. */
@@ -47,5 +51,8 @@ export function folderApi(ws: FolderWorkspace): FolderApi {
       return b ? { json: brandJson(b.kit), assets: [...b.assets] } : null;
     },
     saveBrand: (json, assets) => store.saveBrand({ kit: parseBrand(JSON.parse(json)), assets: new Map(assets) }),
+    loadPlugins: async () => libraryJson(await store.loadPlugins()),
+    savePlugins: (json, assets) => store.savePlugins(readLibrary(json), new Map(assets)),
+    pluginAsset: (id) => store.pluginAsset(id),
   };
 }

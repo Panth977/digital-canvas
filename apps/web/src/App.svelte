@@ -4,6 +4,7 @@
   import Editor from './editor/Editor.svelte';
   import SharedOpen from './routes/SharedOpen.svelte';
   import PublicView from './routes/PublicView.svelte';
+  import PluginInstall from './routes/PluginInstall.svelte';
   import { router } from './lib/router.svelte.ts';
   import { library } from './lib/library.svelte.ts';
   import { account } from './lib/account.svelte.ts';
@@ -131,6 +132,8 @@
       <Download />
     {:else if router.route.name === 'view'}
       {#key router.route.fileId}<PublicView fileId={router.route.fileId} />{/key}
+    {:else if router.route.name === 'plugin' && library.ready}
+      {#key router.route.fileId}<PluginInstall fileId={router.route.fileId} />{/key}
     {:else if !library.ready || openWith.busy}
       <div class="boot">Loading…</div>
     {:else if router.route.name === 'shared' || router.route.name === 'template'}

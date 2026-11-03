@@ -10,6 +10,7 @@
   import type { EditorState } from '../../../lib/editor.svelte.ts';
   import Icon from '../../../lib/Icon.svelte';
   import { toast } from '../../../lib/toast.svelte.ts';
+  import { ui } from '../../../lib/ui.svelte.ts';
   import { plugins } from '../../../lib/plugins/plugins.svelte.ts';
   import { EASINGS, SAMPLE_CSS, recipeFromCss, recipeFromRows, recipeToCss, rowsFromRecipe, type KeyRow } from '../../../lib/plugins/pluginutil.ts';
   import { applyAnimation } from '../../../lib/plugins/apply.ts';
@@ -29,6 +30,8 @@
   let exit = $state(!!start?.recipe.exit);
   let textual = $state(false);
   let cssError = $state('');
+  /** The table was changed: going back to CSS writes the table out. */
+  let tableEdited = $state(false);
   /** The recipe from the CSS (last good one). */
   let fromCss = $state.raw<MotionRecipe | null>(start?.css ? start.recipe : null);
 
@@ -51,20 +54,25 @@
   });
 
   function toTable(): void {
+    if (mode === 'table') return;
     if (fromCss) rows = rowsFromRecipe(fromCss);
+    tableEdited = false;
     mode = 'table';
   }
   function toCss(): void {
-    if (rows.length) { css = recipeToCss(recipeFromRows(rows), name); fromCss = recipeFromRows(rows); }
+    if (mode === 'css') return;
+    if (rows.length && tableEdited) { css = recipeToCss(recipeFromRows(rows), name); fromCss = recipeFromRows(rows); }
     mode = 'css';
   }
   function addRow(): void {
     const last = rows[rows.length - 1];
     const at = rows.length >= 2 ? Math.round((rows[rows.length - 2]!.at + (last?.at ?? 100)) / 2) : 50;
+    tableEdited = true;
     rows = [...rows, { at, x: 0, y: 0, scale: 1, rotate: 0, opacity: 1, easing: 'ease' }].sort((a, b) => a.at - b.at);
   }
-  const removeRow = (i: number) => (rows = rows.filter((_, j) => j !== i));
+  const removeRow = (i: number) => { tableEdited = true; rows = rows.filter((_, j) => j !== i); };
   function setRow(i: number, k: keyof KeyRow, v: number | string): void {
+    tableEdited = true;
     rows = rows.map((r, j) => (j === i ? { ...r, [k]: v } : r));
   }
 
@@ -107,6 +115,7 @@
       if (apply) applyAnimation(ed, saved);
       toast.show(apply ? `“${saved.name}” saved and applied` : `“${saved.name}” saved to your plugins`);
       onclose();
+      if (apply) ui.open('animate', false);
     } catch (e) {
       toast.show(`Couldn't save: ${e instanceof Error ? e.message : e}`);
     } finally {

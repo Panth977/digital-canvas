@@ -31,16 +31,17 @@
   const WEIGHT_NAMES: Record<number, string> = { 100: 'Thin', 200: 'Extra light', 300: 'Light', 400: 'Regular', 500: 'Medium', 600: 'Semibold', 700: 'Bold', 800: 'Extra bold', 900: 'Black' };
 
   // existing faces: load for the preview
-  if (start) for (const f of start.faces) void plugins.asset(f.asset).then((b) => { if (b) addCssFace(cssFamily, `${cssFamily}:${f.asset}`, toSfnt(b), f.weight, f.italic); });
+  if (start) for (const f of start.faces) void plugins.asset(f.asset).then((b) => { if (b) addCssFace(cssFamily, `${cssFamily}:${f.asset}`, b, f.weight, f.italic); });
 
   async function addFiles(files: File[]): Promise<void> {
     error = '';
     for (const file of files) {
       const raw = new Uint8Array(await file.arrayBuffer());
       if (!fontMime(raw)) { error = `${file.name} is not a font file (TTF, OTF, WOFF, WOFF2).`; continue; }
-      const bytes = toSfnt(raw);
-      const mime = fontMime(bytes)!;
-      const info = fontInfo(bytes, ed.engine.ck);
+      let bytes: Uint8Array;
+      try { bytes = toSfnt(raw); } catch (e) { error = `${file.name}: ${e instanceof Error ? e.message : e}`; continue; }
+      const mime = fontMime(bytes) ?? 'font/ttf';
+      const info = fontInfo(bytes);
       const asset = await plugins.addFile(bytes, mime);
       if (faces.some((f) => f.asset === asset)) continue;
       const weight = Math.min(900, Math.max(100, Math.round((info?.weight ?? 400) / 100) * 100));

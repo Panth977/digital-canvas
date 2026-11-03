@@ -1,5 +1,6 @@
 import { pack, unpack, type BrandData, type LibraryAsset, type ProjectFile, type ProjectMeta, type ProjectStore } from '@digital-canvas/storage';
-import { brandJson, parseBrand, usedBrandAssets } from '@digital-canvas/storage';
+import { brandJson, libraryJson, parseBrand, readLibrary, usedBrandAssets } from '@digital-canvas/storage';
+import type { PluginLibrary } from '@digital-canvas/scene';
 import { desktop } from './desktop.svelte.ts';
 
 interface FolderAsset { id: string; mime: string; name?: string; size?: number; createdTime?: string; width?: number; height?: number; duration?: number }
@@ -28,6 +29,17 @@ export class DesktopStore implements ProjectStore {
   }
   async saveBrand(data: BrandData): Promise<void> {
     await desktop.call('store.saveBrand', { json: brandJson(data.kit), assets: [...usedBrandAssets(data)] });
+  }
+
+  // Plugins: plugins.json and plugin-assets/ in the folder (NodeFolderStore), over IPC like the brand kit.
+  async loadPlugins(): Promise<PluginLibrary> {
+    return readLibrary(await desktop.call<string>('store.loadPlugins'));
+  }
+  async savePlugins(lib: PluginLibrary, assets = new Map<string, Uint8Array>()): Promise<void> {
+    await desktop.call('store.savePlugins', { json: libraryJson(lib), assets: [...assets] });
+  }
+  async pluginAsset(id: string): Promise<Uint8Array | null> {
+    return (await desktop.call<Uint8Array | null>('store.pluginAsset', { id })) ?? null;
   }
 
   // The uploads library, with the same shape as DriveStore's.

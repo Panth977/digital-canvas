@@ -100,6 +100,9 @@ const ops: Record<string, (a: never) => unknown> = {
   'store.hideAsset': (a: { id: string }) => needFolder().hideAsset(a.id),
   'store.loadBrand': () => needFolder().loadBrand(),
   'store.saveBrand': (a: { json: string; assets: [string, Uint8Array][] }) => needFolder().saveBrand(a.json, a.assets),
+  'store.loadPlugins': () => needFolder().loadPlugins(),
+  'store.savePlugins': (a: { json: string; assets: [string, Uint8Array][] }) => needFolder().savePlugins(a.json, a.assets),
+  'store.pluginAsset': (a: { id: string }) => needFolder().pluginAsset(a.id),
 };
 
 port.on('message', (e: { data: never }) => {

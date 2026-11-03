@@ -165,7 +165,8 @@ class Plugins {
     for (const f of p.faces) {
       const raw = await this.asset(f.asset);
       if (!raw) continue;
-      const bytes = toSfnt(raw);
+      let bytes = raw;
+      try { bytes = toSfnt(raw); } catch { /* the font library reads WOFF/WOFF2 itself */ }
       out.push({ family: p.family, bytes, mime: fontMime(bytes) ?? f.mime, weight: f.weight, italic: f.italic, source: `plugin:${p.id}` });
     }
     return out;
