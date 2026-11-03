@@ -11,7 +11,14 @@ import type { DrawOptions, Renderer } from './renderer.ts';
  * so what plays in the editor is what the export holds.
  */
 export function drawFrameAt(r: Renderer, canvas: Canvas, doc: Doc, t: number, opts: DrawOptions = {}): void {
+  // shader effects see the page's own clock (like its animations)
+  const was = r.time;
+  try { drawFrame(r, canvas, doc, t, opts); } finally { r.time = was; }
+}
+
+function drawFrame(r: Renderer, canvas: Canvas, doc: Doc, t: number, opts: DrawOptions): void {
   const f = frameAt(doc, t);
+  r.time = f.local;
   const now = animateAt(doc, f.page, f.local);
   if (!f.prev || !f.transition) {
     r.drawPage(canvas, doc, now, opts);
@@ -19,6 +26,7 @@ export function drawFrameAt(r: Renderer, canvas: Canvas, doc: Doc, t: number, op
   }
   const ck = r.ck;
   const before = animateAt(doc, f.prev.page, f.prev.local);
+  const prevTime = f.prev.local, nowTime = f.local;
   const L = transitionLayers(f.transition, f.progress ?? 1, doc.width, doc.height);
   canvas.save();
   canvas.clipRect(ck.XYWHRect(0, 0, doc.width, doc.height), ck.ClipOp.Intersect, true);
@@ -32,13 +40,17 @@ export function drawFrameAt(r: Renderer, canvas: Canvas, doc: Doc, t: number, op
     // Match & Move: what is on both pages travels, the rest dissolves under it
     const pairs = matchPairs(before, now);
     const skip = new Set([...(opts.skip ?? []), ...pairs.flatMap((p) => [p.a.id, p.b.id])]);
+    r.time = prevTime;
     drawLayer(r, canvas, doc, before, L.prev, { ...opts, skip });
+    r.time = nowTime;
     drawLayer(r, canvas, doc, now, L.next, { ...opts, skip });
     const e = transitionEase(f.progress ?? 1);
     for (const p of pairs) if (!opts.skip?.has(p.b.id)) r.drawElement(canvas, tweenElement(p.a, p.b, e));
   } else {
     if (L.prevOnTop) drawLayer(r, canvas, doc, now, L.next, opts);
+    r.time = prevTime;
     drawLayer(r, canvas, doc, before, L.prev, opts);
+    r.time = nowTime;
     if (L.band) {
       const p = new ck.Paint();
       p.setAntiAlias(true);
