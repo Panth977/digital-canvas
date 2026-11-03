@@ -2,6 +2,8 @@ import { EXTENSION, fileName, pack, peek, unpack, type ProjectFile } from './fil
 import { KV, appDb } from './idb.ts';
 import { brandJson, parseBrand, usedBrandAssets, type BrandData } from './brand.ts';
 import { byRecent, type ProjectMeta, type ProjectStore } from './store.ts';
+import { libraryJson, readLibrary } from './plugins.ts';
+import type { PluginLibrary } from '@digital-canvas/scene';
 
 declare global {
   interface Window {
@@ -146,5 +148,32 @@ export class FolderStore implements ProjectStore {
     const w = await (await this.dir.getFileHandle('brand.json', { create: true })).createWritable();
     await w.write(brandJson(data.kit));
     await w.close();
+  }
+
+  /** `plugins.json` in the folder, files in `plugin-assets/`. */
+  async loadPlugins(): Promise<PluginLibrary> {
+    try { return readLibrary(await (await (await this.dir.getFileHandle('plugins.json')).getFile()).text()); }
+    catch { return readLibrary(null); }
+  }
+
+  async savePlugins(lib: PluginLibrary, assets = new Map<string, Uint8Array>()): Promise<void> {
+    if (assets.size) {
+      const dir = await this.dir.getDirectoryHandle('plugin-assets', { create: true });
+      for (const [id, bytes] of assets) {
+        const w = await (await dir.getFileHandle(id, { create: true })).createWritable();
+        await w.write(bytes as BufferSource);
+        await w.close();
+      }
+    }
+    const w = await (await this.dir.getFileHandle('plugins.json', { create: true })).createWritable();
+    await w.write(libraryJson(lib));
+    await w.close();
+  }
+
+  async pluginAsset(id: string): Promise<Uint8Array | null> {
+    try {
+      const dir = await this.dir.getDirectoryHandle('plugin-assets');
+      return new Uint8Array(await (await (await dir.getFileHandle(id)).getFile()).arrayBuffer());
+    } catch { return null; }
   }
 }

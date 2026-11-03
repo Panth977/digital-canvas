@@ -43,7 +43,7 @@ export interface AnimationInfo {
   /** Default seconds. */
   dur?: number;
   /** Where the recipe comes from. */
-  src: 'animate.css' | 'magic.css' | 'canva-name';
+  src: 'animate.css' | 'magic.css' | 'canva-name' | 'user';
 }
 
 type Dirs = Partial<Record<AnimationDirection, string>>;
@@ -179,8 +179,19 @@ const INFO = new Map(ANIMATIONS.map((x) => [x.type, x]));
 export const animationInfo = (type: string | undefined): AnimationInfo | undefined => (type ? INFO.get(type) : undefined);
 /** The type of a hand-drawn motion path. */
 export const CUSTOM_ANIMATION = 'custom';
+/** The type of a keyframe animation carried in the design (CSS @keyframes, animation plugins). */
+export const KEYFRAMES_ANIMATION = 'keyframes';
 /** Every type a design may name. */
-export const ANIMATION_TYPES: readonly string[] = [...ANIMATIONS.map((x) => x.type), CUSTOM_ANIMATION];
+export const ANIMATION_TYPES: readonly string[] = [...ANIMATIONS.map((x) => x.type), CUSTOM_ANIMATION, KEYFRAMES_ANIMATION];
+
+/** What we know about an animation: the catalogue entry, or one made from its own keyframes. */
+export function infoOf(a: Animation): AnimationInfo | undefined {
+  if (a.type === KEYFRAMES_ANIMATION && a.keyframes) {
+    const k = a.keyframes;
+    return { type: KEYFRAMES_ANIMATION, label: k.name ?? 'Keyframes', groups: [], src: 'user', ...(k.loop ? { loop: true } : {}), ...(k.exit ? { exit: true } : {}), ...(k.len ? { dur: k.len } : {}) };
+  }
+  return INFO.get(a.type);
+}
 
 export const DEFAULT_ANIMATION_DURATION = 0.8;
 /** Delay between elements when the whole page is animated (Canva staggers them). */
@@ -191,17 +202,17 @@ export const MAX_ANIMATION_DURATION = 10;
 export function animationLabel(a: Animation | undefined | null): string {
   if (!a) return 'None';
   if (a.type === CUSTOM_ANIMATION) return 'Custom';
-  return INFO.get(a.type)?.label ?? 'None';
+  return infoOf(a)?.label ?? 'None';
 }
 
-export const animationDuration = (a: Animation): number => (a.duration && a.duration > 0 ? a.duration : INFO.get(a.type)?.dur ?? DEFAULT_ANIMATION_DURATION);
+export const animationDuration = (a: Animation): number => (a.duration && a.duration > 0 ? a.duration : infoOf(a)?.dur ?? DEFAULT_ANIMATION_DURATION);
 
 /** Is this animation still doing something when the page ends (a loop, an exit, a slow move)? */
 export function playsToEnd(a: Animation): boolean {
-  const i = INFO.get(a.type);
+  const i = infoOf(a);
   return !!i?.loop || !!i?.span || phaseOf(a) !== 'in';
 }
-const phaseOf = (a: Animation) => a.phase ?? (INFO.get(a.type)?.exit ? 'out' : 'in');
+const phaseOf = (a: Animation) => a.phase ?? (infoOf(a)?.exit ? 'out' : 'in');
 
 const lengthOf = (page: Page): number => (page.duration && page.duration > 0 ? page.duration : 5);
 
@@ -263,7 +274,7 @@ export function holdTime(page: Page): number {
   const len = lengthOf(page);
   let hold = len;
   const note = (a: Animation, e?: Element) => {
-    if (phaseOf(a) === 'in' || INFO.get(a.type)?.loop || INFO.get(a.type)?.span) return;
+    if (phaseOf(a) === 'in' || infoOf(a)?.loop || infoOf(a)?.span) return;
     hold = Math.min(hold, (e?.timing?.end ?? len) - animationDuration(a));
   };
   if (page.animation) note(page.animation);
@@ -499,9 +510,9 @@ const DEFAULT_DIR: Record<string, AnimationDirection> = { pan: 'left', wipe: 'le
 /** The recipe of `a` at `p`. */
 function recipeFx(a: Animation, p: number, c: Omit<Ctx, 'dir'>): Fx {
   const dir = a.direction ?? DEFAULT_DIR[a.type];
-  const k = keyRecipe(a.type, dir);
+  const k = a.type === KEYFRAMES_ANIMATION ? a.keyframes : keyRecipe(a.type, dir);
   if (k) {
-    const exit = INFO.get(a.type)?.exit;
+    const exit = infoOf(a)?.exit;
     return strengthen(sampleKeyframes(k, exit ? 1 - p : p, c.w, c.h, Math.min(c.PW, c.PH) / 1080), a.intensity);
   }
   const f = RECIPES[a.type];
@@ -641,7 +652,7 @@ const timed = (page: Page) => anyIn(page.elements, (e) => !!e.timing);
 
 /** `a` on `e` at `t` seconds into the page; `start`..`end` = the time it shows; `delay` = its stagger. */
 function play(doc: Doc, e: Element, a: Animation, t: number, start: number, end: number, delay: number): Element {
-  const info = INFO.get(a.type);
+  const info = infoOf(a);
   if (a.type === CUSTOM_ANIMATION) return t <= start + delay ? (a.path?.fade ? fade(e, 0) : e) : onPath(e, a, t - start - delay);
   const dur = animationDuration(a);
   if (info?.loop) {

@@ -18,6 +18,8 @@ export * from './svg.ts';
 export * from './erase.ts';
 export * from './loose.ts';
 export * from './anim.ts';
+export * from './keyframes.ts';
+export * from './plugins.ts';
 export * from './ease.ts';
 export * from './find.ts';
 export * from './stretch.ts';

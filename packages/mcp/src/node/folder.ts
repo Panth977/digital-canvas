@@ -2,10 +2,11 @@
  * A folder on this computer as the workspace (Node only): designs as
  * `.dcanvas` files, `assets/` for uploads, `Exports/` and `.trash/`.
  */
+import type { PluginLibrary } from '@digital-canvas/scene';
 import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  EXTENSION, assetId, brandJson, byRecent, fileName, pack, parseBrand, peek, unpack, usedBrandAssets,
+  EXTENSION, assetId, brandJson, libraryJson, readLibrary, byRecent, fileName, pack, parseBrand, peek, unpack, usedBrandAssets,
   type BrandData, type ProjectFile, type ProjectMeta, type ProjectStore,
 } from '@digital-canvas/storage';
 import type { AssetInfo, ExportResult, Workspace } from '../workspace.ts';
@@ -125,6 +126,23 @@ export class NodeFolderStore implements ProjectStore {
     if (used.size) mkdirSync(join(this.dir, 'brand-assets'), { recursive: true });
     for (const [id, b] of used) writeFileSync(join(this.dir, 'brand-assets', id), b);
     writeFileSync(join(this.dir, 'brand.json'), brandJson(data.kit));
+  }
+
+  /** `plugins.json` in the folder, files in `plugin-assets/`. */
+  async loadPlugins(): Promise<PluginLibrary> {
+    const p = join(this.dir, 'plugins.json');
+    return readLibrary(existsSync(p) ? readFileSync(p, 'utf8') : null);
+  }
+
+  async savePlugins(lib: PluginLibrary, assets = new Map<string, Uint8Array>()): Promise<void> {
+    if (assets.size) mkdirSync(join(this.dir, 'plugin-assets'), { recursive: true });
+    for (const [id, b] of assets) writeFileSync(join(this.dir, 'plugin-assets', id.replace(/[\\/]/g, '_')), b);
+    writeFileSync(join(this.dir, 'plugins.json'), libraryJson(lib));
+  }
+
+  async pluginAsset(id: string): Promise<Uint8Array | null> {
+    const f = join(this.dir, 'plugin-assets', id.replace(/[\\/]/g, '_'));
+    return existsSync(f) ? new Uint8Array(readFileSync(f)) : null;
   }
 }
 

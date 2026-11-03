@@ -2,6 +2,8 @@ import { pack, unpack, type ProjectFile } from './file.ts';
 import { KV, appDb, openDb } from './idb.ts';
 import { brandJson, parseBrand, usedBrandAssets, type BrandData } from './brand.ts';
 import { byRecent, metaOf, type ProjectMeta, type ProjectStore } from './store.ts';
+import { libraryAssets, libraryJson, readLibrary } from './plugins.ts';
+import type { PluginLibrary } from '@digital-canvas/scene';
 
 interface Row {
   meta: ProjectMeta;
@@ -41,6 +43,23 @@ export class BrowserStore implements ProjectStore {
 
   async saveBrand(data: BrandData): Promise<void> {
     await this.brandKv.set('brand', { json: brandJson(data.kit), assets: [...usedBrandAssets(data)] });
+  }
+
+  private pluginKv = new KV<{ json: string; assets: [string, Uint8Array][] }>(appDb(), 'settings');
+
+  async loadPlugins(): Promise<PluginLibrary> {
+    return readLibrary((await this.pluginKv.get('plugins'))?.json);
+  }
+
+  async savePlugins(lib: PluginLibrary, assets = new Map<string, Uint8Array>()): Promise<void> {
+    const old = new Map((await this.pluginKv.get('plugins'))?.assets ?? []);
+    for (const [k, v] of assets) old.set(k, v);
+    const keep = libraryAssets(lib);
+    await this.pluginKv.set('plugins', { json: libraryJson(lib), assets: [...old].filter(([k]) => keep.has(k)) });
+  }
+
+  async pluginAsset(id: string): Promise<Uint8Array | null> {
+    return new Map((await this.pluginKv.get('plugins'))?.assets ?? []).get(id) ?? null;
   }
 }
 

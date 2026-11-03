@@ -63,6 +63,8 @@ export interface ElementBase {
    * made this element, with its role (`k12:t` text, `:bg` box, `:g` group…).
    */
   lk?: string;
+  /** A custom shader effect (an effect plugin). */
+  shader?: ShaderFx;
   /** Shows this subtitle line (`SubtitleLine.id`): edits to the element reach the line. */
   caption?: string;
   /** Imported from a PDF: the clip it was under. See pdfscene.ts. */
@@ -108,6 +110,44 @@ export interface Animation {
   order?: AnimationOrder;
   /** `type: 'custom'`. */
   path?: MotionPath;
+  /**
+   * `type: 'keyframes'`: the motion itself (from CSS @keyframes or a user's
+   * animation plugin), carried in the design so it plays anywhere.
+   */
+  keyframes?: MotionRecipe;
+  /** The plugin this animation came from (id in the user's plugin library). */
+  plugin?: string;
+}
+
+/** One keyframe of a motion recipe (see scene/keyframes.ts): `a` 0..1, offsets in box fractions (tx/ty) or px at 1080 (px/py). */
+export interface MotionFrame { a: number; o?: number; tx?: number; ty?: number; px?: number; py?: number; sx?: number; sy?: number; r?: number; kx?: number; ky?: number; b?: number; e?: number[] }
+
+/** A keyframe animation as data (the format of motion-data.json, plus a name and how it plays). */
+export interface MotionRecipe {
+  name?: string;
+  /** Pivot as a fraction of the box (default centre). */
+  ox?: number;
+  oy?: number;
+  f: MotionFrame[];
+  /** Default seconds. */
+  len?: number;
+  /** Repeats while shown (an attention seeker). */
+  loop?: boolean;
+  /** Plays as the element leaves. */
+  exit?: boolean;
+}
+
+/**
+ * A custom shader effect (SkSL, run by CanvasKit's RuntimeEffect): the
+ * element is drawn, then this shader recolours / distorts it. Params are
+ * float uniforms; `time` (seconds) and `resolution` are always provided.
+ */
+export interface ShaderFx {
+  /** The plugin this came from. */
+  plugin?: string;
+  name: string;
+  sksl: string;
+  params?: Record<string, number>;
 }
 
 /**

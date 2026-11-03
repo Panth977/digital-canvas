@@ -1,5 +1,7 @@
 import { EXTENSION, MIME, fileName, pack, unpack, type ProjectFile } from './file.ts';
 import { brandJson, parseBrand, type BrandData } from './brand.ts';
+import { libraryJson, readLibrary } from './plugins.ts';
+import type { PluginLibrary } from '@digital-canvas/scene';
 import { byRecent, type ProjectMeta, type ProjectStore, type Version } from './store.ts';
 import { API, DriveError, driveCall, readMedia, type TokenSource } from './driveapi.ts';
 import { DriveSharing, readAccess, type FileAccess } from './share.ts';
@@ -42,9 +44,15 @@ export interface LibraryAsset {
 const EXPORTS_PROP = 'dcExports';
 /** On `brand.json`. */
 const BRAND_PROP = 'dcBrand';
+/** On `plugins.json`. */
+const PLUGINS_PROP = 'dcPlugins';
 
 /** Only content-hash ids (as `assetId` makes) are safe to share between designs. */
 export const isSharedAssetId = (id: string) => /^[0-9a-f]{20}\.[a-z0-9]+$/.test(id);
+
+const ASSET_MIME: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', svg: 'image/svg+xml', ttf: 'font/ttf', otf: 'font/otf', woff: 'font/woff', woff2: 'font/woff2', mp4: 'video/mp4', webm: 'video/webm', mp3: 'audio/mpeg' };
+/** A mime type from an asset id's extension. */
+export const mimeOfAsset = (id: string) => ASSET_MIME[id.split('.').pop()?.toLowerCase() ?? ''] ?? 'application/octet-stream';
 
 /** A cache of asset bytes by id (ids are content hashes, so entries never go stale). */
 export interface AssetCache {
@@ -552,6 +560,40 @@ export class DriveStore implements ProjectStore {
     const url = id ? `${UPLOAD}/files/${id}?uploadType=multipart&fields=id` : `${UPLOAD}/files?uploadType=multipart&fields=id`;
     const r = await this.json<{ id: string }>(url, { method: id ? 'PATCH' : 'POST', headers: { 'content-type': `multipart/related; boundary=${boundary}` }, body });
     this.brandFileId = r.id;
+  }
+
+  // ---- plugins (plugins.json next to brand.json; files in assets/) ----
+
+  private pluginsFileId: string | null = null;
+
+  private async pluginsFile(): Promise<string | null> {
+    if (this.pluginsFileId) return this.pluginsFileId;
+    const parent = await this.folder();
+    const q = `'${parent}' in parents and trashed=false and appProperties has { key='${PLUGINS_PROP}' and value='1' }`;
+    const r = await this.json<{ files: DriveFile[] }>(`${API}/files?${new URLSearchParams({ q, fields: 'files(id)', spaces: 'drive' })}`);
+    return (this.pluginsFileId = r.files[0]?.id ?? null);
+  }
+
+  async loadPlugins(): Promise<PluginLibrary> {
+    const id = await this.pluginsFile();
+    if (!id) return readLibrary(null);
+    return readLibrary(await (await this.call(`${API}/files/${id}?alt=media`)).text());
+  }
+
+  async savePlugins(lib: PluginLibrary, assets = new Map<string, Uint8Array>()): Promise<void> {
+    for (const [a, bytes] of assets) if (isSharedAssetId(a)) await this.uploadAsset(a, bytes, mimeOfAsset(a));
+    const id = await this.pluginsFile();
+    const meta: Record<string, unknown> = { name: 'plugins.json', mimeType: 'application/json', appProperties: { [PLUGINS_PROP]: '1', [ROOT_PROP]: 'plugins' } };
+    if (!id) meta.parents = [await this.folder()];
+    const boundary = `dc${Math.random().toString(36).slice(2)}`;
+    const body = `--${boundary}\r\ncontent-type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${boundary}\r\ncontent-type: application/json\r\n\r\n${libraryJson(lib)}\r\n--${boundary}--`;
+    const url = id ? `${UPLOAD}/files/${id}?uploadType=multipart&fields=id` : `${UPLOAD}/files?uploadType=multipart&fields=id`;
+    const r = await this.json<{ id: string }>(url, { method: id ? 'PATCH' : 'POST', headers: { 'content-type': `multipart/related; boundary=${boundary}` }, body });
+    this.pluginsFileId = r.id;
+  }
+
+  async pluginAsset(id: string): Promise<Uint8Array | null> {
+    return (await this.downloadAsset(id).catch(() => undefined)) ?? null;
   }
 
   // ---- add to Uploads (picked Drive files, the MCP server), save exports ----

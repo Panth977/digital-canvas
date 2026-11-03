@@ -1,5 +1,7 @@
 import type { ProjectFile } from './file.ts';
 import { MemoryBrand, type BrandData } from './brand.ts';
+import { MemoryPlugins } from './plugins.ts';
+import type { PluginLibrary } from '@digital-canvas/scene';
 
 export interface ProjectMeta {
   id: string;
@@ -27,6 +29,10 @@ export interface ProjectStore {
   /** The brand kit kept alongside the designs (see brand.ts). */
   loadBrand?(): Promise<BrandData | null>;
   saveBrand?(data: BrandData): Promise<void>;
+  /** The user's plugins (see plugins.ts). */
+  loadPlugins?(): Promise<PluginLibrary>;
+  savePlugins?(lib: PluginLibrary, assets?: Map<string, Uint8Array>): Promise<void>;
+  pluginAsset?(id: string): Promise<Uint8Array | null>;
   /** Earlier saves of a design, newest first (Drive keeps revisions). */
   versions?(id: string): Promise<Version[]>;
   /** One earlier save, as a file (not made current). */
@@ -68,4 +74,8 @@ export class MemoryStore implements ProjectStore {
   private brand = new MemoryBrand();
   loadBrand() { return this.brand.loadBrand(); }
   saveBrand(data: BrandData) { return this.brand.saveBrand(data); }
+  private plugins = new MemoryPlugins();
+  loadPlugins() { return this.plugins.loadPlugins(); }
+  savePlugins(lib: PluginLibrary, assets?: Map<string, Uint8Array>) { return this.plugins.savePlugins(lib, assets); }
+  pluginAsset(id: string) { return this.plugins.pluginAsset(id); }
 }
