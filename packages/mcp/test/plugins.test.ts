@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { harness, type Harness } from './helpers.ts';
+import { harness, samplePng, type Harness } from './helpers.ts';
 
 let h: Harness;
 beforeAll(async () => { h = await harness(); });
@@ -57,5 +57,51 @@ describe('plugins over MCP', () => {
     expect(r.text).toMatch(/@keyframes/);
     const m = await h.call('create_plugin', { kind: 'mockup', name: 'M', corners: [[0, 0], [1, 0], [1, 1]] as any });
     expect(m.isError).toBe(true);
+  });
+
+  it('shader effect: compiled before saving, applied, changes the render', async () => {
+    const bad = await h.call('create_plugin', { kind: 'effect', name: 'Broken', shader: { sksl: 'half4 main(float2 p) { return nope; }' } });
+    expect(bad.isError).toBe(true);
+    expect(bad.text).toMatch(/does not compile/);
+    const sksl = 'uniform shader image; uniform float2 resolution; uniform float time; uniform float amount;\nhalf4 main(float2 p) { half4 c = image.eval(p); return half4(mix(c.rgb, c.a - c.rgb, amount), c.a); }';
+    const c = await h.call('create_plugin', { kind: 'effect', name: 'Invert', target: 'any', shader: { sksl, params: [{ name: 'amount', min: 0, max: 1, default: 1 }] } });
+    expect(c.isError, c.text).toBe(false);
+    const d = await h.call('create_design', { preset: 'instagram-post', title: 's' });
+    const a = await h.call('add_elements', { design_id: d.json.id, elements: [{ type: 'shape', shape: 'rect', x: 0, y: 0, w: 1080, h: 1080, fill: '#ffffff' }] });
+    const before = await h.call('render_page', { design_id: d.json.id, page: 1 });
+    const ap = await h.call('apply_plugin', { design_id: d.json.id, plugin: 'Invert', element_ids: [a.json.added[0].id] });
+    expect(ap.isError, ap.text).toBe(false);
+    const el = (await h.ws.store.open(d.json.id)).doc.pages[0]!.elements[0] as any;
+    expect(el.shader).toMatchObject({ name: 'Invert', params: { amount: 1 } });
+    const after = await h.call('render_page', { design_id: d.json.id, page: 1 });
+    expect(after.images[0]!.data).not.toBe(before.images[0]!.data);
+  });
+
+  it('font plugin from a WOFF2: used by CSS font-family, embedded in the design', async () => {
+    const bytes = new Uint8Array(readFileSync(new URL('../../render/test/fixtures/fonts/inter-sub.woff2', import.meta.url)));
+    const up = await h.ws.putAsset(bytes, 'font/woff2', 'my.woff2');
+    const c = await h.call('create_plugin', { kind: 'font', name: 'My Inter', family: 'My Inter', faces: [{ asset: up.id, weight: 400 }] });
+    expect(c.isError, c.text).toBe(false);
+    const d = await h.call('create_design', { preset: 'instagram-post', title: 'f' });
+    const r = await h.call('set_page_html', { design_id: d.json.id, html: '<body style="font-family: \'My Inter\'"><p>Hello</p></body>' });
+    expect(r.isError, r.text).toBe(false);
+    expect(JSON.stringify(r.json.warnings)).not.toMatch(/not found/);
+    const doc = (await h.ws.store.open(d.json.id)).doc;
+    expect(doc.fonts?.some((f) => f.family === 'My Inter')).toBe(true);
+  });
+
+  it('mockup plugin from a photo with corners: listed and rendered', async () => {
+    const photo = await samplePng(800, 600, '#777777', '#999999');
+    const up = await h.ws.putAsset(photo, 'image/png', 'wall.png');
+    const c = await h.call('create_plugin', { kind: 'mockup', name: 'My wall', category: 'Walls', photo: { asset: up.id }, corners: [[200, 100], [600, 120], [590, 500], [210, 480]], shade: 0.5 });
+    expect(c.isError, c.text).toBe(false);
+    const l = await h.call('list_mockups', {});
+    const mine = l.json.mockups.find((m: any) => m.id === c.json.created.id);
+    expect(mine.category).toMatch(/My mockups/);
+    const d = await h.call('create_design', { preset: 'instagram-post', title: 'm' });
+    await h.call('add_elements', { design_id: d.json.id, elements: [{ type: 'shape', shape: 'rect', x: 0, y: 0, w: 1080, h: 1080, fill: '#ff0000' }] });
+    const r = await h.call('render_mockup', { design_id: d.json.id, mockup_id: c.json.created.id, size: 800 });
+    expect(r.isError, r.text).toBe(false);
+    expect(r.images.length).toBe(1);
   });
 });
