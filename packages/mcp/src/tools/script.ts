@@ -14,7 +14,6 @@ import { followSubtitles, pruneAssets, pruneFonts } from '@digital-canvas/scene'
 import type { ProjectFile } from '@digital-canvas/storage';
 import { Context, ToolError } from '../context.ts';
 import { thumbnail } from '../engine.ts';
-import { embedFonts } from '../fonts.ts';
 import { json, safe, type Extra } from './util.ts';
 
 type ToolCb = (args: Record<string, unknown>, extra: Extra) => Promise<CallToolResult>;
@@ -47,7 +46,7 @@ export class BatchContext extends Context {
   }
 
   override async save(file: ProjectFile): Promise<{ missingFonts: string[] }> {
-    const { missing } = await embedFonts(file);
+    const { missing } = await this.embedFonts(file);
     file.doc = pruneFonts(pruneAssets({ ...file.doc, updatedAt: new Date().toISOString() }));
     for (const k of [...file.assets.keys()]) if (!file.doc.assets[k]) file.assets.delete(k);
     this.files.set(file.doc.id, file);

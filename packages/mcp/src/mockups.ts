@@ -109,6 +109,11 @@ export async function renderPageMockup(file: ProjectFile, page: Page, mockupId: 
   if (opts.color && !parseHex(opts.color)) throw new ToolError(`"${opts.color}" is not a colour`, 'pass #rrggbb');
   const color = e.tint ? opts.color ?? e.colors?.[0] ?? null : null;
   const m = await prepare(e, opts.maxSide && opts.maxSide < Math.max(e.width, e.height) ? opts.maxSide : undefined);
+  return compositePage(file, page, e, m, color, opts);
+}
+
+/** A page composited onto prepared mockup maps (library or user mockup), encoded. */
+export async function compositePage(file: ProjectFile, page: Page, e: MockupEntry, m: PreparedMockup, color: string | null, opts: { format?: 'png' | 'jpeg'; fit?: 'cover' | 'contain' } = {}): Promise<MockupRender> {
   const doc = file.doc;
   const size = designSizeFor(m, doc.width, doc.height);
   const design = await withRenderer(file, (r) => r.renderPageRgba(doc, page, size.width, size.height), [page]);

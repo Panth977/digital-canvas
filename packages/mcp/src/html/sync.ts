@@ -11,6 +11,7 @@ import { Element as DomElement, type ChildNode, type Document } from 'domhandler
 import render from 'dom-serializer';
 import { walk, type Doc, type Element, type Fill, type Page, type TextElement } from '@digital-canvas/scene';
 import { parseDecls } from './css.ts';
+import { animationCss, pageCss, sheetCss } from './anim.ts';
 
 const r1 = (v: number) => Math.round(v * 10) / 10;
 const px = (v: number) => `${r1(v)}px`;
@@ -24,7 +25,7 @@ function fnv(s: string): string {
 
 /** The fields HTML can express, per element type: what the signature watches. */
 export function cssHash(e: Element): string {
-  const base = [e.type, r1(e.opacity ?? 1), r1(e.rotation ?? 0)];
+  const base = [e.type, r1(e.opacity ?? 1), r1(e.rotation ?? 0), e.animation ?? null, e.timing ?? null];
   if (e.type === 'text') return fnv(JSON.stringify([...base, e.text, e.runs ?? null, e.style]));
   if (e.type === 'shape') return fnv(JSON.stringify([...base, e.shape, e.fill, e.stroke, r1(e.radius)]));
   if (e.type === 'image') return fnv(JSON.stringify([...base, e.asset, r1(e.radius)]));
@@ -81,9 +82,13 @@ export function textInner(t: TextElement): string {
 
 const styleStr = (o: Record<string, string | number | undefined | null>) => Object.entries(o).filter(([, v]) => v !== undefined && v !== null && v !== '').map(([k, v]) => `${k}:${v}`).join(';');
 
+/** Collects @keyframes while elements are written (reset per page). */
+let SHEET = new Map<string, string>();
+
 function common(e: Element, ox: number, oy: number): Record<string, string | undefined> {
   return {
     left: px(e.x - ox), top: px(e.y - oy), width: px(e.w),
+    ...animationCss(e.animation, e.timing?.start, SHEET),
     ...(e.opacity !== undefined && e.opacity < 1 ? { opacity: String(r1(e.opacity * 100) / 100) } : {}),
     ...(e.rotation ? { transform: `rotate(${r1(e.rotation)}deg)` } : {}),
   };
@@ -92,7 +97,7 @@ function common(e: Element, ox: number, oy: number): Record<string, string | und
 /** One element as an absolutely placed node (inside a box at ox, oy). */
 export function elementHtml(e: Element, ox = 0, oy = 0, indent = ''): string {
   const id = `data-id="${escAttr(e.id)}"`;
-  const name = e.name ? ` data-name="${escAttr(e.name)}"` : '';
+  const name = (e.name ? ` data-name="${escAttr(e.name)}"` : '') + (e.animation?.type === 'custom' ? ` data-spec="${escAttr(JSON.stringify({ animation: e.animation }))}"` : '');
   if (e.hidden) return `${indent}<dc-element ${id}${name} data-type="${e.type}" style="${styleStr({ left: px(e.x - ox), top: px(e.y - oy), width: px(e.w), height: px(e.h) })}"></dc-element>`;
   switch (e.type) {
     case 'text':
@@ -123,15 +128,20 @@ export const ABS_STYLE = '[data-id]{position:absolute;margin:0;box-sizing:border
 
 function bodyCss(doc: Doc, page: Page): string {
   const bg = fillCss(page.background);
-  return styleStr({ width: px(doc.width), height: px(doc.height), margin: '0', position: 'relative', background: bg ?? undefined });
+  return styleStr({ width: px(doc.width), height: px(doc.height), margin: '0', position: 'relative', background: bg ?? undefined, ...pageCss(page, SHEET) });
 }
 
 /** Any page as absolutely placed HTML. */
 export function absoluteHtml(doc: Doc, page: Page): string {
-  return `<style>${ABS_STYLE}</style>\n<body style="${bodyCss(doc, page)}">\n${page.elements.map((e) => elementHtml(e, 0, 0, '  ')).join('\n')}\n</body>`;
+  SHEET = new Map();
+  const body = `<body style="${bodyCss(doc, page)}">\n${page.elements.map((e) => elementHtml(e, 0, 0, '  ')).join('\n')}\n</body>`;
+  const kf = sheetCss(SHEET);
+  return `<style>${ABS_STYLE}${kf ? `\n${kf}` : ''}</style>\n${body}`;
 }
 
 // ---------------------------------------------------------------- the layout source, kept in sync
+
+const safeJson = (s: string | undefined): Record<string, unknown> => { try { const v = JSON.parse(s ?? '{}'); return v && typeof v === 'object' ? v : {}; } catch { return {}; } };
 
 const isEl = (n: ChildNode): n is DomElement => n.type === 'tag' || n.type === 'style' || n.type === 'script';
 
@@ -180,6 +190,7 @@ const ROLE_ORDER = ['g', 'bg', 'keep', 'img', 't'];
  */
 export function syncedHtml(doc: Doc, page: Page): { html: string; changed: string[] } {
   const L = page.layout!;
+  SHEET = new Map();
   const dom = parseDocument(L.html, { lowerCaseTags: true, lowerCaseAttributeNames: true, decodeEntities: true });
   const body = bodyOf(dom);
   if (!body) return { html: absoluteHtml(doc, page), changed: ['layout source unreadable: absolute HTML instead'] };
@@ -257,10 +268,15 @@ export function syncedHtml(doc: Doc, page: Page): { html: string; changed: strin
         const s = L.sig[`${k}:${role}`]!;
         if (cssHash(e) === s[0]) continue;
         changed.push(`restyled [data-k=${k}] (${role})`);
+        const anim = animationCss(e.animation, e.timing?.start, SHEET);
         const look: Record<string, string | null> = {
           opacity: e.opacity < 1 ? String(r1(e.opacity * 100) / 100) : null,
           transform: e.rotation ? `rotate(${r1(e.rotation)}deg)` : null,
+          animation: anim.animation ?? 'none',
+          '--dc-direction': anim['--dc-direction'] ?? null, '--dc-by': anim['--dc-by'] ?? null, '--dc-phase': anim['--dc-phase'] ?? null,
+          '--dc-order': anim['--dc-order'] ?? null, '--dc-intensity': anim['--dc-intensity'] ?? null,
         };
+        if (e.animation?.type === 'custom') el.attribs['data-spec'] = JSON.stringify({ ...safeJson(el.attribs['data-spec']), animation: e.animation });
         if (role === 't' && e.type === 'text') {
           setStyle(el, { ...textCss(e), ...look });
           setInner(el, textInner(e));
@@ -292,7 +308,12 @@ export function syncedHtml(doc: Doc, page: Page): { html: string; changed: strin
   dom.children.forEach(pull);
   const strip = (el: DomElement) => { el.children = el.children.filter((c) => !(isEl(c) && c.name === 'style')); el.children.forEach((c) => isEl(c) && strip(c)); };
   strip(body);
-  const css = styles.join('\n') + (foreign.length && !styles.join('').includes(ABS_STYLE) ? `\n${ABS_STYLE}` : '');
+  // the page's own settings, as they are now
+  const pc = pageCss(page, SHEET);
+  setStyle(body, { animation: pc.animation ?? null, '--dc-duration': pc['--dc-duration'] ?? null, '--dc-transition': pc['--dc-transition'] ?? null, '--dc-direction': pc['--dc-direction'] ?? null, '--dc-by': pc['--dc-by'] ?? null, '--dc-order': pc['--dc-order'] ?? null });
+  const have = styles.join('\n');
+  const newKf = [...SHEET].filter(([n]) => !new RegExp(`@keyframes\\s+${n}\\b`).test(have)).map(([, c]) => c).join('\n');
+  const css = have + (foreign.length && !have.includes(ABS_STYLE) ? `\n${ABS_STYLE}` : '') + (newKf ? `\n${newKf}` : '');
   let bodyHtml = render(body, { encodeEntities: 'utf8' });
   if (extra) bodyHtml = bodyHtml.replace(/<\/body>\s*$/, `${extra}\n</body>`);
   return { html: `${css.trim() ? `<style>\n${css.trim()}\n</style>\n` : ''}${bodyHtml}`, changed };

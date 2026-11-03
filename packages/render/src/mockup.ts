@@ -313,3 +313,127 @@ export function parseMockupIndex(json: unknown): MockupEntry[] {
 export function mockupFiles(e: Pick<MockupEntry, 'id' | 'tint'>): { base: string; uvHi: string; uvLo: string; shade: string; tint: string | null; thumb: string } {
   return { base: `${e.id}/base.jpg`, uvHi: `${e.id}/uv-hi.png`, uvLo: `${e.id}/uv-lo.png`, shade: `${e.id}/shade.png`, tint: e.tint ? `${e.id}/tint.png` : null, thumb: `${e.id}/thumb.jpg` };
 }
+
+// ---------------------------------------------------------------- quad mockups (user photos)
+
+export type Quad = readonly [readonly [number, number], readonly [number, number], readonly [number, number], readonly [number, number]];
+
+/** A mockup made from any photo and the four corners of its print area (scene `MockupPlugin`). */
+export interface QuadMockup {
+  /** Print-area corners, clockwise from top-left, in a `width × height` picture of the photo. */
+  corners: Quad;
+  /** 0..1: how much of the photo's light and shade lands on the design (default 0.8). */
+  shade?: number;
+  /** The size the corners were picked on (the photo may be decoded at another size: corners are scaled). */
+  width: number;
+  height: number;
+}
+
+/** 3×3 row-major homography taking the unit square (0,0) (1,0) (1,1) (0,1) to the quad (Heckbert's square-to-quad). */
+function squareToQuad(q: Quad): number[] {
+  const [[x0, y0], [x1, y1], [x2, y2], [x3, y3]] = q;
+  const sx = x0 - x1 + x2 - x3, sy = y0 - y1 + y2 - y3;
+  if (Math.abs(sx) < 1e-9 && Math.abs(sy) < 1e-9) return [x1 - x0, x3 - x0, x0, y1 - y0, y3 - y0, y0, 0, 0, 1]; // a parallelogram
+  const dx1 = x1 - x2, dx2 = x3 - x2, dy1 = y1 - y2, dy2 = y3 - y2;
+  const den = dx1 * dy2 - dx2 * dy1;
+  const g = (sx * dy2 - dx2 * sy) / den, h = (dx1 * sy - sx * dy1) / den;
+  return [x1 - x0 + g * x1, x3 - x0 + h * x3, x0, y1 - y0 + g * y1, y3 - y0 + h * y3, y0, g, h, 1];
+}
+
+function invert3(m: number[]): number[] | null {
+  const [a, b, c, d, e, f, g, h, i] = m as [number, number, number, number, number, number, number, number, number];
+  const A = e * i - f * h, B = -(d * i - f * g), C = d * h - e * g;
+  const det = a * A + b * B + c * C;
+  if (!det || !Number.isFinite(det)) return null;
+  const k = 1 / det;
+  return [A * k, -(b * i - c * h) * k, (b * f - c * e) * k, B * k, (a * i - c * g) * k, -(a * f - c * d) * k, C * k, -(a * h - b * g) * k, (a * e - b * d) * k];
+}
+
+/** width / height of the print area: mean of the top and bottom edges over mean of the sides (what the design is fitted to). */
+export function quadAspect(corners: Quad): number {
+  const len = (a: readonly [number, number], b: readonly [number, number]) => Math.hypot(b[0] - a[0], b[1] - a[1]);
+  const [tl, tr, br, bl] = corners;
+  const w = (len(tl, tr) + len(bl, br)) / 2, h = (len(tl, bl) + len(tr, br)) / 2;
+  return w > 0 && h > 0 ? w / h : 1;
+}
+
+/** The index entry for a quad mockup (id, label and category from the plugin). */
+export function quadMockupEntry(p: QuadMockup & { id: string; name: string; category?: string }): MockupEntry {
+  return { id: p.id, label: p.name, category: p.category ?? 'My mockups', width: p.width, height: p.height, aspect: quadAspect(p.corners) };
+}
+
+/**
+ * The format-v1 maps for a photo and a print-area quad, so `prepareMockup` /
+ * `compositeMockup` put a design on any photo: u,v by the inverse homography
+ * of the corners, coverage 1 inside the quad with a 1 px anti-aliased edge
+ * (× the mask's luminance and alpha when given: white = print area), and a
+ * shade map from the photo's luminance inside the quad relative to its mean
+ * (flat = 128 = no change, `shade` scales it).
+ */
+export function quadMockupBuffers(photo: Rgba, plugin: QuadMockup, mask?: Rgba | null): MockupBuffers {
+  const W = photo.width, H = photo.height, n = W * H, src = photo.data;
+  if (W < 1 || H < 1 || src.length < n * 4) throw new Error('quad mockup: expected an RGBA photo');
+  const kx = plugin.width > 0 ? W / plugin.width : 1, ky = plugin.height > 0 ? H / plugin.height : 1;
+  const q = plugin.corners.map(([x, y]) => [x * kx, y * ky] as const) as unknown as Quad;
+  const inv = invert3(squareToQuad(q));
+  if (!inv) throw new Error('quad mockup: the corners do not make a quadrilateral');
+  // edges as lines a·x + b·y + c = signed distance, positive inside (needs a convex quad)
+  let area = 0;
+  for (let i = 0; i < 4; i++) { const [ax, ay] = q[i]!, [bx, by] = q[(i + 1) % 4]!; area += ax * by - bx * ay; }
+  const s = area >= 0 ? 1 : -1;
+  const edges = q.map(([ax, ay], i) => {
+    const [bx, by] = q[(i + 1) % 4]!;
+    const len = Math.hypot(bx - ax, by - ay) || 1;
+    const a = (-(by - ay) / len) * s, b = ((bx - ax) / len) * s;
+    return [a, b, -(a * ax + b * ay)] as const; // distance positive on the inner side
+  });
+  const convex = q.every((_, i) => {
+    const [ax, ay] = q[i]!, [bx, by] = q[(i + 1) % 4]!, [cx, cy] = q[(i + 2) % 4]!;
+    return ((bx - ax) * (cy - by) - (by - ay) * (cx - bx)) * s >= 0;
+  });
+  const maskAt = mask && mask.width > 0 && mask.height > 0 ? (x: number, y: number) => {
+    const mx = Math.min(mask.width - 1, Math.floor((x + 0.5) * mask.width / W)), my = Math.min(mask.height - 1, Math.floor((y + 0.5) * mask.height / H));
+    const p = (my * mask.width + mx) * 4, d = mask.data;
+    return ((0.299 * d[p]! + 0.587 * d[p + 1]! + 0.114 * d[p + 2]!) / 255) * (d[p + 3]! / 255);
+  } : null;
+
+  const uvHi = new Uint8Array(n * 4), uvLo = new Uint8Array(n * 4), shade = new Uint8Array(n * 4);
+  const cover = new Float32Array(n), lum = new Float32Array(n);
+  let sumL = 0, sumM = 0;
+  for (let y = 0, i = 0; y < H; y++) {
+    const py = y + 0.5;
+    for (let x = 0; x < W; x++, i++) {
+      const px = x + 0.5, p = i * 4;
+      const L = 0.299 * src[p]! + 0.587 * src[p + 1]! + 0.114 * src[p + 2]!;
+      lum[i] = L;
+      const w = inv[6]! * px + inv[7]! * py + inv[8]!;
+      if (!(w > 0) && !(w < 0)) continue;
+      const u = (inv[0]! * px + inv[1]! * py + inv[2]!) / w, v = (inv[3]! * px + inv[4]! * py + inv[5]!) / w;
+      let m: number;
+      if (convex) {
+        let d = Infinity;
+        for (const [a, b, c] of edges) d = Math.min(d, a * px + b * py + c);
+        m = Math.max(0, Math.min(1, d + 0.5));
+      } else m = u >= 0 && u <= 1 && v >= 0 && v <= 1 ? 1 : 0;
+      if (m > 0 && maskAt) m *= maskAt(x, y);
+      if (m <= 0) continue;
+      const U = Math.round(Math.max(0, Math.min(1, u)) * 65535), V = Math.round(Math.max(0, Math.min(1, v)) * 65535);
+      const M = Math.max(1, Math.round(m * 255));
+      uvHi[p] = U >> 8; uvHi[p + 1] = V >> 8; uvHi[p + 2] = M; uvHi[p + 3] = 255;
+      uvLo[p] = U & 255; uvLo[p + 1] = V & 255; uvLo[p + 3] = 255;
+      cover[i] = M / 255;
+      sumL += L * cover[i]!; sumM += cover[i]!;
+    }
+  }
+  const mean = sumM > 0 ? sumL / sumM : 0;
+  const k = Math.max(0, Math.min(1, plugin.shade ?? 0.8));
+  for (let i = 0, p = 0; i < n; i++, p += 4) {
+    let g = 128;
+    if (cover[i]! > 0 && mean > 0) g = Math.round(Math.max(0, Math.min(255, 128 * (1 + k * (lum[i]! / mean - 1)))));
+    shade[p] = shade[p + 1] = shade[p + 2] = g; shade[p + 3] = 255;
+    if (!uvHi[p + 3]) { uvHi[p + 3] = 255; uvLo[p + 3] = 255; }
+  }
+  const base = new Uint8Array(n * 4);
+  for (let p = 0; p < n * 4; p += 4) { base[p] = src[p]!; base[p + 1] = src[p + 1]!; base[p + 2] = src[p + 2]!; base[p + 3] = 255; }
+  return { base: { width: W, height: H, data: base }, uvHi: { width: W, height: H, data: uvHi }, uvLo: { width: W, height: H, data: uvLo }, shade: { width: W, height: H, data: shade }, tint: null };
+}

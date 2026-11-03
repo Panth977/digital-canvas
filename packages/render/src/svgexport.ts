@@ -19,6 +19,15 @@ export const textNeedsRaster = (el: TextElement): boolean => !!el.effect || !!el
 /** True when an image or video has adjustments, a filter or an effect (vector export draws it as an image). */
 export const pictureNeedsRaster = (el: ImageElement | VideoElement): boolean => hasLook(el);
 
+/** True when an element has a shader effect: vector exports draw it (a group: all of it) as an image. */
+export const shaderNeedsRaster = (el: Element): boolean => !!el.shader?.sksl;
+
+/** Decode every picture inside an element (a group's children too), so a raster of it shows them. */
+export function loadPictures(renderer: Renderer, el: Element, assets: ReadonlyMap<string, Uint8Array>): void {
+  if (el.type === 'image' || el.type === 'video') loadPicture(renderer, el, assets);
+  else if (el.type === 'group') for (const c of el.children) loadPictures(renderer, c, assets);
+}
+
 /** Decode an image's (or a video poster's) bytes into the renderer so it can be drawn; its pixel size, or null. */
 export function loadPicture(renderer: Renderer, el: ImageElement | VideoElement, assets: ReadonlyMap<string, Uint8Array>): { width: number; height: number } | null {
   const assetId = el.type === 'video' ? posterOf(el) : el.asset;
@@ -153,14 +162,16 @@ export function exportSvg(renderer: Renderer, doc: Doc, page: Page, opts: Vector
   for (const el of flattenGroups(page.elements)) {
     if (el.hidden) continue;
     let inner: string;
-    if (el.type === 'text') inner = textNeedsRaster(el) ? rasterImage(el) : text(el);
+    const shaded = shaderNeedsRaster(el);
+    if (shaded) { loadPictures(renderer, el, opts.assets); inner = rasterImage(el); }
+    else if (el.type === 'text') inner = textNeedsRaster(el) ? rasterImage(el) : text(el);
     else if (el.type === 'shape') inner = shape(el);
     else if (el.type === 'path') inner = vectorPath(el);
     else if (el.type === 'line' || el.type === 'table' || el.type === 'chart') inner = pieces(renderer.vectorize(el));
     else if (pictureNeedsRaster(el)) inner = loadPicture(renderer, el, opts.assets) ? rasterImage(el) : picture(el);
     else inner = picture(el);
     if (!inner) continue;
-    const raster = (el.type === 'text' && textNeedsRaster(el)) || ((el.type === 'image' || el.type === 'video') && pictureNeedsRaster(el) && inner.startsWith('<image '));
+    const raster = shaded || (el.type === 'text' && textNeedsRaster(el)) || ((el.type === 'image' || el.type === 'video') && pictureNeedsRaster(el) && inner.startsWith('<image '));
     const cx = el.x + el.w / 2, cy = el.y + el.h / 2;
     const tf: string[] = [];
     if (!raster) {
@@ -180,9 +191,9 @@ export function exportSvg(renderer: Renderer, doc: Doc, page: Page, opts: Vector
     + `${body.join('')}</svg>\n`;
 }
 
-/** Groups keep their children in page coordinates: export the children (the group's opacity carried down). */
+/** Groups keep their children in page coordinates: export the children (the group's opacity carried down). A group with a shader stays whole (drawn as an image). */
 function flattenGroups(els: readonly Element[]): Exclude<Element, { type: 'group' }>[] {
-  return els.flatMap((e) => (e.type === 'group'
+  return els.flatMap((e) => (e.type === 'group' && !e.shader
     ? flattenGroups(e.children.map((c) => ({ ...c, opacity: c.opacity * e.opacity, hidden: c.hidden || e.hidden })))
-    : [e as Exclude<Element, { type: 'group' }>]));
+    : [e as Exclude<Element, { type: 'group' }>])); // (a shaded group passes as is; callers raster it first)
 }

@@ -13,7 +13,7 @@
 import { zipSync, strToU8 } from 'fflate';
 import type { Doc, Element, ImageElement, TextElement, TextStyle, VideoElement } from '@digital-canvas/scene';
 import type { Renderer } from './renderer.ts';
-import { loadPicture, textNeedsRaster, type VectorExportOptions } from './svgexport.ts';
+import { loadPictures, textNeedsRaster, type VectorExportOptions } from './svgexport.ts';
 
 // ---- the model ----
 
@@ -284,9 +284,9 @@ export function textParagraphs(el: TextElement): PptxParagraph[] {
 
 /** Groups keep their children in page coordinates: export the children (the group's opacity carried down). */
 function ungroup(els: readonly Element[]): Exclude<Element, { type: 'group' }>[] {
-  return els.flatMap((e) => (e.type === 'group'
+  return els.flatMap((e) => (e.type === 'group' && !e.shader
     ? ungroup(e.children.map((c) => ({ ...c, opacity: c.opacity * e.opacity, hidden: c.hidden || e.hidden })))
-    : [e as Exclude<Element, { type: 'group' }>]));
+    : [e as Exclude<Element, { type: 'group' }>])); // (a shaded group passes as is; callers raster it first)
 }
 
 /** The deck model for a design (each non-text element drawn as a picture by the renderer). */
@@ -302,11 +302,11 @@ export function pptxDeck(renderer: Renderer, doc: Doc, opts: PptxOptions): PptxD
     }
     for (const el of ungroup(page.elements)) {
       if (el.hidden || el.opacity <= 0) continue;
-      if (el.type === 'text' && textMapsToPptx(el)) {
+      if (el.type === 'text' && !el.shader && textMapsToPptx(el)) {
         items.push({ kind: 'text', name: el.name, x: el.x, y: el.y, w: el.w, h: el.h, rotation: el.rotation, flipH: el.flipX, flipV: el.flipY, paragraphs: textParagraphs(el) });
         continue;
       }
-      if (el.type === 'image' || el.type === 'video') loadPicture(renderer, el as ImageElement | VideoElement, opts.assets);
+      loadPictures(renderer, el, opts.assets); // a shaded group stays whole: its pictures too
       const r = renderer.rasterElement(el, Math.max(1, Math.min(2, 3000 / Math.max(el.w, el.h, 1))));
       if (r) items.push({ kind: 'picture', name: el.name, png: r.png, x: r.x, y: r.y, w: r.w, h: r.h });
     }

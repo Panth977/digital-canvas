@@ -44,7 +44,7 @@ function unknownKeys(spec: Obj, type: string): string[] {
 function cleanAnimation(a: unknown): Animation | undefined {
   if (!a || typeof a !== 'object') return undefined;
   const o = a as Obj;
-  return Object.fromEntries(Object.entries({ type: o.type, duration: o.duration, direction: o.direction, phase: o.phase, intensity: o.intensity, by: o.by, order: o.order, path: o.path }).filter(([, v]) => v !== undefined)) as unknown as Animation;
+  return Object.fromEntries(Object.entries({ type: o.type, duration: o.duration, direction: o.direction, phase: o.phase, intensity: o.intensity, by: o.by, order: o.order, path: o.path, keyframes: o.keyframes, plugin: o.plugin }).filter(([, v]) => v !== undefined)) as unknown as Animation;
 }
 
 function textEffect(v: Obj): TextEffect {
@@ -201,7 +201,17 @@ export async function buildElements(ctx: Context, file: ProjectFile, specs: Elem
       default:
         throw new ToolError(`${where}: unknown type`, 'type is one of text, shape, line, arrow, image, video, icon, qr, chart, table, path, group');
     }
-    if (el) out.push(common(el, spec));
+    if (el) {
+      const made = common(el, spec);
+      if (made.animation?.plugin && !made.animation.keyframes) {
+        const lib = await (ctx.ws.store as { loadPlugins?: () => Promise<{ plugins: { id: string; name: string; kind: string; recipe?: unknown }[] }> }).loadPlugins?.().catch(() => null);
+        const ref = made.animation.plugin.toLowerCase();
+        const p = lib?.plugins.find((x) => x.kind === 'animation' && (x.id.toLowerCase() === ref || x.name.toLowerCase() === ref));
+        if (p) made.animation = { ...made.animation, type: 'keyframes', plugin: p.id, keyframes: p.recipe as never };
+        else warnings.push(`${where}: no animation plugin "${made.animation.plugin}" (list_plugins)`);
+      }
+      out.push(made);
+    }
   }
   return { elements: out, warnings, fit };
 }

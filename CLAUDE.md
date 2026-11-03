@@ -212,3 +212,9 @@ Panth's rule: no generated design content. Templates, stickers, illustrations, f
 - Scene: `ElementBase.lk` (layout key + role) and `Page.layout` (`{ html, sig }`). Both are plain data: editor operations keep them (duplicate page clones them, so a copied page still reflows). Elements without `lk` on a layout page come back from `get_page_html` as absolutely placed nodes.
 - CSS that is not drawn: box-shadow, ::before/::after, overflow clipping, tables (use grid/flex). Margins do not collapse. Words never break; a word wider than its box sticks out and is reported.
 - Script limits: 50 s in cloud mode (Claude's proxy gives up near 60 s), 300 s local; 3000 calls; 128 MB.
+
+## Plugin rendering (r20-render, 2026-11-04)
+
+- Shader effects: `Renderer.drawElement` draws an element with `shader` to a CPU layer at device resolution (whole element, capped 4096² px), then through the SkSL (`render/src/shader.ts`, `ShaderCache` by source; compile error → drawn unshaded). `Renderer.time` = `uniform float time`; `drawFrameAt` sets it to the page's local time. SVG / vector PDF / PPTX raster a shaded element (a shaded group stays whole). `compileShader(ck, sksl)` validates plugins.
+- Quad mockups: `quadMockupBuffers(photo, { corners, shade, width, height }, mask)` → format-v1 buffers for `prepareMockup`/`compositeMockup`; `quadMockupEntry` gives the index entry (aspect from the quad).
+- Fonts: `toSfnt` (WOFF via fflate, WOFF2 via the `brotli` package's pure-JS decoder + our glyf/loca/hmtx transform rebuild, `render/src/sfnt.ts`), `fontInfo`. `FontLibrary.add` decodes WOFF/WOFF2 itself. Fixtures: `packages/render/test/fixtures/fonts/make.py` (fontTools).

@@ -90,7 +90,7 @@ export interface FontPlugin extends PluginBase {
  * A mockup made from a photo: the print area is the quadrilateral `corners`
  * (photo pixels, clockwise from top-left). The compositor warps the design
  * into it and multiplies the photo's shading onto it (render/mockup.ts
- * `quadMockup`).
+ * `quadMockupBuffers`).
  */
 export interface MockupPlugin extends PluginBase {
   kind: 'mockup';

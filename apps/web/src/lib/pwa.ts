@@ -5,6 +5,7 @@
  * Capacitor shell, which already has its files on the device.
  */
 import { isNative } from './native/platform.ts';
+import { isDesktop } from './desktop/desktop.svelte.ts';
 
 /** Stand-in Drive token while offline: the service worker answers from its cache, Google never sees it. */
 export const OFFLINE_TOKEN = 'offline';
@@ -13,7 +14,11 @@ export const OFFLINE_TOKEN = 'offline';
 const DRIVE_CACHE = 'dc-drive-v1';
 
 export function registerServiceWorker(): void {
-  if (!import.meta.env.PROD || isNative() || !('serviceWorker' in navigator)) return;
+  if (!('serviceWorker' in navigator)) return;
+  // The desktop app serves the files itself: a service worker only gets in the way
+  // (it failed the window's next start), so drop one an older version left behind.
+  if (isDesktop()) { void navigator.serviceWorker.getRegistrations().then((rs) => rs.forEach((r) => void r.unregister())).catch(() => {}); return; }
+  if (!import.meta.env.PROD || isNative()) return;
   const go = () => navigator.serviceWorker.register('/sw.js').catch((e) => console.warn('Service worker not registered', e));
   if (document.readyState === 'complete') void go();
   else addEventListener('load', () => void go(), { once: true });

@@ -7,6 +7,7 @@ import { followSubtitles, pruneAssets, pruneFonts, type AssetMeta, type Doc } fr
 import { assetId, type ProjectFile } from '@digital-canvas/storage';
 import { thumbnail } from './engine.ts';
 import { embedFonts } from './fonts.ts';
+import { embedUserFonts } from './pluginfonts.ts';
 import { probe, type MediaInfo } from './media.ts';
 import { download } from './net.ts';
 import type { JobRunner } from './jobs.ts';
@@ -68,9 +69,15 @@ export class Context {
     }
   }
 
+  /** The user's font plugins first, then Google Fonts. Returns families that could not be found. */
+  async embedFonts(file: ProjectFile): Promise<{ added: string[]; missing: string[] }> {
+    await embedUserFonts(this, file).catch(() => {});
+    return embedFonts(file);
+  }
+
   /** Embed fonts, drop unused assets, refresh the thumbnail, save. Returns fonts that could not be found. */
   async save(file: ProjectFile): Promise<{ missingFonts: string[] }> {
-    const { missing } = await embedFonts(file);
+    const { missing } = await this.embedFonts(file);
     file.doc = pruneFonts(pruneAssets({ ...file.doc, updatedAt: new Date().toISOString() }));
     for (const k of [...file.assets.keys()]) if (!file.doc.assets[k]) file.assets.delete(k);
     file.thumbnail = await thumbnail(file).catch(() => file.thumbnail);

@@ -15,6 +15,8 @@ import { registerEditTools } from './tools/edit.ts';
 import { registerExportTools, runJob } from './tools/export.ts';
 import { registerHtmlTools } from './tools/html.ts';
 import { registerScriptTool } from './tools/script.ts';
+import { registerPluginTools } from './tools/plugins.ts';
+import { compatToolList } from './schemacompat.ts';
 import { registerMockupTools } from './tools/mockups.ts';
 import { registerSpeechTools, registerVideoTools } from './tools/video.ts';
 import { registerViewTools } from './tools/view.ts';
@@ -44,6 +46,7 @@ function registerAllTools(server: McpServer, ctx: Context): void {
   registerSpeechTools(server, ctx);
   registerExportTools(server, ctx);
   registerMockupTools(server, ctx);
+  registerPluginTools(server, ctx);
 }
 
 export function createServer(ws: Workspace, opts: ServerOptions = {}): McpServer {
@@ -61,6 +64,8 @@ export function createServer(ws: Workspace, opts: ServerOptions = {}): McpServer
 
   registerAllTools(server, ctx);
   registerScriptTool(server, ctx, registerAllTools);
+
+  compatToolList(server);
 
   // ---- resources
 

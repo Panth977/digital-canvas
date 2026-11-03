@@ -172,3 +172,27 @@ export function keyframesFromCss(css: string): Record<string, MotionRecipe> {
   }
   return out;
 }
+
+const n4 = (v: number) => String(Math.round(v * 10000) / 10000);
+
+/** A recipe back to CSS @keyframes (keyframesFromCss reads it back to the same recipe). */
+export function recipeToCss(name: string, r: MotionRecipe): string {
+  // the recipe drops defaults (opacity 1, blur 0): state them on every frame when any frame uses them
+  const anyO = r.f.some((f) => f.o !== undefined), anyB = r.f.some((f) => f.b);
+  const lines = r.f.map((f, i) => {
+    const t: string[] = [];
+    if (f.tx || f.ty) t.push(`translate(${n4((f.tx ?? 0) * 100)}%, ${n4((f.ty ?? 0) * 100)}%)`);
+    if (f.px || f.py) t.push(`translate(${n4(f.px ?? 0)}px, ${n4(f.py ?? 0)}px)`);
+    if ((f.sx ?? 1) !== 1 || (f.sy ?? 1) !== 1) t.push(`scale(${n4(f.sx ?? 1)}, ${n4(f.sy ?? 1)})`);
+    if (f.r) t.push(`rotate(${n4(f.r)}deg)`);
+    if (f.kx || f.ky) t.push(`skew(${n4(f.kx ?? 0)}deg, ${n4(f.ky ?? 0)}deg)`);
+    const d: string[] = [];
+    if (i === 0 && (r.ox !== undefined || r.oy !== undefined)) d.push(`transform-origin: ${n4((r.ox ?? 0.5) * 100)}% ${n4((r.oy ?? 0.5) * 100)}%`);
+    d.push(`transform: ${t.length ? t.join(' ') : 'none'}`);
+    if (anyO) d.push(`opacity: ${n4(f.o ?? 1)}`);
+    if (anyB) d.push(`filter: blur(${n4(f.b ?? 0)}px)`);
+    if (f.e) d.push(`animation-timing-function: cubic-bezier(${f.e.map(n4).join(', ')})`);
+    return `  ${n4(f.a * 100)}% { ${d.join('; ')} }`;
+  });
+  return `@keyframes ${name.replace(/[^a-zA-Z0-9_-]/g, '-')} {\n${lines.join('\n')}\n}`;
+}

@@ -1,5 +1,6 @@
 import type { CanvasKit, TypefaceFontProvider } from 'canvaskit-wasm';
 import type { Color } from '@digital-canvas/scene';
+import { fontFormat, toSfnt } from './sfnt.ts';
 
 /** Parse `#rgb`, `#rrggbb` or `#rrggbbaa` into a CanvasKit colour. */
 export function color(ck: CanvasKit, hex: Color, alpha = 1): Float32Array {
@@ -54,6 +55,11 @@ export class FontLibrary {
    * and tried after the family's other faces.
    */
   add(family: string, bytes: ArrayBuffer | Uint8Array, subset?: string, face?: { weight?: number; italic?: boolean }): void {
+    // CanvasKit reads TTF/OTF only: WOFF and WOFF2 (font plugins, web fonts) are decoded first
+    const fmt = fontFormat(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes));
+    if (fmt === 'woff' || fmt === 'woff2') {
+      try { bytes = toSfnt(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)); } catch (e) { console.warn(`font ${family}:`, e instanceof Error ? e.message : e); return; }
+    }
     const name = subset ? `${family}\u241f${subset}` : family;
     this.provider.registerFont(bytes, name);
     this.faces.push({ family, bytes: bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes), weight: face?.weight ?? 400, italic: face?.italic ?? false, subset });

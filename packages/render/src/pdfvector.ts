@@ -11,7 +11,7 @@ import { applyMatrix, clipOf, dashArray, exactPart, exactText, mulMatrix, poster
 import { actualTextOp, addLinks, cm, colorOps, exactWriter, parseD, strokeOps, textStateOps, tjOp, type ExactWriter } from './pdfexact.ts';
 import type { FontFace } from './fonts.ts';
 import { shapePath, transformPath, type Renderer } from './renderer.ts';
-import { loadPicture, pictureNeedsRaster, textNeedsRaster, type VectorExportOptions } from './svgexport.ts';
+import { loadPicture, loadPictures, pictureNeedsRaster, shaderNeedsRaster, textNeedsRaster, type VectorExportOptions } from './svgexport.ts';
 import { pathCmds, pickFaces, rgba, type Cmd } from './vectorpath.ts';
 import { printLayout, rgbaToCmyk, rgbToCmyk } from './print.ts';
 
@@ -35,6 +35,7 @@ const isLinear = (f: Fill | null | undefined) => f?.type === 'linear';
 
 /** Elements vector PDF draws as an image: text effects, curved or gradient text, gradient fills, images with a look. */
 function needsRaster(el: Element): boolean {
+  if (shaderNeedsRaster(el)) return true;
   if (el.type === 'text') return !exactText(el) && (textNeedsRaster(el) || !!el.gradient);
   if (el.type === 'shape') return isLinear(el.fill);
   if (el.type === 'path') return el.paths.some((p) => isLinear(p.fill));
@@ -460,7 +461,8 @@ export async function exportVectorPdf(renderer: Renderer, doc: Doc, opts: Vector
     if (doc.pdf) ops(popGraphicsState());
     for (const el of flattenGroups(page.elements)) {
       if (el.hidden) continue;
-      if (needsRaster(el) && ((el.type !== 'image' && el.type !== 'video') || loadPicture(renderer, el, opts.assets))) {
+      if (shaderNeedsRaster(el)) loadPictures(renderer, el, opts.assets);
+      if (needsRaster(el) && (shaderNeedsRaster(el) || (el.type !== 'image' && el.type !== 'video') || loadPicture(renderer, el, opts.assets))) {
         const r = renderer.rasterElement(el);
         const img = r ? await embedPng(r.png) : null;
         if (r && img) {
@@ -551,9 +553,9 @@ export async function exportVectorPdf(renderer: Renderer, doc: Doc, opts: Vector
   }
 }
 
-/** Groups keep their children in page coordinates: export the children (the group's opacity carried down). */
+/** Groups keep their children in page coordinates: export the children (the group's opacity carried down). A group with a shader stays whole (drawn as an image). */
 function flattenGroups(els: readonly Element[]): Exclude<Element, { type: 'group' }>[] {
-  return els.flatMap((e) => (e.type === 'group'
+  return els.flatMap((e) => (e.type === 'group' && !e.shader
     ? flattenGroups(e.children.map((c) => ({ ...c, opacity: c.opacity * e.opacity, hidden: c.hidden || e.hidden })))
-    : [e as Exclude<Element, { type: 'group' }>]));
+    : [e as Exclude<Element, { type: 'group' }>])); // (a shaded group passes as is; callers raster it first)
 }
