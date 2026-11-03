@@ -168,3 +168,23 @@ test('import_pdf runs in the device worker: a PDF from a URL becomes a design in
   expect(r.json.texts).toBeGreaterThan(1);
   expect([...drive.files.values()].some((f) => f.name.includes('From a URL'))).toBe(true);
 });
+
+test('run_script and set_page_html run in the device worker (QuickJS + Yoga in the browser)', async ({ page }) => {
+  test.setTimeout(120_000);
+  await device(page);
+  const { call } = await mcp();
+  await page.getByTestId('home-ai').click();
+  await page.getByTestId('ai-device-toggle').check();
+  await expect(page.getByTestId('ai-this-device')).toContainText('Ready for requests');
+  await page.getByRole('button', { name: 'Close' }).click();
+  const made = await call('create_design', { preset: 'instagram-post', title: 'Script' });
+  const r = await call('run_script', { code: `
+    const r = await dc.set_page_html({ design_id: ${JSON.stringify(made.json.id)}, html: '<body style="display:flex;gap:20px;padding:40px"><div style="flex:1;height:200px;background:#5b3df5;border-radius:24px"></div><p style="font-size:60px;margin:0">Hi</p></body>' });
+    const o = await dc.open_design({ design_id: ${JSON.stringify(made.json.id)} });
+    return { made: r.elements, warnings: r.warnings.length, elements: o.pages[0].elements.length };
+  ` });
+  expect(r.isError, r.text).toBe(false);
+  expect(r.json.result).toEqual({ made: 2, warnings: 0, elements: 2 });
+  const html = await call('get_page_html', { design_id: made.json.id });
+  expect(html.text).toContain('layout source');
+});
