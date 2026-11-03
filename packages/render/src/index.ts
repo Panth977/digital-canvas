@@ -12,3 +12,4 @@ export { printLayout, rgbToCmyk, rgbaToCmyk, MM, type PrintLayout, type PrintOpt
 export * from './mockup.ts';
 export { compileShader, type ShaderCompile, type ShaderUniform } from './shader.ts';
 
+export { toSfnt, fontInfo, fontFormat, FontFileError, type FontInfo } from './sfnt.ts';
