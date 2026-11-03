@@ -86,6 +86,7 @@
       add({ id: 'videos', label: 'Videos', icon: 'video', on: isOpen('videos'), act: () => rail('videos') });
       if (isVideo(ed.doc)) add({ id: 'subtitles', label: 'Subtitles', icon: 'captions', on: isOpen('subtitles'), act: () => rail('subtitles') });
       add({ id: 'sounds', label: 'Audio', icon: 'music', on: isOpen('sounds'), act: () => rail('sounds') });
+      add({ id: 'plugins', label: 'Plugins', icon: 'puzzle', on: isOpen('plugins'), act: () => rail('plugins') });
       add({ id: 'page-bg', label: 'Background', swatch: pageBg(), on: isOpen('color'), act: () => color({ title: 'Background colour', testid: 'page-bg', kind: 'page', value: pageBg, onchange: (hex) => ed.updatePage({ background: { type: 'solid', color: hex } }, 'page-bg') }) });
       add({ id: 'pages', label: 'Pages', icon: 'pages', on: mobile.sheet === 'pages', act: () => sheet('pages') });
       add({ id: 'animate', label: ed.page.animation ? animationLabel(ed.page.animation) : 'Animate', icon: 'animate', on: isOpen('animate'), act: () => ui.open('animate') });

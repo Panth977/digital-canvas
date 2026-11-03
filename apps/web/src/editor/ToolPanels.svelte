@@ -16,6 +16,7 @@
   import FontPanel from './FontPanel.svelte';
   import AnimatePanel from './AnimatePanel.svelte';
   import FindPanel from './FindPanel.svelte';
+  import MyEffects from './panels/plugins/MyEffects.svelte';
   import { colorFromQuery, colorMatches, DEFAULT_GRADIENTS, paletteOf } from '../lib/uiutil.ts';
   import { countUses, recolorDoc } from '../lib/recolor.ts';
   import { untrack } from 'svelte';
@@ -392,6 +393,7 @@
             </label>
           {/if}
         {/if}
+        <MyEffects {ed} />
         <h4>Shape</h4>
         <div class="fxgrid two">
           <button class="fx" class:on={!t0.curve} onclick={() => { ed.updateText({ curve: undefined }); end(); }}><span class="fxpv">abc</span><span>None</span></button>

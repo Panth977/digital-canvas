@@ -5,6 +5,9 @@
   import { pickFiles } from '../lib/files.ts';
   import Icon from '../lib/Icon.svelte';
   import { ui } from '../lib/ui.svelte.ts';
+  import { library } from '../lib/library.svelte.ts';
+  import { plugins } from '../lib/plugins/plugins.svelte.ts';
+  import type { FontPlugin } from '@digital-canvas/scene';
 
   let { ed, value }: { ed: EditorState; value: string | undefined } = $props();
 
@@ -16,7 +19,7 @@
   let uploads = $state<FontFile[]>([]);
 
   /** Canva's font list in the side panel: loads the catalogue when it opens. */
-  onMount(() => { ui.fontQuery = ''; void load(); });
+  onMount(() => { ui.fontQuery = ''; void load(); void plugins.load(library.store); });
   async function load(): Promise<void> {
     error = '';
     try {
@@ -29,6 +32,14 @@
 
   const q = $derived(query.trim().toLowerCase());
   const matches = $derived(fonts.filter((f) => (!category || f.category === category) && (!q || f.family.toLowerCase().includes(q))));
+  const myFonts = $derived(plugins.of('font').filter((p) => !q || p.family.toLowerCase().includes(q) || p.name.toLowerCase().includes(q)));
+  $effect(() => { for (const p of myFonts) void plugins.previewFont(p); });
+  let myLoading = $state('');
+  async function useMine(p: FontPlugin): Promise<void> {
+    error = '';
+    myLoading = p.id;
+    try { await plugins.useFont(ed, p); } catch (e) { error = e instanceof Error ? e.message : String(e); } finally { myLoading = ''; }
+  }
   const inDoc = $derived(ed.families.filter((f) => !q || f.toLowerCase().includes(q)));
   const uploaded = $derived([...new Set(uploads.map((u) => u.family))].filter((f) => !ed.engine.fonts.families.has(f) && (!q || f.toLowerCase().includes(q))));
 
@@ -96,6 +107,15 @@
   <button class="btn wide" onclick={upload} data-testid="font-upload"><Icon name="upload" size={15} /> Upload a font</button>
   {#if error}<p class="err">{error}</p>{/if}
   <div class="list scroll-y" onscroll={onScroll}>
+    {#if myFonts.length}
+      <h5 data-testid="my-fonts">My fonts</h5>
+      {#each myFonts as p (p.id)}
+        <button class="row" class:on={p.family === value} data-testid="my-font-{p.id}" data-family={p.family} style="font-family:'{p.family}', Inter" onclick={() => useMine(p)} disabled={!!myLoading}>
+          {p.family}
+          {#if myLoading === p.id}<span class="spin"></span>{:else if p.family === value}<Icon name="check" size={16} />{:else}<em>my font</em>{/if}
+        </button>
+      {/each}
+    {/if}
     {#if inDoc.length || uploaded.length}
       <h5>Document fonts</h5>
       {#each inDoc as f}

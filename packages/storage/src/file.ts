@@ -77,7 +77,7 @@ export function peek(bytes: Uint8Array): { doc: Doc; thumbnail?: Uint8Array } {
 
 const EXT: Record<string, string> = {
   'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif', 'image/svg+xml': 'svg',
-  'font/ttf': 'ttf', 'font/otf': 'otf', 'font/woff': 'woff',
+  'font/ttf': 'ttf', 'font/otf': 'otf', 'font/woff': 'woff', 'font/woff2': 'woff2',
 };
 
 /** Content-addressed asset id: same bytes, same id, stored once. */

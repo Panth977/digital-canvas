@@ -2,15 +2,18 @@
   import { onDestroy } from 'svelte';
   import type { Canvas } from 'canvaskit-wasm';
   import {
-    ANIMATIONS, ANIMATION_GROUPS, CUSTOM_ANIMATION, MAX_ANIMATION_DURATION, TRANSITIONS, TRANSITION_MAX, TRANSITION_MIN, animateAt, animationDuration, animationEnd, animationInfo, createDoc, defaultDirection, holdTime, pageDuration, pageStart,
+    ANIMATIONS, ANIMATION_GROUPS, CUSTOM_ANIMATION, MAX_ANIMATION_DURATION, TRANSITIONS, TRANSITION_MAX, TRANSITION_MIN, animateAt, animationDuration, animationEnd, animationFrom, animationInfo, createDoc, infoOf, KEYFRAMES_ANIMATION, defaultDirection, holdTime, pageDuration, pageStart,
     shape, text, transitionDuration, updateElements, updatePage, addElements, addPage,
-    type Animation, type AnimationDirection, type AnimationGroup, type AnimationInfo, type AnimationOrder, type AnimationPhase, type AnimationUnit, type Doc, type MotionPath, type Page, type Transition, type TransitionType,
+    type Animation, type AnimationPlugin, type AnimationDirection, type AnimationGroup, type AnimationInfo, type AnimationOrder, type AnimationPhase, type AnimationUnit, type Doc, type MotionPath, type Page, type Transition, type TransitionType,
   } from '@digital-canvas/scene';
   import { drawFrameAt } from '@digital-canvas/render';
   import type { EditorState } from '../lib/editor.svelte.ts';
   import { motionDraw } from '../lib/motionpath.svelte.ts';
   import Icon from '../lib/Icon.svelte';
   import NumField from './NumField.svelte';
+  import { plugins } from '../lib/plugins/plugins.svelte.ts';
+  import { library } from '../lib/library.svelte.ts';
+  import { ui } from '../lib/ui.svelte.ts';
 
   /**
    * Canva's Animate panel: the animation sets for the selection or the page,
@@ -34,7 +37,27 @@
     const a = sel[0]!.animation;
     return sel.every((e) => JSON.stringify(e.animation) === JSON.stringify(a)) ? a : undefined;
   });
-  const info = $derived(animationInfo(current?.type));
+  const info = $derived(current ? infoOf(current) : undefined);
+  $effect(() => { void plugins.load(library.store); });
+  const mine = $derived(plugins.of('animation'));
+  const isMine = (p: AnimationPlugin) => current?.type === KEYFRAMES_ANIMATION && current.plugin === p.id;
+  function pickMine(p: AnimationPlugin): void {
+    const c = current;
+    set(animationFrom(p, { ...(p.recipe.exit ? { phase: 'out' as const } : {}), ...(c?.duration && c.type === KEYFRAMES_ANIMATION ? { duration: c.duration } : {}) }));
+    play();
+  }
+  function hoverMine(e: PointerEvent, p: AnimationPlugin): void {
+    if (e.pointerType === 'touch') return;
+    hover = `pl:${p.id}`;
+    tileCv = (e.currentTarget as HTMLElement).querySelector('canvas');
+    const a = animationFrom(p, p.recipe.exit ? { phase: 'out' } : {});
+    const doc = onElements ? updateElements(ed.doc, ed.selection, { animation: a }) : updatePage(ed.doc, ed.pageId, { animation: a });
+    const page = doc.pages.find((x) => x.id === ed.pageId)!;
+    const sample = sampleDoc(hasText && onElements, { ...a, duration: Math.min(animationDuration(a), 1.2) });
+    const c = tileCv;
+    playing = true;
+    run(doc, page, (t) => { if (c) drawPageAt(c, sample, sample.pages[0]!, (t - previewStart(page)) % Math.max(1.2, previewEnd(sample.pages[0]!)) + previewStart(sample.pages[0]!)); });
+  }
   const custom = $derived(current?.type === CUSTOM_ANIMATION);
 
   const key = (k: string) => `anim:${k}:${onElements ? ed.selection.join(',') : ed.pageId}`;
@@ -439,6 +462,18 @@
         <button class="tile on" data-testid="anim-custom"><span class="demo"><Icon name="animate" size={22} /></span><span>Custom</span></button>
       {/if}
     </div>
+    <h3 data-testid="anim-set-mine">My animations</h3>
+    <div class="grid" data-testid="anim-mine">
+      {#each mine as p (p.id)}
+        <button class="tile" class:on={isMine(p)} data-testid="anim-plugin-{p.id}" title={p.name} onclick={() => pickMine(p)} onpointerenter={(e) => hoverMine(e, p)} onpointerleave={hoverOut}>
+          <span class="demo"><canvas width="96" height="96" class:show={hover === `pl:${p.id}`}></canvas><i class="dot mine"><Icon name="puzzle" size={18} /></i></span>
+          <span>{p.name}</span>
+        </button>
+      {/each}
+      <button class="tile" data-testid="anim-plugin-new" onclick={() => { plugins.editing = { kind: 'animation' }; ui.rail('plugins'); }}>
+        <span class="demo none"><Icon name="plus" size={20} /></span><span>Create</span>
+      </button>
+    </div>
     {#each sets as g (g.id)}
       <h3 data-testid="anim-set-{g.id}">{g.label}</h3>
       <div class="grid">
@@ -475,6 +510,7 @@
   .tile.on .demo { border-color: var(--accent); }
   .tile:hover .demo { background: var(--hover); }
   .dot { width: 34%; aspect-ratio: 1; border-radius: 6px; background: var(--accent); display: grid; place-items: center; color: #fff; font-style: normal; font-weight: 700; font-size: 13px; }
+  .dot.mine { background: none; color: var(--accent); }
   .dot.ab { width: auto; aspect-ratio: auto; background: none; color: var(--accent); font-size: 17px; }
   .dot.tr { width: 100%; height: 100%; border-radius: 0; background: linear-gradient(115deg, #c9b6f2 50%, var(--accent) 50%); }
   .opts { display: flex; flex-direction: column; gap: 10px; padding: 10px; border-radius: 8px; background: var(--chip); }

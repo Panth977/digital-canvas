@@ -27,6 +27,7 @@
     { id: 'videos', label: 'Videos', icon: 'video' },
     { id: 'subtitles', label: 'Subtitles', icon: 'captions' },
     { id: 'sounds', label: 'Audio', icon: 'music' },
+    { id: 'plugins', label: 'Plugins', icon: 'puzzle' },
   ];
   const tabs = $derived(TABS.filter((t) => t.id !== 'subtitles' || isVideo(ed.doc)));
   /** The rail item lit: the open section, or the one a contextual panel came from. */

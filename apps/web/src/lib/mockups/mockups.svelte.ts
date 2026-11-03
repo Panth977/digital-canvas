@@ -8,14 +8,17 @@
 import { MOCKUP_SMALL, mockupFiles, parseMockupIndex, type MockupEntry, type Rgba } from '@digital-canvas/render/mockup';
 import { untrack } from 'svelte';
 import type { EditorState } from '../editor.svelte.ts';
-import { MockupEngine, type MockupSize, type RenderRequest } from './engine.ts';
+import { MockupEngine, type MockupSize, type QuadMockup, type RenderRequest } from './engine.ts';
 
 export { MOCKUP_CATEGORIES } from '@digital-canvas/render/mockup';
 export type { MockupEntry };
 
 export const MOCKUPS_BASE = new URL(`${import.meta.env.BASE_URL}mockups/`, location.origin).href;
 
-export const thumbUrl = (e: MockupEntry) => new URL(mockupFiles(e).thumb, MOCKUPS_BASE).href;
+/** Thumbnails of mockups made from photos (mockup plugins), by id. */
+export const userThumbs = new Map<string, () => string>();
+
+export const thumbUrl = (e: MockupEntry) => userThumbs.get(e.id)?.() ?? new URL(mockupFiles(e).thumb, MOCKUPS_BASE).href;
 
 class MockupLibrary {
   /** loading → ready (has mockups) | empty (no index or no entries) | error (network). */
@@ -82,6 +85,13 @@ class MockupClient {
     this.start();
     if (this.worker) this.worker.postMessage({ type: 'design', key, design: d }, [d.data.buffer as ArrayBuffer]);
     else this.local!.setDesign(key, d);
+  }
+
+  /** Add or replace a mockup made from a photo (a mockup plugin). */
+  setQuad(id: string, q: QuadMockup): void {
+    this.start();
+    if (this.worker) this.worker.postMessage({ type: 'quad', id, quad: q });
+    else this.local!.setQuad(id, q);
   }
 
   render(req: RenderRequest): Promise<{ width: number; height: number; data: Uint8ClampedArray; ms: number }> {

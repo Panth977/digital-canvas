@@ -15,6 +15,7 @@
   import { brush } from '../lib/vision/brush.svelte.ts';
   import { editProvider, grabText, magicCrop, magicExpand, magicGrab, runAutoAdjust, withMatte, type BrushTool } from '../lib/vision/tools.svelte.ts';
   import ColorField from './ColorField.svelte';
+  import MyEffects from './panels/plugins/MyEffects.svelte';
 
   let { ed, pic }: { ed: EditorState; pic: ImageElement | VideoElement } = $props();
 
@@ -301,6 +302,7 @@
       {#if st}
         {@render slider('stylize-amount', 'Amount', st.amount, 1, 100, (v) => ed.updateLook({ stylize: { type: st!.type, amount: v } }, key('st')))}
       {/if}
+      <MyEffects {ed} />
     {/if}
   </div>
 </div>

@@ -12,6 +12,9 @@
   import Icon from '../../lib/Icon.svelte';
   import { MOCKUP_CATEGORIES, designPx, mockupClient, mockupLib, paint, sendPage, thumbUrl, type MockupEntry } from '../../lib/mockups/mockups.svelte.ts';
   import MockupPreview from './MockupPreview.svelte';
+  import { library } from '../../lib/library.svelte.ts';
+  import { ui } from '../../lib/ui.svelte.ts';
+  import { plugins } from '../../lib/plugins/plugins.svelte.ts';
 
   let { ed }: { ed: EditorState } = $props();
 
@@ -19,13 +22,18 @@
   let pagePick = $state('');
   let category = $state('All');
   let open = $state<number | null>(null);
+  /** Which list the preview walks: the library's or mine. */
+  let openMine = $state(false);
 
   $effect(() => { untrack(() => void mockupLib.load()); });
+  $effect(() => { const s = library.store; untrack(() => void plugins.load(s)); });
+  const mine = $derived(plugins.mockupEntries);
+  const showMine = $derived(category === 'All' || category === 'My mockups');
 
   const pageId = $derived(pagePick && ed.doc.pages.some((p) => p.id === pagePick) ? pagePick : ed.pageId);
-  const shown = $derived(category === 'All' ? mockupLib.list : mockupLib.list.filter((m) => m.category === category));
+  const shown = $derived(category === 'All' ? mockupLib.list : category === 'My mockups' ? [] : mockupLib.list.filter((m) => m.category === category));
   /** Categories with something in them (plus All). */
-  const cats = $derived(['All', ...MOCKUP_CATEGORIES.filter((c) => mockupLib.list.some((m) => m.category === c))]);
+  const cats = $derived(['All', ...(mine.length ? ['My mockups'] : []), ...MOCKUP_CATEGORIES.filter((c) => mockupLib.list.some((m) => m.category === c))]);
 
   // ---- live rendering ----
   interface Tile { entry: MockupEntry; canvas: HTMLCanvasElement; visible: boolean; done: number; busy: boolean }
@@ -38,7 +46,9 @@
     if (!t.visible || t.busy || t.done === version || !version) return;
     t.busy = true;
     const v = version;
-    mockupClient.render({ entry: t.entry, size: 'small', design: 'grid' }).then((r) => {
+    const p = plugins.get(t.entry.id);
+    const ready = p?.kind === 'mockup' ? plugins.ensureMockup(p) : Promise.resolve(true);
+    ready.then((ok) => (ok ? mockupClient.render({ entry: t.entry, size: 'small', design: 'grid' }) : Promise.reject(new Error('the photo is missing')))).then((r) => {
       if (!t.canvas.isConnected) return;
       paint(t.canvas, r);
       t.canvas.dataset.rendered = String(v);
@@ -66,6 +76,16 @@
       version++;
       for (const t of tiles.values()) refresh(t);
     }, first ? 0 : 450);
+  });
+
+  // a mockup plugin changed: its tiles render again
+  let seenPlugins = -1;
+  $effect(() => {
+    const pv = plugins.version;
+    untrack(() => {
+      if (seenPlugins >= 0 && version) { version++; for (const t of tiles.values()) refresh(t); }
+      seenPlugins = pv;
+    });
   });
 
   const io = typeof IntersectionObserver === 'function'
@@ -117,7 +137,23 @@
     {/each}
   </div>
 
-  {#if mockupLib.status === 'loading' || mockupLib.status === 'idle'}
+  {#if showMine && mine.length}
+    <div class="dp-head"><h3>My mockups</h3><button class="dp-link" data-testid="my-mockups-new" onclick={() => { plugins.editing = { kind: 'mockup' }; ui.rail('plugins'); }}>Create</button></div>
+    <div class="mk-grid" data-testid="my-mockups">
+      {#each mine as e, i (e.id)}
+        <button class="mk-tile" title="Preview on {e.label}" data-testid="mockup-{e.id}" data-category={e.category} onclick={() => { openMine = true; open = i; }}>
+          <span class="mk-pic" style="aspect-ratio:{e.width} / {e.height}">
+            {#if plugins.photoUrl(plugins.get(e.id) as never)}<img src={plugins.photoUrl(plugins.get(e.id) as never)} alt="" draggable="false" />{/if}
+            <canvas use:tile={e} data-testid="mockup-canvas-{e.id}" aria-label="{e.label} with your design"></canvas>
+          </span>
+          <span class="mk-cap">{e.label}</span>
+        </button>
+      {/each}
+    </div>
+  {/if}
+  {#if category === 'My mockups'}
+    <p class="dp-hint">Mockups you make from your own photos, in Plugins.</p>
+  {:else if mockupLib.status === 'loading' || mockupLib.status === 'idle'}
     <p class="dp-empty" data-testid="mockups-loading"><span class="dp-spin"></span> Mockups are loading…</p>
   {:else if mockupLib.status === 'error'}
     <div class="dp-empty" data-testid="mockups-error">
@@ -134,7 +170,7 @@
     <div class="dp-head"><h3>{category === 'All' ? 'All mockups' : category}</h3><span class="dp-link">{shown.length}</span></div>
     <div class="mk-grid" data-testid="mockup-grid">
       {#each shown as e, i (e.id)}
-        <button class="mk-tile" title="Preview on {e.label}" data-testid="mockup-{e.id}" data-category={e.category} onclick={() => (open = i)}>
+        <button class="mk-tile" title="Preview on {e.label}" data-testid="mockup-{e.id}" data-category={e.category} onclick={() => { openMine = false; open = i; }}>
           <span class="mk-pic" style="aspect-ratio:{e.width} / {e.height}">
             <img src={thumbUrl(e)} alt="" loading="lazy" draggable="false" />
             <canvas use:tile={e} data-testid="mockup-canvas-{e.id}" aria-label="{e.label} with your design"></canvas>
@@ -147,8 +183,8 @@
   {/if}
 </div>
 
-{#if open !== null && shown[open]}
-  <MockupPreview {ed} list={shown} bind:index={open} {pageId} onclose={() => (open = null)} />
+{#if open !== null && (openMine ? mine : shown)[open]}
+  <MockupPreview {ed} list={openMine ? mine : shown} bind:index={open} {pageId} onclose={() => (open = null)} />
 {/if}
 
 <style>

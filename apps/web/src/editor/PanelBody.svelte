@@ -15,6 +15,7 @@
   import AudioPanel from './panels/AudioPanel.svelte';
   import SubtitlesPanel from './panels/SubtitlesPanel.svelte';
   import MockupsPanel from './panels/MockupsPanel.svelte';
+  import PluginsPanel from './panels/plugins/PluginsPanel.svelte';
 
   /** The rail sections' contents: the desktop side panel and the phone's bottom sheet both show them. */
   let { ed }: { ed: EditorState } = $props();
@@ -46,6 +47,8 @@
   <TextPanel {ed} />
 {:else if ui.panel === 'mockups'}
   <MockupsPanel {ed} />
+{:else if ui.panel === 'plugins'}
+  <PluginsPanel {ed} />
 {:else if ui.panel === 'uploads'}
   <UploadsPanel {ed} />
 {/if}

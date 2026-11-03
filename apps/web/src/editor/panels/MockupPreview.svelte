@@ -13,6 +13,7 @@
   import { toast } from '../../lib/toast.svelte.ts';
   import { designPx, mockupClient, paint, sendPage, thumbUrl, type MockupEntry } from '../../lib/mockups/mockups.svelte.ts';
   import { defaultFit, type MockupFit } from '@digital-canvas/render/mockup';
+  import { plugins } from '../../lib/plugins/plugins.svelte.ts';
 
   let { ed, list, index = $bindable(), pageId, onclose }: { ed: EditorState; list: MockupEntry[]; index: number; pageId: string; onclose: () => void } = $props();
 
@@ -46,7 +47,8 @@
       }
       const mine = ++run;
       error = '';
-      mockupClient.render({ entry: e, size: 'full', design: 'full', color: c, fit: f }).then((r) => {
+      const own = plugins.get(e.id);
+      (own?.kind === 'mockup' ? plugins.ensureMockup(own) : Promise.resolve(true)).then(() => mockupClient.render({ entry: e, size: 'full', design: 'full', color: c, fit: f })).then((r) => {
         if (mine !== run || !canvas) return;
         paint(canvas, r);
         ms = Math.round(r.ms);
