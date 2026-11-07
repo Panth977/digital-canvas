@@ -2,6 +2,7 @@
   import Icon from '../Icon.svelte';
   import { desktop } from './desktop.svelte.ts';
   import { toast } from '../toast.svelte.ts';
+  import UpdateBanner from './UpdateBanner.svelte';
 
   let { onclose }: { onclose: () => void } = $props();
   const s = $derived(desktop.state!);
@@ -14,6 +15,14 @@
   async function copy(text: string, what: string): Promise<void> {
     await navigator.clipboard.writeText(text);
     toast.show(`${what} copied`);
+  }
+
+  let checking = $state(false);
+  let checked = $state<'none' | 'found' | null>(null);
+  async function check(): Promise<void> {
+    checking = true;
+    await run(async () => { checked = (await desktop.checkUpdate()) ? 'found' : 'none'; });
+    checking = false;
   }
 
   async function run(fn: () => Promise<unknown>): Promise<void> {
@@ -30,10 +39,16 @@
       <button class="btn ghost" aria-label="Close" onclick={onclose}><Icon name="close" size={18} /></button>
     </header>
 
-    {#if s.update}
-      <p class="note" data-testid="update-note">Version {s.update.version} is available (you have {s.version}).
-        <button class="link" onclick={() => run(() => desktop.call('openExternal', { url: s.update!.url }))}>Download it</button></p>
-    {/if}
+    <section data-testid="updates">
+      <h4>Updates</h4>
+      {#if s.update}
+        <UpdateBanner compact />
+      {:else}
+        <p>You have version <b>{s.version}</b>{#if checked === 'none'}, the newest{/if}.{#if s.lastUpdateCheck} <span class="muted small">Checked {new Date(s.lastUpdateCheck).toLocaleString()}.</span>{/if}</p>
+      {/if}
+      <button class="btn" disabled={checking} onclick={() => void check()} data-testid="check-updates">{checking ? 'Checking…' : 'Check for updates'}</button>
+      <p class="muted small">The app looks for a new version when it starts and every 6 hours. It asks before installing anything.</p>
+    </section>
 
     <section>
       <h4>Your folder</h4>
@@ -108,8 +123,6 @@
   .lbl { font-weight: 600; margin-top: 12px; font-size: 13px; }
   .muted { color: var(--muted); }
   .small { font-size: 12.5px; }
-  .note { background: var(--accent-soft); padding: 10px 12px; border-radius: 8px; }
-  .link { background: none; border: 0; padding: 0; color: var(--accent); font: inherit; text-decoration: underline; cursor: pointer; }
   .url { display: flex; gap: 8px; align-items: center; }
   .url code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 13px ui-monospace, Menlo, monospace; background: var(--hover); padding: 8px 10px; border-radius: 8px; }
   .seg { display: flex; gap: 8px; margin-bottom: 6px; }

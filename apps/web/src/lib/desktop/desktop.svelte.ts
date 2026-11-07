@@ -13,7 +13,20 @@ export interface DesktopState {
   active: 'folder' | 'drive';
   drive: { configured: boolean; connected: boolean; connecting: boolean; persisted: boolean; account: DesktopDriveAccount | null };
   mcp: { enabled: boolean; url: string; fallbackUrl: string; token: string; configs: McpClientConfig[] };
-  update: { version: string; url: string } | null;
+  update: DesktopUpdate | null;
+  /** When the app last looked for a release (ISO). */
+  lastUpdateCheck?: string | null;
+}
+
+/** A newer release, and how its install is going (apps/desktop/src/updater.ts). */
+export interface DesktopUpdate {
+  version: string;
+  url: string;
+  notes?: string;
+  asset?: { name: string; url: string; size: number };
+  phase: 'available' | 'downloading' | 'installing' | 'manual' | 'error';
+  progress?: number;
+  error?: string;
 }
 
 interface Bridge {
@@ -57,6 +70,9 @@ class Desktop {
   driveToken(force?: boolean): Promise<string> { return this.call('drive.token', { force }); }
   pick(mode: 'media' | 'design' | 'file', arg?: string): Promise<unknown> { return this.call('drive.pick', { mode, arg }); }
   setActive(active: 'folder' | 'drive'): Promise<void> { return this.call('setActive', { active }); }
+  checkUpdate(): Promise<string | null> { return this.call('update.check'); }
+  installUpdate(): Promise<'restarting' | 'manual'> { return this.call('update.install'); }
+  later(): Promise<void> { return this.call('update.later'); }
 
   /** The main process needs the window's WebCodecs (MCP video) or speech model. */
   private async answer(r: { id: number; op: string; args: never }): Promise<void> {
