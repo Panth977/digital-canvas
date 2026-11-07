@@ -25,6 +25,8 @@ export interface ExportOptions {
   transparent?: boolean;
   /** Also render this far (px) outside the page on every side: the print bleed. */
   bleed?: number;
+  /** A small preview (thumbnail): big pictures are drawn from cached downscaled copies (fast, a little softer). */
+  preview?: boolean;
 }
 
 /**
@@ -33,6 +35,12 @@ export interface ExportOptions {
  */
 export class Renderer {
   private images = new Map<string, Image>();
+  /** Downscaled copies of big images for small renders (thumbnails): asset id → image. */
+  private previews = new Map<string, Image>();
+  /** While > 0 (a small export), images draw from their preview copies at most this many px on a side. */
+  private previewMax = 0;
+  /** Mipmaps make big pictures look smooth when shrunk; preview copies are already small, and building mips for them on every thumbnail costs more than it gives. */
+  private get mips() { return this.previewMax ? this.ck.MipmapMode.None : this.ck.MipmapMode.Linear; }
   private text: TextLayouts;
   private paint: Paint;
 
@@ -60,6 +68,36 @@ export class Renderer {
   forgetImage(assetId: string): void {
     this.images.get(assetId)?.delete();
     this.images.delete(assetId);
+    this.previews.get(assetId)?.delete();
+    this.previews.delete(assetId);
+  }
+
+  /**
+   * A copy of a big image at most `previewMax` px on a side, made once. Drawing a
+   * 4000 px photo into a 480 px thumbnail otherwise decodes and filters it in full
+   * every time (hundreds of ms on the main thread per save).
+   */
+  private preview(id: string, img: Image): Image {
+    const max = this.previewMax, w = img.width(), h = img.height();
+    if (Math.max(w, h) <= max) return img;
+    const hit = this.previews.get(id);
+    if (hit && Math.max(hit.width(), hit.height()) >= Math.min(max, Math.max(w, h))) return hit;
+    const k = max / Math.max(w, h), pw = Math.max(1, Math.round(w * k)), ph = Math.max(1, Math.round(h * k));
+    const surface = this.ck.MakeSurface(pw, ph);
+    if (!surface) return img;
+    try {
+      const c = surface.getCanvas();
+      c.clear(this.ck.TRANSPARENT);
+      c.drawImageRectOptions(img, this.ck.XYWHRect(0, 0, w, h), this.ck.XYWHRect(0, 0, pw, ph), this.ck.FilterMode.Linear, this.ck.MipmapMode.Linear, null);
+      surface.flush();
+      // a raster snapshot: drawing it later neither decodes nor touches the original again
+      const copy = surface.makeImageSnapshot();
+      hit?.delete();
+      this.previews.set(id, copy);
+      return copy;
+    } finally {
+      surface.delete();
+    }
   }
 
   hasImage(assetId: string): boolean {
@@ -160,7 +198,7 @@ export class Renderer {
     const recolor = el.style.color !== x.color ? el.style.color : null;
     if (x.picture) {
       const img = this.images.get(x.picture.asset);
-      if (img) canvas.drawImageRectOptions(img, ck.XYWHRect(0, 0, img.width(), img.height()), ck.XYWHRect(x.picture.x, x.picture.y, x.picture.w, x.picture.h), ck.FilterMode.Linear, ck.MipmapMode.Linear, this.paint);
+      if (img) canvas.drawImageRectOptions(img, ck.XYWHRect(0, 0, img.width(), img.height()), ck.XYWHRect(x.picture.x, x.picture.y, x.picture.w, x.picture.h), ck.FilterMode.Linear, this.mips, this.paint);
     }
     for (const run of x.runs) {
       const mode = run.mode ?? 0;
@@ -658,7 +696,14 @@ export class Renderer {
   /** The picture an image or video element shows right now, if decoded. */
   private pictureOf(el: ImageElement | VideoElement): Image | undefined {
     // a video shows its current frame, else its poster (stored as an image under `<asset>.poster`)
-    return el.type === 'video' ? this.frames.get(el.asset) ?? this.images.get(posterOf(el)) : this.images.get(el.asset);
+    if (el.type === 'video') {
+      const f = this.frames.get(el.asset);
+      if (f) return f;
+      const id = posterOf(el), p = this.images.get(id);
+      return p && this.previewMax ? this.preview(id, p) : p;
+    }
+    const img = this.images.get(el.asset);
+    return img && this.previewMax ? this.preview(el.asset, img) : img;
   }
 
   /** Pixel size of a decoded image asset (or a video's current picture). */
@@ -681,7 +726,7 @@ export class Renderer {
     p.setAlphaf(alpha);
     const turn = straightenMatrix(el, el);
     if (turn) canvas.concat(turn);
-    canvas.drawImageRectOptions(img, ck.XYWHRect(0, 0, img.width(), img.height()), ck.XYWHRect(box.x, box.y, box.w, box.h), ck.FilterMode.Linear, ck.MipmapMode.Linear, p);
+    canvas.drawImageRectOptions(img, ck.XYWHRect(0, 0, img.width(), img.height()), ck.XYWHRect(box.x, box.y, box.w, box.h), ck.FilterMode.Linear, this.mips, p);
     p.delete();
     canvas.restore();
   }
@@ -752,7 +797,7 @@ export class Renderer {
     if (!hasLook(el)) {
       this.clipFrame(canvas, el, dst);
       this.paint.setColor(ck.BLACK);
-      canvas.drawImageRectOptions(img, src, dst, ck.FilterMode.Linear, ck.MipmapMode.Linear, this.paint);
+      canvas.drawImageRectOptions(img, src, dst, ck.FilterMode.Linear, this.mips, this.paint);
       return;
     }
 
@@ -818,7 +863,7 @@ export class Renderer {
   /** One full draw of the picture with these adjustments. */
   private drawPass(canvas: Canvas, el: ImageElement | VideoElement, img: Image, dst: Float32Array, local: number[], sx: number, sy: number, short: number, adj: ImageAdjust): void {
     const ck = this.ck;
-    const base = img.makeShaderOptions(ck.TileMode.Clamp, ck.TileMode.Clamp, ck.FilterMode.Linear, ck.MipmapMode.Linear, local);
+    const base = img.makeShaderOptions(ck.TileMode.Clamp, ck.TileMode.Clamp, ck.FilterMode.Linear, this.mips, local);
     let shader: Shader = base;
     const st = stylizeOf(el);
     const amount = (st?.amount ?? 0) / 100;
@@ -940,7 +985,7 @@ export class Renderer {
         canvas.concat([1, skew * len, -skew * len * b, 0, len, b * (1 - len), 0, 0, 1]);
       }
       this.clipFrame(canvas, el, dst);
-      canvas.drawImageRectOptions(img, src, dst, ck.FilterMode.Linear, ck.MipmapMode.Linear, p);
+      canvas.drawImageRectOptions(img, src, dst, ck.FilterMode.Linear, this.mips, p);
       canvas.restore();
     }
     p.delete();
@@ -1112,6 +1157,9 @@ export class Renderer {
     const w = Math.max(1, Math.round((doc.width + 2 * b) * scale)), h = Math.max(1, Math.round((doc.height + 2 * b) * scale));
     const surface = ck.MakeSurface(w, h);
     if (!surface) throw new Error(`could not make a ${w}×${h} surface`);
+    // small renders (thumbnails, previews) draw big pictures from cached downscaled copies
+    const prevMax = this.previewMax;
+    if (opts.preview) this.previewMax = Math.max(64, Math.ceil(Math.max(w, h) * 1.5));
     try {
       const canvas = surface.getCanvas();
       const format = opts.format ?? 'png';
@@ -1128,6 +1176,7 @@ export class Renderer {
       if (!bytes) throw new Error('encode failed');
       return bytes;
     } finally {
+      this.previewMax = prevMax;
       surface.delete();
     }
   }
@@ -1166,6 +1215,8 @@ export class Renderer {
     for (const t of this.typefaces.values()) t?.delete();
     this.typefaces.clear();
     for (const img of this.images.values()) img.delete();
+    for (const img of this.previews.values()) img.delete();
+    this.previews.clear();
     for (const img of this.frames.values()) img.delete();
     this.frames.clear();
     this.images.clear();

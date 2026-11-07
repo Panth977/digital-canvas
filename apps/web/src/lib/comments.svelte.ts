@@ -75,11 +75,15 @@ export class CommentsState {
     document.removeEventListener('visibilitychange', this.onFocus);
   }
 
-  async refresh(): Promise<void> {
+  async refresh(force = false): Promise<void> {
     if (this.loading) return this.loading;
+    if (this.pending && !force) return; // our own changes are on their way: the next poll catches up
     this.loading = (async () => {
       try {
-        this.list = await this.store.list(this.ed.doc.id);
+        const got = await this.store.list(this.ed.doc.id);
+        if (this.pending && !force) return;
+        // threads still being sent stay on screen
+        this.list = [...got, ...this.list.filter((c) => this.unsynced.has(c.id) && !got.some((g) => g.id === this.real(c.id)))];
         this.error = '';
       } catch (e) {
         // a design not saved to Drive yet has no comments: not an error to show
@@ -93,16 +97,49 @@ export class CommentsState {
     return this.loading;
   }
 
-  private async run<T>(fn: () => Promise<T>): Promise<T | undefined> {
-    this.busy = true;
-    try {
-      return await fn();
-    } catch (e) {
-      toast.show(e instanceof Error ? e.message : String(e));
-      return undefined;
-    } finally {
-      this.busy = false;
+  // ---- changes: shown at once, sent to the store in the background, in order ----
+
+  /** Ids of threads and replies not in the store yet (shown as "Sending…"). */
+  unsynced = $state(new Set<string>());
+  /** Changes waiting to reach the store. */
+  pending = $state(0);
+  private ops: Promise<unknown> = Promise.resolve();
+  /** Temporary id → the store's id, once a new comment or reply has been sent. */
+  private ids = new Map<string, string>();
+  private real = (id: string) => this.ids.get(id) ?? id;
+
+  /** Queue a store call; on failure say so and reload what the store has. */
+  private send(what: string, fn: () => Promise<unknown>): void {
+    this.pending++;
+    this.ops = this.ops.then(fn).catch((e) => {
+      toast.show(`${what}: ${e instanceof Error ? e.message : String(e)}`);
+      return this.refresh(true);
+    }).finally(() => { this.pending--; });
+  }
+
+  private mark(id: string, on: boolean): void {
+    const next = new Set(this.unsynced);
+    if (on) next.add(id); else next.delete(id);
+    this.unsynced = next;
+  }
+
+  private patch(id: string, fn: (c: DesignComment) => DesignComment | null): void {
+    const out: DesignComment[] = [];
+    for (const c of this.list) {
+      if (c.id !== id) { out.push(c); continue; }
+      const n = fn(c);
+      if (n) out.push(n);
     }
+    this.list = out;
+  }
+
+  private tmpId(): string {
+    return `tmp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  }
+
+  private me() {
+    const a = this.list.find((c) => c.author.me)?.author;
+    return a ? { ...a } : { name: 'You', me: true };
   }
 
   /** The moment a new comment on a video is about: the playhead, inside its scene. */
@@ -144,51 +181,66 @@ export class CommentsState {
     this.active = null;
   }
 
+  /** New comment: on screen at once, sent in the background. */
   async submit(text: string, timed = true): Promise<boolean> {
     const d = this.draft;
-    if (!d || !text.trim()) return false;
+    const body = text.trim();
+    if (!d || !body) return false;
     const anchor = { ...d.anchor };
     if (!timed) { delete anchor.t; delete anchor.t1; }
-    // the design must exist in the store before it can carry comments (Drive)
-    if (this.ed.saveState !== 'saved') await this.ed.save(true);
-    const c = await this.run(() => this.store.add(this.ed.doc.id, text, anchor));
-    if (!c) return false;
-    this.list = [...this.list, c];
+    const tmp = this.tmpId(), now = new Date().toISOString();
+    this.list = [...this.list, { id: tmp, text: body, author: this.me(), createdAt: now, updatedAt: now, resolved: false, anchor, replies: [] }];
+    this.mark(tmp, true);
     this.draft = null;
-    this.active = c.id;
+    this.active = tmp;
+    this.send('Comment not sent', async () => {
+      // the design must exist in the store before it can carry comments (Drive)
+      if (this.ed.saveState !== 'saved') await this.ed.save(true);
+      const c = await this.store.add(this.ed.doc.id, body, anchor);
+      this.ids.set(tmp, c.id);
+      // keep what happened locally meanwhile (replies, resolve), under the real id
+      this.patch(tmp, (cur) => ({ ...c, text: cur.text, resolved: cur.resolved, replies: cur.replies }));
+      if (this.active === tmp) this.active = c.id;
+      this.mark(tmp, false);
+    });
     return true;
   }
 
   async reply(id: string, text: string): Promise<boolean> {
-    if (!text.trim()) return false;
-    const r = await this.run(() => this.store.reply(this.ed.doc.id, id, text));
-    if (!r) return false;
-    this.list = this.list.map((c) => (c.id === id ? { ...c, replies: [...c.replies, r] } : c));
+    const body = text.trim();
+    if (!body) return false;
+    const tmp = this.tmpId(), now = new Date().toISOString();
+    this.patch(id, (c) => ({ ...c, replies: [...c.replies, { id: tmp, text: body, author: this.me(), createdAt: now }] }));
+    this.mark(tmp, true);
+    this.send('Reply not sent', async () => {
+      const r = await this.store.reply(this.ed.doc.id, this.real(id), body);
+      this.ids.set(tmp, r.id);
+      this.patch(this.real(id), (c) => ({ ...c, replies: c.replies.map((x) => (x.id === tmp ? { ...r, text: x.text } : x)) }));
+      this.mark(tmp, false);
+    });
     return true;
   }
 
   async edit(id: string, text: string, replyId?: string): Promise<boolean> {
-    if (!text.trim()) return false;
-    const ok = await this.run(async () => { await this.store.edit(this.ed.doc.id, id, text, replyId); return true; });
-    if (!ok) return false;
     const t = text.trim();
-    this.list = this.list.map((c) => (c.id !== id ? c : replyId ? { ...c, replies: c.replies.map((r) => (r.id === replyId ? { ...r, text: t } : r)) } : { ...c, text: t }));
+    if (!t) return false;
+    this.patch(id, (c) => (replyId ? { ...c, replies: c.replies.map((r) => (r.id === replyId ? { ...r, text: t } : r)) } : { ...c, text: t }));
+    this.send('Edit not saved', () => this.store.edit(this.ed.doc.id, this.real(id), t, replyId && this.real(replyId)));
     return true;
   }
 
   async resolve(id: string, resolved = true): Promise<void> {
-    const ok = await this.run(async () => { await this.store.setResolved(this.ed.doc.id, id, resolved); return true; });
-    if (!ok) return;
-    this.list = this.list.map((c) => (c.id === id ? { ...c, resolved } : c));
+    const now = new Date().toISOString();
+    this.patch(id, (c) => ({ ...c, resolved, replies: [...c.replies, { id: this.tmpId(), text: '', author: this.me(), createdAt: now, action: resolved ? 'resolve' : 'reopen' }] }));
     if (resolved && this.active === id && this.filter === 'open') this.active = null;
-    void this.refresh();
+    this.send(resolved ? 'Not resolved' : 'Not reopened', () => this.store.setResolved(this.ed.doc.id, this.real(id), resolved));
   }
 
   async remove(id: string, replyId?: string): Promise<void> {
-    const ok = await this.run(async () => { await this.store.remove(this.ed.doc.id, id, replyId); return true; });
-    if (!ok) return;
-    this.list = replyId ? this.list.map((c) => (c.id === id ? { ...c, replies: c.replies.filter((r) => r.id !== replyId) } : c)) : this.list.filter((c) => c.id !== id);
+    if (replyId) this.patch(id, (c) => ({ ...c, replies: c.replies.filter((r) => r.id !== replyId) }));
+    else this.patch(id, () => null);
     if (!replyId && this.active === id) this.active = null;
+    this.send('Not deleted', () => this.store.remove(this.ed.doc.id, this.real(id), replyId && this.real(replyId)));
   }
 
   /** Go to a thread: its page (and its moment in a video), open its card. */

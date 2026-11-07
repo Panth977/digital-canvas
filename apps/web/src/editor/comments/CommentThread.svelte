@@ -68,6 +68,7 @@
     <div class="head">
       <span class="num" title="Comment {n}">{n}</span>
       <span class="where">{cs.where(comment)}</span>
+      {#if cs.unsynced.has(comment.id)}<span class="sync" data-testid="comment-sending">Sending…</span>{/if}
       <span class="grow"></span>
       {#if cs.canComment}
         <button class="ib" title={comment.resolved ? 'Reopen' : 'Resolve'} aria-label={comment.resolved ? 'Reopen' : 'Resolve'} disabled={cs.busy}
@@ -87,7 +88,7 @@
         {:else}
           <div class="who">
             {#if m.author.photo}<img class="av" src={m.author.photo} alt="" referrerpolicy="no-referrer" />{:else}<span class="av">{initials(m.author)}</span>{/if}
-            <b>{m.author.name}</b><span class="when">{ago(m.createdAt)}</span>
+            <b>{m.author.name}</b><span class="when">{cs.unsynced.has(m.id) ? 'Sending…' : ago(m.createdAt)}</span>
             {#if m.action}<span class="tag">{m.action === 'resolve' ? 'Resolved' : 'Reopened'}</span>{/if}
             <span class="grow"></span>
             {#if m.author.me && !compact && editing?.id !== (m.id || 'root')}
@@ -137,6 +138,7 @@
   .who { display: flex; align-items: center; gap: 6px; }
   .av { width: 22px; height: 22px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-size: 10px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; object-fit: cover; flex-shrink: 0; }
   .when { color: var(--muted); font-size: 11px; }
+  .sync { color: var(--muted); font-size: 11px; font-style: italic; }
   .tag { font-size: 11px; color: var(--ok); font-weight: 600; }
   .text { margin: 4px 0 0 28px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.4; }
   .action { margin: 0; color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 4px; }

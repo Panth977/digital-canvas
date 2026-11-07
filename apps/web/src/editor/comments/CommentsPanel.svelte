@@ -12,7 +12,7 @@
 <aside class="panel" data-testid="comments-panel" onkeydown={(e) => e.stopPropagation()}>
   <header>
     <b>Comments</b>
-    <span class="count">{cs.open.length} open</span>
+    <span class="count">{cs.open.length} open{cs.pending ? ' · syncing…' : ''}</span>
     <span class="grow"></span>
     <button class="ib" title="Refresh" aria-label="Refresh" onclick={() => void cs.refresh()}><Icon name="rotate" size={16} /></button>
     <button class="ib" title="Close" aria-label="Close comments" onclick={() => (cs.panelOpen = false)} data-testid="comments-close"><Icon name="close" size={18} /></button>

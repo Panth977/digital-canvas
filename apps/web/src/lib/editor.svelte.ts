@@ -24,6 +24,7 @@ import { closestFamily, exactText, missingGlyphs } from '@digital-canvas/scene';
 import { isAudioFile, isVideoFile, mediaMime, probeAudio, probeVideo } from './media.ts';
 import { Player } from './player.svelte.ts';
 import { Thumbs } from './thumbs.svelte.ts';
+import { renderInWorker } from './thumbworker/client.ts';
 
 export type SaveState = 'saved' | 'saving' | 'unsaved' | 'error';
 
@@ -38,6 +39,11 @@ export const TEXT_PRESETS = {
  * reactive fields; every change to the document goes through `commit` so it
  * lands in undo history, triggers a redraw and schedules an autosave.
  */
+const thumbScale = (doc: Doc) => Math.min(1, 480 / Math.max(doc.width, doc.height));
+
+/** While editing, the saved thumbnail is redrawn at most this often (a save on close redraws it). */
+const THUMB_EVERY_MS = 30_000;
+
 export class EditorState {
   doc = $state.raw<Doc>(null as unknown as Doc);
   selection = $state.raw<string[]>([]);
@@ -137,13 +143,19 @@ export class EditorState {
     if (next === this.doc) return;
     this.history.push(next, key);
     this.doc = next;
+    this.gesture = key !== null;
     this.syncHistory();
     this.scheduleSave();
   }
 
+  /** A drag / slider is under way (a coalesced change not sealed yet): saving waits for it to end. */
+  private gesture = false;
+  get busy(): boolean { return this.gesture; }
+
   /** End a coalesced change (pointer up, slider release). */
   seal(): void {
     this.history.seal();
+    this.gesture = false;
   }
 
   undo(): void {
@@ -1122,20 +1134,62 @@ export class EditorState {
     return this.renderer.exportPage(this.doc, page, { format, scale, transparent, quality: 92 });
   }
 
-  thumbnail(): Uint8Array {
-    const scale = Math.min(1, 480 / Math.max(this.doc.width, this.doc.height));
-    return this.renderer.exportPage(this.doc, this.doc.pages[0]!, { format: 'png', scale });
+  /** The last thumbnail made, and what it shows. */
+  private thumb: { page: Page; w: number; h: number; at: number; bytes: Uint8Array } | null = null;
+
+  /**
+   * Page 1 as a small PNG (Drive's and Home's preview). Drawn from downscaled
+   * copies of the pictures, and reused while page 1 is unchanged. `fresh: false`
+   * (autosave) also reuses a slightly stale one made in the last THUMB_EVERY_MS,
+   * so editing a big design never stalls on it.
+   */
+  thumbnail(fresh = true): Uint8Array {
+    const doc = this.doc, page = doc.pages[0]!;
+    const hit = this.thumbHit(fresh);
+    if (hit) return hit;
+    const bytes = this.renderer.exportPage(doc, page, { format: 'png', scale: thumbScale(doc), preview: true });
+    this.thumb = { page, w: doc.width, h: doc.height, at: performance.now(), bytes };
+    return bytes;
+  }
+
+  private thumbHit(fresh: boolean): Uint8Array | null {
+    const doc = this.doc, page = doc.pages[0]!, t = this.thumb;
+    return t && t.w === doc.width && t.h === doc.height && (t.page === page || (!fresh && performance.now() - t.at < THUMB_EVERY_MS)) ? t.bytes : null;
+  }
+
+  /** The same thumbnail, drawn in the thumbnail worker (the main thread only when there is no worker). */
+  async thumbnailInBackground(fresh = true): Promise<Uint8Array> {
+    const hit = this.thumbHit(fresh);
+    if (hit) return hit;
+    const doc = this.doc, page = doc.pages[0]!;
+    const bytes = await renderInWorker(doc, page.id, thumbScale(doc), this.assets, this.engine.fonts).catch(() => null);
+    if (!bytes) return this.thumbnail(fresh);
+    this.thumb = { page, w: doc.width, h: doc.height, at: performance.now(), bytes };
+    return bytes;
   }
 
   private scheduleSave(): void {
     if (this.readOnly) return;
     this.saveState = 'unsaved';
     if (this.saveTimer) clearTimeout(this.saveTimer);
-    this.saveTimer = setTimeout(() => void this.save(), 800);
+    this.saveTimer = setTimeout(() => this.saveWhenIdle(), 800);
+  }
+
+  /** Autosave in the background: never in the middle of a drag, and in the browser's idle time. */
+  private saveWhenIdle(since = performance.now()): void {
+    this.saveTimer = null;
+    // a change left open (never sealed) must not hold saving back for long
+    if (this.gesture && performance.now() - since < 5000) {
+      this.saveTimer = setTimeout(() => this.saveWhenIdle(since), 400);
+      return;
+    }
+    const go = () => void this.save(false, false);
+    if (typeof requestIdleCallback === 'function') requestIdleCallback(go, { timeout: 1500 });
+    else go();
   }
 
   /** Save now (waits for a save already running). `force`: also when nothing changed (e.g. to write links.json before sharing). */
-  async save(force = false): Promise<void> {
+  async save(force = false, freshThumb = true): Promise<void> {
     if (this.readOnly) return;
     if (this.saveTimer) {
       clearTimeout(this.saveTimer);
@@ -1147,7 +1201,8 @@ export class EditorState {
     this.saveState = 'saving';
     this.saving = (async () => {
       try {
-        await this.store.save({ doc: pruneAssets(pruneFonts(doc)), assets: this.assets, thumbnail: this.thumbnail() });
+        const thumbnail = await this.thumbnailInBackground(freshThumb);
+        await this.store.save({ doc: pruneAssets(pruneFonts(doc)), assets: this.assets, thumbnail });
         // A change made while saving has already scheduled the next save.
         this.saveState = this.doc === doc ? 'saved' : 'unsaved';
         this.saveError = '';

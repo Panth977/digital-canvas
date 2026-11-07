@@ -1,13 +1,13 @@
 <script lang="ts">
   import { handlePanelDrop } from '../lib/content/insert.svelte.ts';
   import { onMount, untrack } from 'svelte';
-  import type { Surface } from 'canvaskit-wasm';
+  import type { Canvas as CkCanvas, Image, Surface } from 'canvaskit-wasm';
   import {
     aabb, angleTo, center, corners, cropFromBoxes, cropOf, cropPatch, duplicateElements, findElement, hitTest, hitTestAll, imageBox, marqueePick, localToPage, normalizeRect, pageToLocal,
     panImage, resizeBox, resizeFrame, rotatePoint, scaleImage, union, updateElements,
     addGuide, childrenOf, hitTestPath, moveGuide, pathTo, removeGuide, safeMargin, snapMove, snapResize, snapTargets,
     ANCHORS, boxPoint, contains, coverCrop, isFrame, isVideo, lineEnds, lineRoute, routePoints, tableCellAt, tableCellRect,
-    type Attach, type CropHandle, type Element, type GapHint, type Handle, type ImageElement, type LineElement, type Point, type Rect, type ShapeKind, type SnapGuide, type SnapTargets, type VideoElement,
+    type Attach, type CropHandle, type Element, type GapHint, type Handle, type ImageElement, type LineElement, type Page, type Point, type Rect, type ShapeKind, type SnapGuide, type SnapTargets, type VideoElement,
   } from '@digital-canvas/scene';
   import { fetchPhoto, attribution, type Photo } from '../lib/stock.ts';
   import type { EditorState } from '../lib/editor.svelte.ts';
@@ -413,6 +413,7 @@
   // ---- drawing ----
   function makeSurface(): void {
     const ck = ed.engine.ck;
+    dropLayers();
     surface?.delete();
     dpr = window.devicePixelRatio || 1;
     canvasEl.width = Math.max(1, Math.round(vw * dpr));
@@ -428,6 +429,60 @@
 
   /** What the last draw showed (tests: live frame vs static design). */
   let lastDraw: { live: boolean; t: number; pageId: string } | null = null;
+  // ---- drag layers: while a drag is under way, what lies below and above the moving
+  // elements is drawn once into GPU images, so each frame only redraws what moves
+  // (a page of shadowed photos otherwise costs tens of ms per frame) ----
+  type Layers = { key: string; pageI: number; below: Element[]; above: Element[]; belowImg: Image; aboveImg: Image | null };
+  let layers: Layers | null = null;
+  function dropLayers(): void {
+    layers?.belowImg.delete();
+    layers?.aboveImg?.delete();
+    layers = null;
+  }
+  const CLEAR_BG = { type: 'solid', color: '#00000000' } as const;
+
+  /** Draws page `i` from cached layers during a drag; false = draw it the normal way. Called with the page transform set. */
+  function drawLayered(c: CkCanvas, page: Page, i: number, s: Point, bleed: number): boolean {
+    if (!ed.busy || !surface || !ed.selection.length) { if (layers && !ed.busy) dropLayers(); return false; }
+    const els = page.elements;
+    const idx = ed.selection.map((id) => els.findIndex((e) => e.id === id));
+    if (idx.some((k) => k < 0)) return false; // selection not top-level on this page
+    const lo = Math.min(...idx), hi = Math.max(...idx);
+    const below = els.slice(0, lo), above = els.slice(hi + 1), middle = els.slice(lo, hi + 1);
+    if (above.some((e) => e.blend)) return false; // blends need what is under them
+    if (below.length + above.length < 4) return false; // nothing worth caching
+    const key = `${i}|${zoom}|${panX}|${panY}|${vw}|${vh}|${dpr}|${bleed}|${JSON.stringify(page.background)}`;
+    const same = (a: Element[], b: Element[]) => a.length === b.length && a.every((e, k) => e === b[k]);
+    if (!layers || layers.key !== key || layers.pageI !== i || !same(layers.below, below) || !same(layers.above, above)) {
+      dropLayers();
+      const shot = (elements: Element[], background: boolean): Image | null => {
+        const off = surface!.makeSurface(surface!.imageInfo());
+        if (!off) return null;
+        const oc = off.getCanvas();
+        oc.clear(ed.engine.ck.TRANSPARENT);
+        oc.scale(dpr, dpr);
+        oc.translate(s.x, s.y);
+        oc.scale(zoom, zoom);
+        ed.renderer.drawPage(oc, ed.doc, { ...page, elements }, { bleed }, background);
+        off.flush();
+        const img = off.makeImageSnapshot();
+        off.delete();
+        return img;
+      };
+      const belowImg = shot(below, true);
+      if (!belowImg) return false;
+      layers = { key, pageI: i, below, above, belowImg, aboveImg: above.length ? shot(above, false) : null };
+    }
+    const ck = ed.engine.ck;
+    // the layer covers the stage; here the canvas is in page units
+    const dst = ck.XYWHRect(-s.x / zoom, -s.y / zoom, vw / zoom, vh / zoom);
+    const blit = (img: Image) => c.drawImageRectOptions(img, ck.XYWHRect(0, 0, img.width(), img.height()), dst, ck.FilterMode.Nearest, ck.MipmapMode.None, null);
+    blit(layers.belowImg);
+    ed.renderer.drawPage(c, ed.doc, { ...page, background: CLEAR_BG, elements: middle }, { bleed }, false);
+    if (layers.aboveImg) blit(layers.aboveImg);
+    return true;
+  }
+
   function draw(): void {
     drawQueued = false;
     if (!surface) return;
@@ -455,6 +510,7 @@
       c.scale(zoom, zoom);
       // playing / scrubbing: the frame at the playhead, drawn exactly like the MP4 export
       if (live && page.id === ed.pageId) drawFrameAt(ed.renderer, c, ed.doc, ed.player.time, { bleed });
+      else if (!skip && drawLayered(c, page, i, s, bleed)) { /* drag: cached layers + the moving part */ }
       else ed.renderer.drawPage(c, ed.doc, page, { skip, bleed });
       c.restore();
     });
@@ -488,7 +544,7 @@
   onMount(() => {
     readStage();
     // for tests and the console: the viewport (pan = screen position of page 1's top-left corner)
-    (window as unknown as { __dcView?: unknown }).__dcView = { get: () => ({ panX, panY, zoom, vw, vh, range: panRange(), mode: view.mode, videoMode, live, lastDraw }) };
+    (window as unknown as { __dcView?: unknown }).__dcView = { get: () => ({ panX, panY, zoom, vw, vh, range: panRange(), mode: view.mode, videoMode, live, lastDraw, layered: layers !== null }) };
     const scheme = matchMedia('(prefers-color-scheme: dark)');
     const onScheme = () => { readStage(); queueDraw(); };
     scheme.addEventListener('change', onScheme);
@@ -537,6 +593,7 @@
       stopScrollAnim();
       if (autoRaf) cancelAnimationFrame(autoRaf);
       clearTimeout(barsTimer);
+      dropLayers();
       surface?.delete();
       surface = null;
     };

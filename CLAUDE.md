@@ -239,3 +239,11 @@ Panth's rule: no generated design content. Templates, stickers, illustrations, f
 
 - `apps/desktop/src/updater.ts`: checks the latest GitHub Release 8 s after start and every 6 h (`DC_DESKTOP_RELEASES_API` overrides the URL). It only installs when the user clicks Update now (`UpdateBanner.svelte`, also Settings › Updates › Check for updates). macOS: download the dmg, `hdiutil attach`, `ditto` the .app to `<bundle>.new`, then a detached `swap.sh` waits for the pid, swaps the bundle and runs `open`. Windows: NSIS `/S --force-run`. AppImage: replace the file. `.deb` or a bundle we can't write to: the download opens for a manual install. Unsigned builds are fine because Node downloads carry no quarantine.
 - Asset names must stay as in `electron-builder.yml` (`assetFor`). Real-package test (opt-in): `e2e/desktop-update.spec.ts` with `DC_UPDATE_OLD_APP` (packaged `--dir` at an older version) and `DC_UPDATE_NEW_DMG`.
+
+## Editing stays fast while Drive is slow (r21b, ORCH-44, 2026-11-07)
+
+- Autosave runs in the background: it never runs while a drag or slider change is open (`EditorState.busy` is a coalesced commit not yet sealed; capped at 5 s), and it waits for `requestIdleCallback`. The save's thumbnail and the page strip render in `lib/thumbworker/` (its own CanvasKit; fonts and pictures mirrored once, content-addressed). The main thread renders them only when there is no worker. The thumbnail is reused while page 1 is unchanged, and while editing it is redrawn at most every 30 s.
+- `ExportOptions.preview`: small exports draw big pictures from cached downscaled copies without mipmaps.
+- Drag layers (Canvas `drawLayered`): while `ed.busy` and the selection is top-level on a page, everything below and above it is drawn once into GPU images, and each frame redraws only the moving range. Skipped when an element above has a blend mode. `__dcView.get().layered` shows it. Test: `e2e/drag-layers.spec.ts` compares the picture with a full redraw.
+- Comments are optimistic: shown at once, sent through an ordered queue (`CommentsState.send`); temporary ids map to the store's ids; a failure shows a toast and reloads.
+- Perf tests: `e2e/perf-drive.spec.ts` (macOS GPU only; FakeDrive `latencyMs`; no main-thread task over 250 ms while dragging). Real designs: `DC_PERF_DESIGN=<file.dcanvas>`.

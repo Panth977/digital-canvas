@@ -225,3 +225,31 @@ test.describe('Comments (two people, Drive)', () => {
     await ed.context().close();
   });
 });
+
+test('slow Drive: a comment, reply and resolve show at once and are sent in the background', async ({ browser }) => {
+  const d = world();
+  const page = await as(browser, d, OWNER);
+  await page.getByTestId('preset-instagram-post').click();
+  await page.waitForFunction(() => !!(window as any).__dc);
+  await page.evaluate(() => (window as any).__dc.addShape('rect'));
+  await waitSaved(page);
+  d.latencyMs = 1500;
+  await page.getByTestId('mini-comment').click();
+  await page.getByTestId('comment-box').fill('Fast please');
+  const t0 = Date.now();
+  await page.getByTestId('comment-submit').click();
+  await expect(page.getByTestId('comment-pin')).toHaveCount(1, { timeout: 400 });
+  expect(Date.now() - t0).toBeLessThan(1000);
+  await expect(page.getByTestId('comment-sending').first()).toBeVisible();
+  // reply and resolve before the comment even reached Drive: they queue behind it
+  await page.getByTestId('comment-reply-box').fill('on it');
+  await page.getByTestId('comment-reply-box').press('Enter');
+  await expect(page.locator('.card [data-testid=comment-reply]')).toHaveText(/on it/, { timeout: 400 });
+  await page.locator('.card [data-testid=comment-resolve]').click();
+  await expect(page.getByTestId('comment-pin')).toHaveCount(0, { timeout: 400 });
+  await expect.poll(() => page.evaluate(() => (window as any).__dcComments.pending), { timeout: 15_000 }).toBe(0);
+  const file = [...d.files.values()].find((f) => f.comments?.length)!;
+  expect(file.comments![0]).toMatchObject({ content: 'Fast please', resolved: true });
+  expect(file.comments![0].replies.map((r) => r.action ?? r.content)).toEqual(['on it', 'resolve']);
+  await page.context().close();
+});

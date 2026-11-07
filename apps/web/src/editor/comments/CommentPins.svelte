@@ -61,7 +61,7 @@
 </script>
 
 {#each pins as p (p.id)}
-  <button class="pin" class:resolved={p.resolved} class:active={cs.active === p.id} class:dim={p.dim} style="left:{p.x}px;top:{p.y}px"
+  <button class="pin" class:resolved={p.resolved} class:active={cs.active === p.id} class:dim={p.dim || cs.unsynced.has(p.id)} style="left:{p.x}px;top:{p.y}px"
     title="Comment {p.n}" aria-label="Comment {p.n}" data-testid="comment-pin" data-id={p.id}
     onpointerdown={(e) => e.stopPropagation()} onclick={(e) => { e.stopPropagation(); cs.draft = null; cs.active = cs.active === p.id ? null : p.id; }}>{p.n}</button>
 {/each}

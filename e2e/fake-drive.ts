@@ -228,7 +228,11 @@ export class FakeDrive {
   /** Comment API calls, "email METHOD id [replies id]". */
   commentLog: string[] = [];
 
+  /** Answer every Drive call this much later (a real Drive round trip is 300–1500 ms). */
+  latencyMs = 0;
+
   private async handle(route: Route): Promise<void> {
+    if (this.latencyMs) await new Promise((r) => setTimeout(r, this.latencyMs));
     const req = route.request();
     const url = new URL(req.url());
     const json = (v: unknown, status = 200) => route.fulfill({ status, body: JSON.stringify(v), contentType: 'application/json', headers: { 'access-control-allow-origin': '*' } });
