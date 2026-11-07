@@ -37,6 +37,13 @@ export interface FakeFile {
    */
   owner?: string;
   grants?: string[];
+  /** Drive comments on the file (comments API). */
+  comments?: FakeComment[];
+}
+
+export interface FakeComment {
+  id: string; content: string; anchor?: string; authorEmail: string; authorName: string; createdTime: string; modifiedTime: string; resolved: boolean; deleted?: boolean;
+  replies: { id: string; content: string; action?: 'resolve' | 'reopen'; authorEmail: string; authorName: string; createdTime: string; modifiedTime: string; deleted?: boolean }[];
 }
 
 /** A signed-in person in two-user tests. */
@@ -181,6 +188,46 @@ export class FakeDrive {
     return { meta, body: buf.subarray(start, end) };
   }
 
+  /** Drive's comments API, per caller: owner/writer/commenter may comment and resolve; only the author edits or deletes. */
+  private commentCall(f: FakeFile, cid: string | undefined, rid: string | undefined, method: string, body: any, who: { email: string; name: string } | null, role: string | null, replies: boolean): { status: number; body: unknown } | null {
+    const list = (f.comments ??= []);
+    const now = () => new Date(Date.now() + this.n++).toISOString();
+    const user = (email: string, name: string) => ({ displayName: name, emailAddress: email, me: email === who?.email });
+    const view = (c: FakeComment) => ({ id: c.id, content: c.content, anchor: c.anchor, createdTime: c.createdTime, modifiedTime: c.modifiedTime, resolved: c.resolved, deleted: !!c.deleted,
+      author: user(c.authorEmail, c.authorName), replies: c.replies.filter((r) => !r.deleted).map((r) => ({ id: r.id, content: r.content, action: r.action, createdTime: r.createdTime, modifiedTime: r.modifiedTime, author: user(r.authorEmail, r.authorName) })) });
+    const forbidden = { status: 403, body: { error: { message: 'The user does not have sufficient permissions for this file.' } } };
+    const gone = { status: 404, body: { error: { message: 'Comment not found' } } };
+    if (!who) return forbidden;
+    const mayComment = role === null || role === 'owner' || role === 'writer' || role === 'commenter';
+    this.commentLog.push(`${who.email} ${method} ${cid ?? ''}${replies ? ` replies ${rid ?? ''}` : ''}`.trim());
+    if (method === 'GET' && !cid) return { status: 200, body: { comments: list.filter((c) => !c.deleted).map(view) } };
+    if (method === 'POST' && !cid) {
+      if (!mayComment) return forbidden;
+      const c: FakeComment = { id: `cm${this.n++}`, content: body.content, anchor: body.anchor, authorEmail: who.email, authorName: who.name, createdTime: now(), modifiedTime: now(), resolved: false, replies: [] };
+      list.push(c);
+      return { status: 200, body: view(c) };
+    }
+    const c = list.find((x) => x.id === cid && !x.deleted);
+    if (!c) return gone;
+    if (replies && method === 'POST') {
+      if (!mayComment) return forbidden;
+      const r = { id: `rp${this.n++}`, content: body.content ?? '', action: body.action, authorEmail: who.email, authorName: who.name, createdTime: now(), modifiedTime: now() };
+      c.replies.push(r);
+      if (body.action) c.resolved = body.action === 'resolve';
+      c.modifiedTime = now();
+      return { status: 200, body: { id: r.id, content: r.content, action: r.action, createdTime: r.createdTime, modifiedTime: r.modifiedTime, author: user(who.email, who.name) } };
+    }
+    const target = rid ? c.replies.find((r) => r.id === rid && !r.deleted) : c;
+    if (!target) return gone;
+    if (target.authorEmail !== who.email) return forbidden;
+    if (method === 'PATCH') { target.content = body.content; target.modifiedTime = now(); return { status: 200, body: { id: target.id } }; }
+    if (method === 'DELETE') { target.deleted = true; return null; }
+    return { status: 400, body: { error: { message: 'bad comment call' } } };
+  }
+
+  /** Comment API calls, "email METHOD id [replies id]". */
+  commentLog: string[] = [];
+
   private async handle(route: Route): Promise<void> {
     const req = route.request();
     const url = new URL(req.url());
@@ -232,6 +279,14 @@ export class FakeDrive {
       return json({ error: { message: `File not found: ${f.id}.` } }, 404);
     }
     const role = f.owner !== undefined ? (key ? 'reader' : this.roleOf(f, caller)) : null;
+    const cm = /\/comments(?:\/([^/?]+))?(?:\/replies(?:\/([^/?]+))?)?$/.exec(url.pathname);
+    if (cm) {
+      const who = user ?? (caller ? { email: caller, name: ME.name } : null);
+      const body = req.method() === 'POST' || req.method() === 'PATCH' ? req.postDataJSON() : undefined;
+      const r = this.commentCall(f, cm[1], cm[2], req.method(), body, who, role, url.pathname.includes('/replies'));
+      if (r === null) return route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*' } });
+      return json(r.body, r.status);
+    }
     const perm = /\/permissions(?:\/([^/?]+))?$/.exec(url.pathname);
     if (perm) {
       const perms = this.permsOf(f);

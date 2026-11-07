@@ -227,3 +227,10 @@ Panth's rule: no generated design content. Templates, stickers, illustrations, f
 - Share: `storage/pluginshare.ts` uploads the `.dcplugin` to `Digital Canvas/` (`appProperties.dcPluginShare=<plugin id>`, same file on re-share) + anyone-with-link reader; route `/plugin/<fileId>` = `routes/PluginInstall.svelte` (API key read, installs into the current store).
 - Desktop: `store.loadPlugins/savePlugins/pluginAsset` IPC ops (folderops.ts) over the folder's `plugins.json` + `plugin-assets/`.
 - e2e: `e2e/plugins.spec.ts`. Run with `DC_PORT=<free port>` from a worktree.
+
+## Comments (r21, ORCH-44, 2026-11-07)
+
+- Review comments live OUTSIDE the design file, so commenting never races an autosave: Drive = the `.dcanvas` file's own Drive comments (`packages/storage/src/comments.ts` `DriveComments`, works with `drive.file`; Drive enforces who may comment and that only the author edits/deletes; resolve/reopen are replies with `action`); local stores = `JsonComments` sidecar (`.comments/<docId>.json` in folders, `settings` key `comments:<id>` in the browser store, IPC `store.readComments/writeComments` on desktop). `ProjectStore.comments` is optional.
+- Anchor (`packages/scene/src/comments.ts`): page + optional element with `fx/fy` (fraction of its box, so the pin follows it) + absolute `x/y` fallback + `t/t1` seconds from the PAGE start (video). Stored as JSON `{"dc":1,…}` in Drive's opaque `anchor`; anything else (Drive UI comments) reads as "whole design".
+- Web: `lib/comments.svelte.ts` (`commentsOf(ed)`, polled every 15 s while visible + on focus; dev global `window.__dcComments`), `editor/comments/` (CommentPins over Canvas, CommentThread card, CommentsPanel right drawer / phone sheet), timeline markers in `Timeline.svelte`. ⇧C = comment (selection) or comment mode. Commenters (view only) can comment.
+- MCP: `tools/comments.ts`; numbers = reading order over ALL threads (stable when filtering). e2e: `e2e/comments.spec.ts`; FakeDrive implements the comments API per caller.

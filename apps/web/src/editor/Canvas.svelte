@@ -27,6 +27,8 @@
   import { mobile } from '../lib/mobile.svelte.ts';
   import { tabs } from '../lib/tabs.svelte.ts';
   import { drawFrameAt } from '@digital-canvas/render';
+  import { commentsOf } from '../lib/comments.svelte.ts';
+  import CommentPins from './comments/CommentPins.svelte';
 
   let { ed, zoom = $bindable(view.zoom) }: { ed: EditorState; zoom?: number } = $props();
 
@@ -67,6 +69,8 @@
   const gap = $derived(Math.max(ed.doc.height * 0.04, 56 / zoom));
   const pageTop = (i: number) => (videoMode ? (i - ed.pageIndex) * FAR : i * (ed.doc.height + gap));
   const pageIndexOf = (pageId: string) => ed.doc.pages.findIndex((p) => p.id === pageId);
+  /** Review comments (pins, comment mode). */
+  const cs = $derived(commentsOf(ed));
 
   const toScreen = (wx: number, wy: number): Point => ({ x: panX + wx * zoom, y: panY + wy * zoom });
   const toWorld = (sx: number, sy: number): Point => ({ x: (sx - panX) / zoom, y: (sy - panY) / zoom });
@@ -825,6 +829,17 @@
     // a click on the stage while a video plays stops it there (Canva)
     if (videoMode && ed.player.playing) ed.player.pause();
     if (e.button === 2) return;
+    if (cs?.placing && e.button === 0) {
+      // comment mode: drop a pin here (on the element under it, if any)
+      e.preventDefault();
+      const s0 = localPoint(e);
+      const w = toWorld(s0.x, s0.y);
+      const pageI = pageAt(w);
+      const p = toPage(w, pageI);
+      if (p.x >= 0 && p.y >= 0 && p.x <= ed.doc.width && p.y <= ed.doc.height) cs.begin({ page: ed.doc.pages[pageI]!.id, element: elementAt(s0)?.el.id, point: { x: p.x, y: p.y } });
+      return;
+    }
+    if (cs?.active) cs.active = null;
     touchUi = e.pointerType === 'touch';
     if (touchUi) {
       lastTouch = Date.now();
@@ -1606,7 +1621,7 @@
   class:live
   class:videomode={videoMode}
   bind:this={host}
-  style="cursor:{ed.tool ? 'crosshair' : ed.framePanId ? 'move' : cursor}"
+  style="cursor:{ed.tool || cs?.placing ? 'crosshair' : ed.framePanId ? 'move' : cursor}"
   role="application"
   aria-label="Design canvas"
   data-testid="stage"
@@ -1759,6 +1774,7 @@
       <button title={mini.locked ? 'Unlock' : 'Lock'} aria-label={mini.locked ? 'Unlock' : 'Lock'} onclick={() => { ed.update({ locked: !mini!.locked }); ed.seal(); }}><Icon name={mini.locked ? 'lock' : 'unlock'} size={18} /></button>
       <button title="Duplicate (⌘D)" aria-label="Duplicate" onclick={() => ed.duplicateSelection()}><Icon name="copy" size={18} /></button>
       <button title="Delete" aria-label="Delete" onclick={() => ed.deleteSelection()}><Icon name="trash" size={18} /></button>
+      {#if cs?.canComment}<button title="Comment (⇧C)" aria-label="Comment" data-testid="mini-comment" onclick={() => { cs!.panelOpen = true; cs!.begin(); }}><Icon name="comment" size={18} /></button>{/if}
       <button title="More" aria-label="More" data-more onclick={() => (ui.pop = ui.pop === 'more' ? null : 'more')}><Icon name="more" size={18} /></button>
     </div>
   {/if}
@@ -1839,6 +1855,10 @@
       onpointerdown={(e) => barDown('y', e)} onpointermove={barMove} onpointerup={barUp} onpointercancel={barUp}>
       <div class="thumb" style="top:{b.at}px;height:{b.size}px"></div>
     </div>
+  {/if}
+
+  {#if cs && !live}
+    <CommentPins {cs} at={(i, x, y) => toScreen(x, y + pageTop(i))} {vw} {vh} />
   {/if}
 
   {#if menu && !ed.readOnly}

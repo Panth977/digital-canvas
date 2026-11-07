@@ -268,10 +268,15 @@ test.describe('What the recipient may do', () => {
     await r.context().close();
   });
 
-  test('QA-11 commenter: opens view-only (comments are not in the app yet)', async ({ browser }) => {
+  test('QA-11 commenter: opens view-only and can comment', async ({ browser }) => {
     const d = world();
     const o = await recipientOpens(browser, d, 'commenter');
     await expect(o.r.getByTestId('view-only')).toBeVisible();
+    await o.r.evaluate(() => (window as any).__dcComments.begin());
+    await o.r.getByTestId('comment-box').fill('Logo is too small');
+    await o.r.getByTestId('comment-submit').click();
+    await expect(o.r.getByTestId('comment-pin')).toHaveCount(1);
+    expect(o.file.comments?.[0]).toMatchObject({ authorEmail: RECIPIENT.email, content: 'Logo is too small' });
     await o.page.context().close();
     await o.r.context().close();
   });
