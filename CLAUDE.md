@@ -227,3 +227,15 @@ Panth's rule: no generated design content. Templates, stickers, illustrations, f
 - Share: `storage/pluginshare.ts` uploads the `.dcplugin` to `Digital Canvas/` (`appProperties.dcPluginShare=<plugin id>`, same file on re-share) + anyone-with-link reader; route `/plugin/<fileId>` = `routes/PluginInstall.svelte` (API key read, installs into the current store).
 - Desktop: `store.loadPlugins/savePlugins/pluginAsset` IPC ops (folderops.ts) over the folder's `plugins.json` + `plugin-assets/`.
 - e2e: `e2e/plugins.spec.ts`. Run with `DC_PORT=<free port>` from a worktree.
+
+## Comments (r21, ORCH-44, 2026-11-07)
+
+- Review comments live OUTSIDE the design file, so commenting never races an autosave: Drive = the `.dcanvas` file's own Drive comments (`packages/storage/src/comments.ts` `DriveComments`, works with `drive.file`; Drive enforces who may comment and that only the author edits/deletes; resolve/reopen are replies with `action`); local stores = `JsonComments` sidecar (`.comments/<docId>.json` in folders, `settings` key `comments:<id>` in the browser store, IPC `store.readComments/writeComments` on desktop). `ProjectStore.comments` is optional.
+- Anchor (`packages/scene/src/comments.ts`): page + optional element with `fx/fy` (fraction of its box, so the pin follows it) + absolute `x/y` fallback + `t/t1` seconds from the PAGE start (video). Stored as JSON `{"dc":1,…}` in Drive's opaque `anchor`; anything else (Drive UI comments) reads as "whole design".
+- Web: `lib/comments.svelte.ts` (`commentsOf(ed)`, polled every 15 s while visible + on focus; dev global `window.__dcComments`), `editor/comments/` (CommentPins over Canvas, CommentThread card, CommentsPanel right drawer / phone sheet), timeline markers in `Timeline.svelte`. ⇧C = comment (selection) or comment mode. Commenters (view only) can comment.
+- MCP: `tools/comments.ts`; numbers = reading order over ALL threads (stable when filtering). e2e: `e2e/comments.spec.ts`; FakeDrive implements the comments API per caller.
+
+## Desktop updates (r21, ORCH-44, 2026-11-07)
+
+- `apps/desktop/src/updater.ts`: checks the latest GitHub Release 8 s after start and every 6 h (`DC_DESKTOP_RELEASES_API` overrides the URL). It only installs when the user clicks Update now (`UpdateBanner.svelte`, also Settings › Updates › Check for updates). macOS: download the dmg, `hdiutil attach`, `ditto` the .app to `<bundle>.new`, then a detached `swap.sh` waits for the pid, swaps the bundle and runs `open`. Windows: NSIS `/S --force-run`. AppImage: replace the file. `.deb` or a bundle we can't write to: the download opens for a manual install. Unsigned builds are fine because Node downloads carry no quarantine.
+- Asset names must stay as in `electron-builder.yml` (`assetFor`). Real-package test (opt-in): `e2e/desktop-update.spec.ts` with `DC_UPDATE_OLD_APP` (packaged `--dir` at an older version) and `DC_UPDATE_NEW_DMG`.

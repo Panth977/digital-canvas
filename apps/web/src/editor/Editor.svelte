@@ -29,6 +29,8 @@
   import { mobile } from '../lib/mobile.svelte.ts';
   import { tabs } from '../lib/tabs.svelte.ts';
   import { videoKey } from '../lib/videokeys.ts';
+  import { commentsOf } from '../lib/comments.svelte.ts';
+  import CommentsPanel from './comments/CommentsPanel.svelte';
 
   let { id, store }: { id: string; store: ProjectStore } = $props();
 
@@ -91,6 +93,14 @@
     };
   });
 
+  // review comments: fetched on open, then polled while the window is visible
+  const cs = $derived(ed ? commentsOf(ed) : null);
+  $effect(() => {
+    const c = cs;
+    c?.start();
+    return () => c?.stop();
+  });
+
   // the tab shows the design's title
   $effect(() => {
     if (ed) tabs.setTitle(id, ed.doc.title);
@@ -122,6 +132,8 @@
   function onKeydown(e: KeyboardEvent): void {
     if (ed && !presenting && !ed.readOnly && (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'f') { e.preventDefault(); ui.open('find', false); return; }
     if (!ed || typing(e.target) || presenting) return;
+    if (cs && !e.metaKey && !e.ctrlKey && !e.altKey && e.shiftKey && e.code === 'KeyC') { e.preventDefault(); cs.panelOpen = true; if (ed.selection.length) cs.begin(); else cs.togglePlacing(); return; }
+    if (cs && e.key === 'Escape' && (cs.placing || cs.draft || cs.active)) { e.preventDefault(); cs.placing = false; cs.cancel(); return; }
     if (ed.readOnly && !viewKey(e)) return;
     const mod = e.metaKey || e.ctrlKey;
     const k = e.key.toLowerCase();
@@ -271,6 +283,11 @@
         {#if ed.readOnly && ed.access?.canCopy !== false}
           <button class="hb copy" onclick={() => void makeOwnCopy(ed!)} data-testid="make-copy"><Icon name="copy" size={18} /> Make a copy</button>
         {/if}
+        {#if cs}
+          <button class="hb icon cbtn" class:open={cs.panelOpen} title="Comments (⇧C)" aria-label="Comments" aria-pressed={cs.panelOpen} onclick={() => (cs!.panelOpen = !cs!.panelOpen)} data-testid="comments">
+            <Icon name="comment" size={22} />{#if cs.open.length}<span class="cnt" data-testid="comments-count">{cs.open.length}</span>{/if}
+          </button>
+        {/if}
         <div class="dl-wrap">
           <button class="share" class:open={showShare} aria-haspopup="dialog" aria-expanded={showShare} onclick={(e) => { e.stopPropagation(); showFile = false; showResize = false; showDownload = false; showShare = !showShare; }} data-testid="share"><Icon name="share" size={18} /> Share</button>
           {#if showShare}<SharePopover {ed} onclose={() => (showShare = false)} ondownload={() => (showDownload = true)} onpresent={(m) => (presenting = m)} />{/if}
@@ -293,6 +310,7 @@
         {#if isVideo(ed.doc)}<Timeline {ed} />{/if}
         <BottomBar {ed} />
       </main>
+      {#if cs?.panelOpen}<CommentsPanel {cs} />{/if}
     </div>
   </div>
 {/if}
@@ -322,6 +340,8 @@
   .badge { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 999px; background: rgba(0,0,0,.22); font-size: 13px; font-weight: 600; margin-left: 8px; white-space: nowrap; }
   .by { font-size: 13px; opacity: .9; margin-left: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
   .copy { background: rgba(255,255,255,.15); }
+  .cbtn { position: relative; }
+  .cnt { position: absolute; top: 3px; right: 1px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: #ff3b30; color: #fff; font-size: 10px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
   .work.ro { border-top-left-radius: 0; }
   .body { flex: 1; display: flex; min-height: 0; }
   .work { position: relative; flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--stage); border-top-left-radius: 16px; overflow: hidden; }

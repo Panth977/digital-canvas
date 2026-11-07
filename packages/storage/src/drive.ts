@@ -5,6 +5,7 @@ import type { PluginLibrary } from '@digital-canvas/scene';
 import { byRecent, type ProjectMeta, type ProjectStore, type Version } from './store.ts';
 import { API, DriveError, driveCall, readMedia, type TokenSource } from './driveapi.ts';
 import { DriveSharing, readAccess, type FileAccess } from './share.ts';
+import { DriveComments } from './comments.ts';
 
 export { DriveError, type TokenSource };
 const UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
@@ -134,9 +135,12 @@ export class DriveStore implements ProjectStore {
   /** Designs shared with anyone besides the owner: their new assets are published on save. */
   private sharedDocs = new Set<string>();
   readonly sharing: DriveSharing;
+  /** The design files' own Drive comments. */
+  readonly comments: DriveComments;
 
   constructor(private token: TokenSource, private folderName = 'Digital Canvas', private cache?: AssetCache, private opts: DriveStoreOptions = {}) {
     this.sharing = new DriveSharing(token);
+    this.comments = new DriveComments(token, (docId) => this.fileIdOf(docId));
   }
 
   private call(url: string, init: RequestInit = {}): Promise<Response> {

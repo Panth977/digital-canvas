@@ -1,7 +1,8 @@
 /** Seeing the result: render a page or all pages, and an automatic critique. */
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { pageDuration } from '@digital-canvas/scene';
+import { pageDuration, pinPlace } from '@digital-canvas/scene';
+import { numbered } from './comments.ts';
 import type { Context } from '../context.ts';
 import { checkDesign } from '../check.ts';
 import { renderGrid, renderPage } from '../render.ts';
@@ -17,16 +18,27 @@ export function registerViewTools(server: McpServer, ctx: Context): void {
       size: z.number().int().min(128).max(2048).optional().describe('Longest side in px (default 1024).'),
       at: z.number().min(0).optional().describe('Seconds into the page (video/animation).'),
       show_ids: z.boolean().optional(),
+      show_comments: z.boolean().optional().describe('Draw the open comment pins on this page, numbered as in list_comments (resolved ones too with include_resolved).'),
+      include_resolved: z.boolean().optional(),
     },
     annotations: { readOnlyHint: true },
-  }, safe(async ({ design_id, page, size, at, show_ids }) => {
+  }, safe(async ({ design_id, page, size, at, show_ids, show_comments, include_resolved }) => {
     const file = await ctx.open(design_id);
     const { page: pg, index } = pageOf(file.doc, page);
     if (at !== undefined && at > pageDuration(pg)) throw new Error(`at=${at}s is past the end of page ${index + 1} (${pageDuration(pg)}s)`);
-    const r = await renderPage(file, pg, { maxSide: size ?? 1024, at, labels: show_ids });
+    let pins: { n: number; x: number; y: number; resolved?: boolean }[] | undefined;
+    let pinList: { n: number; id: string; text: string }[] | undefined;
+    if (show_comments && ctx.ws.store.comments) {
+      const all = await ctx.ws.store.comments.list(file.doc.id);
+      const nums = numbered(file.doc, all);
+      const here = all.filter((c) => (include_resolved || !c.resolved) && c.anchor && pinPlace(file.doc, c.anchor).page === pg.id);
+      pins = here.map((c) => ({ n: nums.get(c.id)!, ...pinPlace(file.doc, c.anchor), resolved: c.resolved }));
+      pinList = here.map((c) => ({ n: nums.get(c.id)!, id: c.id, text: c.text.slice(0, 120) }));
+    }
+    const r = await renderPage(file, pg, { maxSide: size ?? 1024, at, labels: show_ids, pins });
     const content: Result['content'] = [
       { type: 'image', data: b64(r.bytes), mimeType: 'image/png' },
-      { type: 'text', text: JSON.stringify({ page: index + 1, of: file.doc.pages.length, pagePx: [Math.round(file.doc.width), Math.round(file.doc.height)], imagePx: [r.width, r.height], ...(show_ids ? { labels: r.legend } : {}), ...(at !== undefined ? { at } : {}) }) },
+      { type: 'text', text: JSON.stringify({ page: index + 1, of: file.doc.pages.length, pagePx: [Math.round(file.doc.width), Math.round(file.doc.height)], imagePx: [r.width, r.height], ...(show_ids ? { labels: r.legend } : {}), ...(pinList ? { comments: pinList } : {}), ...(at !== undefined ? { at } : {}) }) },
     ];
     return { content };
   }));

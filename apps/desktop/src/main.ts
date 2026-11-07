@@ -10,10 +10,12 @@ import { join } from 'node:path';
 import { BrowserWindow, app, dialog, ipcMain, session, shell, utilityProcess, type IpcMainInvokeEvent, type UtilityProcess } from 'electron';
 import { DriveAuth } from './drive.ts';
 import { clientConfigs } from './mcpconfig.ts';
-import { isNewer } from './version.ts';
+import { cleanup, download, install, updateFrom, type Release, type UpdateState } from './updater.ts';
 
 const RELEASES = 'https://github.com/Panth977/digital-canvas/releases/latest';
-const RELEASES_API = 'https://api.github.com/repos/Panth977/digital-canvas/releases/latest';
+const RELEASES_API = process.env.DC_DESKTOP_RELEASES_API || 'https://api.github.com/repos/Panth977/digital-canvas/releases/latest';
+/** How often a running app looks for a new release. */
+const UPDATE_EVERY_MS = 6 * 3600_000;
 
 app.setName('Digital Canvas');
 if (process.env.DC_DESKTOP_USER_DATA) app.setPath('userData', process.env.DC_DESKTOP_USER_DATA);
@@ -39,7 +41,8 @@ let win: BrowserWindow | null = null;
 let server: UtilityProcess | null = null;
 let local: { port: number; url: string; fallbackUrl: string } | null = null;
 let drive: DriveAuth;
-let update: { version: string; url: string } | null = null;
+let update: UpdateState | null = null;
+let lastCheck: string | null = null;
 const blocked: string[] = [];
 
 // ---- the utility process
@@ -110,6 +113,7 @@ function appState() {
       configs: clientConfigs(url, settings.mcpToken),
     },
     update,
+    lastUpdateCheck: lastCheck,
   };
 }
 const broadcast = () => win?.webContents.send('dc:state', appState());
@@ -205,6 +209,9 @@ const handlers: Record<string, (a: never) => unknown> = {
     await rpc('setToken', { token: settings.mcpToken });
     broadcast();
   },
+  'update.check': () => checkUpdate(),
+  'update.install': () => installUpdate(),
+  'update.later': () => { if (update && update.phase !== 'downloading' && update.phase !== 'installing') { update = null; broadcast(); } },
   openExternal: (a: { url: string }) => {
     const u = new URL(a.url);
     if (u.protocol !== 'https:') throw new Error('https links only');
@@ -302,18 +309,54 @@ function blockNetwork(): void {
   (globalThis as { __dcBlocked?: string[] }).__dcBlocked = blocked;
 }
 
-/** Notify only: an unsigned app can't replace itself safely, and nothing runs without the user. */
-async function checkUpdate(): Promise<void> {
-  if (process.env.DC_DESKTOP_BLOCK_NETWORK) return;
+/** Look for a newer release (never installs anything: the user chooses). Returns the version found. */
+async function checkUpdate(): Promise<string | null> {
+  if (process.env.DC_DESKTOP_BLOCK_NETWORK && !process.env.DC_DESKTOP_RELEASES_API) return null;
+  if (update && (update.phase === 'downloading' || update.phase === 'installing')) return update.version;
   try {
     const r = await fetch(RELEASES_API, { headers: { accept: 'application/vnd.github+json' } });
-    if (!r.ok) return;
-    const j = (await r.json()) as { tag_name?: string; html_url?: string };
-    if (j.tag_name && isNewer(j.tag_name, app.getVersion())) {
-      update = { version: j.tag_name.replace(/^v/, ''), url: j.html_url ?? RELEASES };
-      broadcast();
-    }
-  } catch { /* offline */ }
+    if (!r.ok) throw new Error(`GitHub answered ${r.status}`);
+    const found = updateFrom((await r.json()) as Release, app.getVersion(), process.platform, process.arch, !!process.env.APPIMAGE);
+    lastCheck = new Date().toISOString();
+    update = found ? { ...found, phase: 'available' } : null;
+    broadcast();
+    return found?.version ?? null;
+  } catch (e) {
+    lastCheck = new Date().toISOString();
+    broadcast();
+    throw e;
+  }
+}
+
+const updatesDir = () => join(app.getPath('userData'), 'updates');
+
+/** "Update now": download this platform's file, then swap and restart (or open it for a manual install). */
+async function installUpdate(): Promise<'restarting' | 'manual'> {
+  const u = update;
+  if (!u) throw new Error('No update to install.');
+  if (u.phase === 'downloading' || u.phase === 'installing') throw new Error('The update is already on its way.');
+  if (!u.asset) {
+    await shell.openExternal(u.url || RELEASES);
+    return 'manual';
+  }
+  const set = (patch: Partial<UpdateState>) => { update = { ...u, ...update, ...patch }; broadcast(); };
+  try {
+    set({ phase: 'downloading', progress: 0, error: undefined });
+    const file = join(updatesDir(), u.version, u.asset.name);
+    let last = 0;
+    await download(u.asset.url, file, u.asset.size, (p) => { if (p - last >= 0.01 || p === 1) { last = p; set({ progress: p }); } });
+    set({ phase: 'installing', progress: 1 });
+    const how = await install(file, {
+      platform: process.platform, exe: app.getPath('exe'), pid: process.pid, workDir: join(updatesDir(), u.version), appImage: process.env.APPIMAGE,
+      openPath: (f) => shell.openPath(f),
+      quit: () => setTimeout(() => app.quit(), 300),
+    });
+    if (how === 'manual') set({ phase: 'manual' });
+    return how;
+  } catch (e) {
+    set({ phase: 'error', error: e instanceof Error ? e.message : String(e) });
+    throw e;
+  }
 }
 
 let quitting = false;
@@ -340,6 +383,8 @@ void app.whenReady().then(async () => {
     return;
   }
   await createWindow();
-  setTimeout(() => void checkUpdate(), 8000);
+  try { cleanup(updatesDir(), app.getPath('exe')); } catch { /* nothing left */ }
+  setTimeout(() => void checkUpdate().catch(() => {}), 8000);
+  setInterval(() => void checkUpdate().catch(() => {}), UPDATE_EVERY_MS);
 });
 

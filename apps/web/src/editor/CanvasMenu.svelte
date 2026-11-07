@@ -4,6 +4,7 @@
   import Icon from '../lib/Icon.svelte';
   import { IMAGE_TYPES, pickFiles } from '../lib/files.ts';
   import { downloadSelection, replaceImage } from '../lib/vision/tools.svelte.ts';
+  import { commentsOf } from '../lib/comments.svelte.ts';
 
   /**
    * Canva's right-click menu on the canvas. On an element: Copy, Paste,
@@ -20,6 +21,7 @@
     vh: number;
     onclose: () => void;
   } = $props();
+  const cs = $derived(commentsOf(ed));
 
   const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
   const M = isMac ? '⌘' : 'Ctrl+';
@@ -69,6 +71,7 @@
     <button role="menuitem" onclick={() => run(() => ed.paste())}><Icon name="copy" size={18} /> Paste<kbd>{M}V</kbd></button>
     <button role="menuitem" onclick={() => run(() => ed.duplicateSelection())}><Icon name="plus" size={18} /> Duplicate<kbd>{M}D</kbd></button>
     <button role="menuitem" onclick={() => run(() => ed.deleteSelection())}><Icon name="trash" size={18} /> Delete<kbd>DELETE</kbd></button>
+    {#if cs?.canComment}<button role="menuitem" onclick={() => run(() => { cs!.panelOpen = true; cs!.begin(); })} data-testid="menu-comment"><Icon name="comment" size={18} /> Comment<kbd>⇧C</kbd></button>{/if}
     <hr />
     <div class="has" role="none" onpointerenter={() => (sub = 'layer')} onpointerleave={() => (sub = null)}>
       <button role="menuitem" aria-haspopup="menu" aria-expanded={sub === 'layer'} onclick={() => (sub = sub === 'layer' ? null : 'layer')}><Icon name="layers" size={18} /> Layer<span class="arr"><Icon name="right" size={16} /></span></button>

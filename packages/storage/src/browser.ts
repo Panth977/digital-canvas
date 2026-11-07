@@ -3,6 +3,7 @@ import { KV, appDb, openDb } from './idb.ts';
 import { brandJson, parseBrand, usedBrandAssets, type BrandData } from './brand.ts';
 import { byRecent, metaOf, type ProjectMeta, type ProjectStore } from './store.ts';
 import { libraryAssets, libraryJson, readLibrary } from './plugins.ts';
+import { JsonComments } from './comments.ts';
 import type { PluginLibrary } from '@digital-canvas/scene';
 
 interface Row {
@@ -33,6 +34,13 @@ export class BrowserStore implements ProjectStore {
   async remove(id: string): Promise<void> {
     await this.kv.delete(id);
   }
+
+  /** Comments: one JSON string per design in the settings table (`comments:<id>`). */
+  private commentKv = new KV<string>(appDb(), 'settings');
+  readonly comments = new JsonComments({
+    read: async (id) => (await this.commentKv.get(`comments:${id}`)) ?? null,
+    write: (id, json) => this.commentKv.set(`comments:${id}`, json),
+  });
 
   private brandKv = new KV<{ json: string; assets: [string, Uint8Array][] }>(appDb(), 'settings');
 

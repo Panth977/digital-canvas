@@ -59,7 +59,7 @@ export const CASES = [
     steps: ['Harshil opens a design shared "Can view"', 'Try to edit; File › Make a copy'],
     expected: 'View-only badge, no side panel; edits do nothing; owner’s file gets no new revision. Make a copy saves an editable copy (and its picture) into Harshil’s Drive.' },
   { id: 'QA-11', area: 'rights', title: 'Commenter', auto: qa('QA-11'),
-    steps: ['Harshil opens a design shared "Can comment"'], expected: 'Opens view-only (the app has no comments yet).' },
+    steps: ['Harshil opens a design shared "Can comment"', 'He clicks Comments › Add comment, clicks the page, writes and sends'], expected: 'Opens view-only; his comment pins on the page and Panth sees it (Drive comments).' },
   { id: 'QA-12', area: 'rights', title: 'Editor saves back', auto: qa('QA-12'),
     steps: ['Harshil opens a design shared "Can edit", adds a shape and a new picture'],
     expected: 'Saves go to Panth’s file (new revision); no request of Harshil’s touches Panth’s assets folder and no write is refused; the new picture lands in Harshil’s own assets and is made link-readable; Panth reopens and sees both pictures.' },

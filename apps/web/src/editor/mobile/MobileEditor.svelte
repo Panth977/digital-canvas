@@ -20,6 +20,8 @@
   import MobileSheet from './MobileSheet.svelte';
   import MobileToolbar from './MobileToolbar.svelte';
   import MobileTools from './MobileTools.svelte';
+  import CommentsPanel from '../comments/CommentsPanel.svelte';
+  import { commentsOf } from '../../lib/comments.svelte.ts';
 
   /**
    * Canva's phone editor: a slim top bar, the canvas filling the screen, a
@@ -38,11 +40,12 @@
     ai: 'AI', templates: 'Design', elements: 'Elements', mockups: 'Mockups', text: 'Text', brand: 'Brand', uploads: 'Uploads', draw: 'Draw',
     projects: 'Projects', apps: 'Apps', photos: 'Photos', videos: 'Videos', subtitles: 'Subtitles', sounds: 'Audio', plugins: 'Plugins',
   };
-  const SHEET_TITLES = { size: 'Font size', spacing: 'Spacing', opacity: 'Transparency', format: 'Format', pages: 'Pages', menu: '', download: 'Download', resize: 'Resize', share: 'Share' } as const;
+  const SHEET_TITLES = { size: 'Font size', spacing: 'Spacing', opacity: 'Transparency', format: 'Format', pages: 'Pages', menu: '', download: 'Download', resize: 'Resize', share: 'Share', comments: 'Comments' } as const;
 
   const isRail = $derived(!!ui.panel && RAIL_TABS.includes(ui.panel as RailTab));
   const open = $derived(!!ui.panel || !!mobile.sheet);
   const TOOL_TITLES: Record<string, string> = { font: 'Font', effects: 'Effects', animate: 'Animate', position: 'Position', image: 'Edit photo', table: 'Table', chart: 'Chart', qr: 'QR code', frame: 'Frame', audio: 'Audio' };
+  const cs = $derived(commentsOf(ed));
   const title = $derived(ui.panel
     ? isRail ? RAIL_TITLES[ui.panel as RailTab] : ui.panel === 'color' ? ui.color?.title ?? 'Colour' : TOOL_TITLES[ui.panel] ?? ''
     : mobile.sheet ? SHEET_TITLES[mobile.sheet] : '');
@@ -121,10 +124,13 @@
           <div class="host"><DownloadMenu {ed} onclose={close} /></div>
         {:else if mobile.sheet === 'share'}
           <div class="host"><SharePopover {ed} onclose={close} ondownload={() => (mobile.sheet = 'download')} onpresent={(m) => (presenting = m)} /></div>
+        {:else if mobile.sheet === 'comments' && cs}
+          <div class="host cm"><CommentsPanel {cs} /></div>
         {:else if mobile.sheet === 'resize'}
           <div class="host"><ResizeDialog {ed} onclose={close} /></div>
         {:else if mobile.sheet === 'menu'}
           <div class="menu" data-testid="m-menu-sheet">
+            {#if cs}<button data-testid="m-comments" onclick={() => (mobile.sheet = 'comments')}><Icon name="comment" size={20} /> Comments{cs.open.length ? ` (${cs.open.length})` : ''}</button>{/if}
             <button onclick={() => (mobile.sheet = 'share')}><Icon name="share" size={20} /> Share</button>
             <button onclick={() => (mobile.sheet = 'download')}><Icon name="download" size={20} /> Download / share</button>
             <button onclick={() => (mobile.sheet = 'resize')}><Icon name="resize" size={20} /> Resize</button>

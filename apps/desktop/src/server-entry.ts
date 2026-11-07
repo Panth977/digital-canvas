@@ -103,6 +103,8 @@ const ops: Record<string, (a: never) => unknown> = {
   'store.loadPlugins': () => needFolder().loadPlugins(),
   'store.savePlugins': (a: { json: string; assets: [string, Uint8Array][] }) => needFolder().savePlugins(a.json, a.assets),
   'store.pluginAsset': (a: { id: string }) => needFolder().pluginAsset(a.id),
+  'store.readComments': (a: { id: string }) => needFolder().readComments(a.id),
+  'store.writeComments': (a: { id: string; json: string }) => needFolder().writeComments(a.id, a.json),
 };
 
 port.on('message', (e: { data: never }) => {

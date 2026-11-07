@@ -109,6 +109,8 @@
     marker: 'M15 4l5 5-9 9H6v-5zM12.5 6.5l5 5M4 21h7',
     highlighter: 'M9 11l-5 5v3h6l5-5M9 11l6-6 5 5-6 6zM14 20h7',
     sticky: 'M4 4h16v10l-6 6H4zM14 20v-6h6',
+    comment: 'M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v9a1.5 1.5 0 0 1-1.5 1.5H9l-5 4zM8 9h8M8 12h5',
+    reopen: 'M4 12a8 8 0 1 0 2.3-5.6M4 4v4h4',
     phone: 'M7 2h10a1 1 0 011 1v18a1 1 0 01-1 1H7a1 1 0 01-1-1V3a1 1 0 011-1zM11 18h2',
     laptop: 'M5 5h14v10H5zM2 19h20l-2-4H4z',
     map: 'M9 4L3 6v14l6-2 6 2 6-2V4l-6 2zM9 4v14M15 6v14',

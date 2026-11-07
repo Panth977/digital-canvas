@@ -78,6 +78,11 @@ class Tabs {
     });
   }
 
+  /** Save every open design now (before the app quits for an update). */
+  async saveAll(): Promise<void> {
+    await Promise.all([...this.sessions.values()].map((s) => s.ed?.save()));
+  }
+
   /** The design shown now, or null on Home. */
   get activeId(): string | null {
     return router.route.name === 'editor' ? router.route.id : null;

@@ -25,3 +25,4 @@ export * from './find.ts';
 export * from './stretch.ts';
 export * from './subtitles.ts';
 export * from './pdfscene.ts';
+export * from './comments.ts';

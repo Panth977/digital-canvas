@@ -25,10 +25,10 @@
   import { desktop, isDesktop } from './lib/desktop/desktop.svelte.ts';
   import FolderSetup from './lib/desktop/FolderSetup.svelte';
   import DesktopSettings from './lib/desktop/DesktopSettings.svelte';
+  import UpdateBanner from './lib/desktop/UpdateBanner.svelte';
   import { syncOpenDesigns } from './lib/desktop/live.ts';
   import type { DesktopStore } from './lib/desktop/store.ts';
 
-  import { toast } from './lib/toast.svelte.ts';
 
   const onDesktop = isDesktop();
   /** Goes up when the open design was replaced on disk, so its editor mounts again. */
@@ -40,14 +40,6 @@
     if (dir && untrack(() => (library.localStore as DesktopStore).path !== dir)) library.useDesktopFolder(dir);
   });
 
-  // A new release: say so once. Nothing installs by itself.
-  let updateTold = false;
-  $effect(() => {
-    const v = desktop.state?.update?.version;
-    if (!v || updateTold) return;
-    updateTold = true;
-    toast.show(`Digital Canvas ${v} is out. See Settings to download it.`);
-  });
 
   $effect(() => {
     if (!onDesktop || !library.revision) return;
@@ -148,6 +140,7 @@
   </div>
 </div>
 {#if !onDesktop}<BridgeIndicator />{/if}
+{#if onDesktop && !desktop.settingsOpen}<UpdateBanner />{/if}
 {#if onDesktop && (bridgeUi.open || desktop.settingsOpen)}
   <DesktopSettings onclose={() => { bridgeUi.open = false; desktop.settingsOpen = false; }} />
 {:else if bridgeUi.open}<AiDialog onclose={() => (bridgeUi.open = false)} />{/if}

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { commentsOf } from '../lib/comments.svelte.ts';
   import { untrack } from 'svelte';
   import { TRANSITIONS, findElement, pageDuration, pageStart, totalDuration, type AudioClip, type Element, type TransitionType } from '@digital-canvas/scene';
   import type { EditorState } from '../lib/editor.svelte.ts';
@@ -36,6 +37,23 @@
   const slots = $derived(layoutScenes(ed.doc, pps));
   const stripW = $derived(stripWidth(slots));
   const headX = $derived(PAD + timeToX(slots, p.time));
+  /** Time-coded review comments as markers on the ruler (Frame.io-style); click one to go there. */
+  const cs = $derived(commentsOf(ed));
+  const marks = $derived.by(() => {
+    if (!cs) return [];
+    const nums = cs.numbers;
+    const out: { id: string; n: number; x: number; w: number; resolved: boolean }[] = [];
+    for (const c of cs.list) {
+      const a = c.anchor;
+      if (!a || a.t == null || (c.resolved && cs.filter === 'open')) continue;
+      const sl = slots.find((x) => x.id === a.page);
+      if (!sl || sl.hidden || !sl.d) continue;
+      const x = sl.x + Math.min(1, a.t / sl.d) * sl.w;
+      const w = a.t1 != null ? Math.min(1, a.t1 / sl.d) * sl.w + sl.x - x : 0;
+      out.push({ id: c.id, n: nums.get(c.id) ?? 0, x, w, resolved: c.resolved });
+    }
+    return out;
+  });
   const cur = $derived(slots.find((s) => s.id === ed.pageId) ?? null);
 
   // ---- thumbnails (the editor's shared cache) ----
@@ -313,6 +331,11 @@
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div class="ruler" onpointerdown={scrubStart} data-testid="tl-ruler">
           {#each ticks as t (t.x)}<span class="tick" style="left:{PAD + t.x}px">{t.label}</span>{/each}
+          {#each marks as m (m.id)}
+            {#if m.w > 0}<i class="cspan" style="left:{PAD + m.x}px;width:{m.w}px"></i>{/if}
+            <button class="cmark" class:resolved={m.resolved} class:on={cs?.active === m.id} style="left:{PAD + m.x}px" title="Comment {m.n}" aria-label="Comment {m.n}" data-testid="tl-comment" data-id={m.id}
+              onpointerdown={(e) => e.stopPropagation()} onclick={(e) => { e.stopPropagation(); cs?.focus(m.id); }}>{m.n}</button>
+          {/each}
         </div>
 
         <div class="lane scenes">
@@ -465,6 +488,10 @@
   .scroll { position: relative; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; padding-bottom: 8px; touch-action: pan-x; }
   .content { position: relative; min-width: 100%; display: flex; flex-direction: column; gap: 6px; }
   .ruler { position: relative; height: 18px; cursor: pointer; font-size: 10px; color: var(--muted); }
+  .cmark { position: absolute; top: 0; z-index: 6; transform: translateX(-1px); min-width: 16px; height: 16px; padding: 0 4px; border: 0; border-radius: 8px 8px 8px 2px; background: #8b3dff; color: #fff; font-size: 10px; font-weight: 700; line-height: 16px; cursor: pointer; }
+  .cmark.resolved { background: #8e8e93; }
+  .cmark.on { outline: 2px solid var(--ink); }
+  .cspan { position: absolute; bottom: 0; height: 3px; background: #8b3dff; opacity: .6; border-radius: 2px; pointer-events: none; }
   .tick { position: absolute; top: 2px; padding-left: 3px; border-left: 1px solid var(--line); line-height: 14px; white-space: nowrap; font-variant-numeric: tabular-nums; }
   .lane { position: relative; }
   .scenes { height: 56px; }

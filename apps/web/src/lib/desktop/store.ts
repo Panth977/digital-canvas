@@ -1,5 +1,5 @@
 import { pack, unpack, type BrandData, type LibraryAsset, type ProjectFile, type ProjectMeta, type ProjectStore } from '@digital-canvas/storage';
-import { brandJson, libraryJson, parseBrand, readLibrary, usedBrandAssets } from '@digital-canvas/storage';
+import { JsonComments, brandJson, libraryJson, parseBrand, readLibrary, usedBrandAssets } from '@digital-canvas/storage';
 import type { PluginLibrary } from '@digital-canvas/scene';
 import { desktop } from './desktop.svelte.ts';
 
@@ -22,6 +22,12 @@ export class DesktopStore implements ProjectStore {
   async save(file: ProjectFile): Promise<void> { await desktop.call('store.save', { bytes: pack(file) }); }
   async remove(id: string): Promise<void> { await desktop.call('store.remove', { id }); }
   async restore(id: string): Promise<void> { await desktop.call('store.restore', { id }); }
+
+  /** Comments: `.comments/<id>.json` in the folder, the same files the MCP server reads. */
+  readonly comments = new JsonComments({
+    read: (id) => desktop.call<string | null>('store.readComments', { id }),
+    write: async (id, json) => { await desktop.call('store.writeComments', { id, json }); },
+  });
 
   async loadBrand(): Promise<BrandData | null> {
     const b = await desktop.call<{ json: string; assets: [string, Uint8Array][] } | null>('store.loadBrand');

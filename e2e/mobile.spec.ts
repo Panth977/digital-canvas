@@ -273,3 +273,17 @@ test('video on a phone: one scene on the stage, compact filmstrip, tap a scene t
   await expect.poll(() => page.evaluate(() => (window as any).__dc.player.time), { timeout: 5000 }).toBeGreaterThan(2.5);
   await page.getByTestId('play').tap();
 });
+
+test('phone: comments sheet from the menu; a comment on the selection pins on the page', async ({ page }) => {
+  await newDesign(page);
+  await page.evaluate(() => (window as any).__dc.addShape('rect'));
+  await page.evaluate(() => { (window as any).__dcComments.begin(); });
+  await page.getByTestId('comment-box').fill('Bigger please');
+  await page.getByTestId('comment-submit').click();
+  await expect(page.getByTestId('comment-pin')).toHaveCount(1);
+  await page.getByTestId('m-menu').click();
+  await expect(page.getByTestId('m-comments')).toContainText('Comments (1)');
+  await page.getByTestId('m-comments').click();
+  await expect(page.getByTestId('comments-panel')).toBeVisible();
+  await expect(page.getByTestId('comments-item')).toContainText('Bigger please');
+});
