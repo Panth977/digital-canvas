@@ -21,6 +21,9 @@ export interface FolderApi {
   loadPlugins(): Promise<string>;
   savePlugins(json: string, assets: [string, Uint8Array][]): Promise<void>;
   pluginAsset(id: string): Promise<Uint8Array | null>;
+  /** A design's comment file (`.comments/<id>.json`), as text. */
+  readComments(id: string): Promise<string | null>;
+  writeComments(id: string, json: string): Promise<void>;
 }
 
 /** Fonts stay inside designs; the folder's `assets/` is for what the user uploads. */
@@ -54,5 +57,7 @@ export function folderApi(ws: FolderWorkspace): FolderApi {
     loadPlugins: async () => libraryJson(await store.loadPlugins()),
     savePlugins: (json, assets) => store.savePlugins(readLibrary(json), new Map(assets)),
     pluginAsset: (id) => store.pluginAsset(id),
+    readComments: (id) => store.commentFiles.read(id),
+    writeComments: (id, json) => store.commentFiles.write(id, json),
   };
 }

@@ -13,3 +13,4 @@ export * from './brand.ts';
 export * from './plugins.ts';
 export * from './pluginshare.ts';
 export { prepareImport, readDesignFile, ImportError, type ImportOptions, type ImportResult } from './import.ts';
+export * from './comments.ts';

@@ -27,6 +27,8 @@ export interface RenderOptions {
   at?: number;
   /** Draw numbered outlines over the top-level elements. */
   labels?: boolean;
+  /** Comment pins to draw (page px), numbered like list_comments. */
+  pins?: { n: number; x: number; y: number; resolved?: boolean }[];
   format?: 'png' | 'jpeg';
 }
 
@@ -72,6 +74,30 @@ export async function renderPage(file: ProjectFile, page: Page, opts: RenderOpti
           r.drawElement(canvas, label(n, e, 18 / scale, color, doc));
         });
         paint.delete();
+      }
+      if (opts.pins?.length) {
+        // Speech-bubble pins: a filled circle with its number, the point at the bottom-left (like Canva/Figma).
+        const R = 15 / scale;
+        const fill = new ck.Paint();
+        fill.setAntiAlias(true);
+        const ring = new ck.Paint();
+        ring.setAntiAlias(true);
+        ring.setStyle(ck.PaintStyle.Stroke);
+        ring.setStrokeWidth(2 / scale);
+        ring.setColor(ck.WHITE);
+        for (const p of opts.pins) {
+          const cx = Math.max(R, Math.min(doc.width - R, p.x + R)), cy = Math.max(R, Math.min(doc.height - R, p.y - R));
+          fill.setColor(ck.parseColorString(p.resolved ? '#8e8e93' : '#8b3dff'));
+          canvas.drawCircle(cx, cy, R, fill);
+          canvas.drawCircle(cx, cy, R, ring);
+          const fs = R * (p.n > 9 ? 0.95 : 1.15);
+          r.drawElement(canvas, {
+            id: `__pin${p.n}`, type: 'text', text: String(p.n), x: cx - R, y: cy - fs * 0.62, w: R * 2, h: fs * 1.3, rotation: 0, opacity: 1,
+            style: { ...DEFAULT_TEXT_STYLE, fontSize: fs, bold: true, color: '#ffffff', align: 'center', lineHeight: 1.1 },
+          } as TextElement);
+        }
+        fill.delete();
+        ring.delete();
       }
       canvas.restore();
       surface.flush();

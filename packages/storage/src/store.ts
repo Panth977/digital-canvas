@@ -2,6 +2,7 @@ import type { ProjectFile } from './file.ts';
 import { MemoryBrand, type BrandData } from './brand.ts';
 import { MemoryPlugins } from './plugins.ts';
 import type { PluginLibrary } from '@digital-canvas/scene';
+import { JsonComments, MemoryCommentFiles, type CommentStore } from './comments.ts';
 
 export interface ProjectMeta {
   id: string;
@@ -39,6 +40,8 @@ export interface ProjectStore {
   openVersion?(id: string, versionId: string): Promise<ProjectFile>;
   /** Take a design back out of the bin after `remove` (Drive). */
   restore?(id: string): Promise<void>;
+  /** Comment threads on designs, kept outside the design file (see comments.ts). */
+  readonly comments?: CommentStore;
 }
 
 export interface Version {
@@ -71,6 +74,7 @@ export class MemoryStore implements ProjectStore {
   }
   async save(file: ProjectFile) { this.files.set(file.doc.id, file); }
   async remove(id: string) { this.files.delete(id); }
+  readonly comments = new JsonComments(new MemoryCommentFiles());
   private brand = new MemoryBrand();
   loadBrand() { return this.brand.loadBrand(); }
   saveBrand(data: BrandData) { return this.brand.saveBrand(data); }

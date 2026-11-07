@@ -6,8 +6,8 @@ import type { PluginLibrary } from '@digital-canvas/scene';
 import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  EXTENSION, assetId, brandJson, libraryJson, readLibrary, byRecent, fileName, pack, parseBrand, peek, unpack, usedBrandAssets,
-  type BrandData, type ProjectFile, type ProjectMeta, type ProjectStore,
+  EXTENSION, JsonComments, assetId, brandJson, libraryJson, readLibrary, byRecent, fileName, pack, parseBrand, peek, unpack, usedBrandAssets,
+  type BrandData, type CommentFileIO, type ProjectFile, type ProjectMeta, type ProjectStore,
 } from '@digital-canvas/storage';
 import type { AssetInfo, ExportResult, Workspace } from '../workspace.ts';
 
@@ -84,6 +84,19 @@ export class NodeFolderStore implements ProjectStore {
   }
 
   /** Into `.trash/` (like Drive's bin). */
+  /** Comments: `.comments/<design id>.json` (the web folder store and the desktop app use the same files). */
+  readonly commentFiles: CommentFileIO = {
+    read: async (id) => {
+      const p = join(this.dir, '.comments', `${id.replace(/[\\/]/g, '_')}.json`);
+      return existsSync(p) ? readFileSync(p, 'utf8') : null;
+    },
+    write: async (id, json) => {
+      mkdirSync(join(this.dir, '.comments'), { recursive: true });
+      writeAtomic(join(this.dir, '.comments', `${id.replace(/[\\/]/g, '_')}.json`), new TextEncoder().encode(json));
+    },
+  };
+  readonly comments = new JsonComments(this.commentFiles, () => ({ name: process.env.DC_COMMENT_AUTHOR || 'You' }));
+
   async remove(id: string): Promise<void> {
     const name = this.nameOf(id);
     if (!name) return;

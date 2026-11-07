@@ -10,6 +10,7 @@ import { EFFICIENT, GUIDE, WORKFLOW } from './guide.ts';
 import { loadTemplate, templateThumb, templates } from './library.ts';
 import { designOutline } from './outline.ts';
 import { registerAssetTools } from './tools/assets.ts';
+import { registerCommentTools } from './tools/comments.ts';
 import { registerDesignTools } from './tools/designs.ts';
 import { registerEditTools } from './tools/edit.ts';
 import { registerExportTools, runJob } from './tools/export.ts';
@@ -33,7 +34,9 @@ ${WORKFLOW}
 
 Read the resource dcanvas://guide for sizes, type scales, font pairings, filters, animations and video tips. Always look at your work with render_page before you call it done.
 
-To show a design on a real product (T-shirt, tote bag, mug, poster on a wall, billboard, phone…): list_mockups, then render_mockup with the page and a mockup id (and a product colour where the mockup allows it).`;
+To show a design on a real product (T-shirt, tote bag, mug, poster on a wall, billboard, phone…): list_mockups, then render_mockup with the page and a mockup id (and a product colour where the mockup allows it).
+
+Review comments: people pin comments on pages, elements and moments of a video. list_comments shows them (render_page with show_comments shows where); after making a change, reply_comment with what you did and resolve_comment. add_comment leaves feedback for someone else.`;
 
 /** Every tool but run_script (which runs these inside its sandbox). */
 function registerAllTools(server: McpServer, ctx: Context): void {
@@ -47,6 +50,7 @@ function registerAllTools(server: McpServer, ctx: Context): void {
   registerExportTools(server, ctx);
   registerMockupTools(server, ctx);
   registerPluginTools(server, ctx);
+  registerCommentTools(server, ctx);
 }
 
 export function createServer(ws: Workspace, opts: ServerOptions = {}): McpServer {

@@ -3,6 +3,7 @@ import { KV, appDb } from './idb.ts';
 import { brandJson, parseBrand, usedBrandAssets, type BrandData } from './brand.ts';
 import { byRecent, type ProjectMeta, type ProjectStore } from './store.ts';
 import { libraryJson, readLibrary } from './plugins.ts';
+import { JsonComments } from './comments.ts';
 import type { PluginLibrary } from '@digital-canvas/scene';
 
 declare global {
@@ -111,6 +112,24 @@ export class FolderStore implements ProjectStore {
     const base = name.slice(0, -EXTENSION.length);
     for (let i = 2; ; i++) if (!taken.has(`${base} (${i})${EXTENSION}`)) return `${base} (${i})${EXTENSION}`;
   }
+
+  /** Comments: `.comments/<design id>.json` in the folder (same layout as the desktop app and MCP). */
+  readonly comments = new JsonComments({
+    read: async (id) => {
+      try {
+        const dir = await this.dir.getDirectoryHandle('.comments');
+        return await (await (await dir.getFileHandle(`${id}.json`)).getFile()).text();
+      } catch {
+        return null;
+      }
+    },
+    write: async (id, json) => {
+      const dir = await this.dir.getDirectoryHandle('.comments', { create: true });
+      const w = await (await dir.getFileHandle(`${id}.json`, { create: true })).createWritable();
+      await w.write(json);
+      await w.close();
+    },
+  });
 
   async remove(id: string): Promise<void> {
     const name = await this.nameOf(id);
