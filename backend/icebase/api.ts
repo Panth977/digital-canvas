@@ -41,4 +41,32 @@ export const api = defineApi({
     }),
     errors: { 'permission-denied': 'Cloud processing is not available for this account' },
   }),
+  syncShares: endpoint({
+    tag: 'Sharing',
+    summary: 'Refresh the "Shared with you" lists for some of your designs from their Drive permissions',
+    // The caller's own Google access token (web or desktop app): the server reads each file's
+    // permissions with it, so the lists always match Drive. No Firebase session needed (desktop).
+    input: f.map({ accessToken: f.string({ min: 1, max: 4096 }), fileIds: f.array(f.string({ min: 1, max: 200 }), { max: 50 }) }),
+    output: f.map({ synced: f.number(), people: f.number() }),
+    errors: { unauthenticated: 'The Google token is not valid for Digital Canvas' },
+    auth: 'none',
+  }),
+  sharedWithMe: endpoint({
+    tag: 'Sharing',
+    summary: 'Designs other people shared with your Google account',
+    input: f.map({ accessToken: f.string({ min: 1, max: 4096 }) }),
+    output: f.map({
+      items: f.array(f.map({
+        fileId: f.string(),
+        docId: f.optional(f.string()),
+        title: f.string(),
+        role: f.string(),
+        ownerName: f.optional(f.string()),
+        ownerEmail: f.optional(f.string()),
+        sharedAt: f.string(),
+      })),
+    }),
+    errors: { unauthenticated: 'The Google token is not valid for Digital Canvas' },
+    auth: 'none',
+  }),
 });

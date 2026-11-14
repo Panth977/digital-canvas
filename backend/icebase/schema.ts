@@ -71,4 +71,33 @@ export const bridgeParts = collection('users/{uid}/bridgeJobs/{jobId}/parts', {
   ttl: 'expiresAt',
 });
 
-export const schema = defineSchema({ users, drive, devices, bridgeJobs, bridgeParts });
+
+/**
+ * Share inbox: designs other people shared with an email address. drive.file can't list
+ * "Shared with me", so the backend keeps this list. Only functions write it: syncShares reads
+ * the file's real Drive permissions with the sharer's own token, so an entry always matches
+ * Drive. Key = sha256(lower-cased email).
+ */
+export const shareInbox = collection('inbox/{emailKey}/shared', {
+  fields: {
+    fileId: f.string(),
+    docId: f.optional(f.string()),
+    title: f.string(),
+    role: f.string(),
+    ownerName: f.optional(f.string()),
+    ownerEmail: f.optional(f.string()),
+    sharedAt: f.timestamp(),
+  },
+  indexes: [],
+});
+
+/** Who a shared design's inbox entries were written for (so a removed person's entry goes too). */
+export const shareTargets = collection('shares', {
+  fields: {
+    emails: f.array(f.string()),
+    updatedAt: f.timestamp(),
+  },
+  indexes: [],
+});
+
+export const schema = defineSchema({ users, drive, devices, bridgeJobs, bridgeParts, shareInbox, shareTargets });

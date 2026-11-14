@@ -247,3 +247,11 @@ Panth's rule: no generated design content. Templates, stickers, illustrations, f
 - Drag layers (Canvas `drawLayered`): while `ed.busy` and the selection is top-level on a page, everything below and above it is drawn once into GPU images, and each frame redraws only the moving range. Skipped when an element above has a blend mode. `__dcView.get().layered` shows it. Test: `e2e/drag-layers.spec.ts` compares the picture with a full redraw.
 - Comments are optimistic: shown at once, sent through an ordered queue (`CommentsState.send`); temporary ids map to the store's ids; a failure shows a toast and reloads.
 - Perf tests: `e2e/perf-drive.spec.ts` (macOS GPU only; FakeDrive `latencyMs`; no main-thread task over 250 ms while dragging). Real designs: `DC_PERF_DESIGN=<file.dcanvas>`.
+
+## Shared with you on every device (ORCH-42, 2026-11-15)
+
+- drive.file can't list Drive's "Shared with me", so the backend keeps a share inbox: Firestore `inbox/{sha256(email)}/shared/{fileId}` + `shares/{fileId}` (who it was written for). Functions only; clients have no rules.
+- `syncShares({ accessToken, fileIds })`: reads each file's permissions from Drive with the caller's own token and rewrites the inboxes of the people on it (removed people lose the entry). Called by the Share popover after every change, and by Home for your shared designs (`DriveStore.sharedFileIds()`, at most every 6 h per browser) — that covers shares made in Drive itself and older ones.
+- `sharedWithMe({ accessToken })`: the recipient's list. Home merges it with the browser-known `sharedList`; opening goes through `/d/<fileId>` (SharedOpen → Picker grant once).
+- Both endpoints are `auth: 'none'` and identify the caller through OpenID userinfo (never tokeninfo: `drive-scope.test.ts`), so the desktop app (no Firebase session) works; `SHARE_ORIGINS` adds `http://digital-canvas.localhost:4977`. Pure logic in `backend/functions/src/shares.ts` (tests `backend/test`); e2e fake in `FakeDrive.shareCall` (QA-22/23/24).
+- Home › design ⋯ › Share / Download… opens the editor's own SharePopover / DownloadMenu over Home (`routes/HomeQuick.svelte` loads an EditorState without a canvas).

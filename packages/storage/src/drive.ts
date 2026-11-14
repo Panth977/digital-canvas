@@ -67,6 +67,7 @@ interface DriveFile {
   modifiedTime: string;
   thumbnailLink?: string;
   appProperties?: Record<string, string>;
+  shared?: boolean;
 }
 
 /** Remembers the Drive file of designs outside your folder (shared with you), so they reopen after a reload. */
@@ -313,9 +314,10 @@ export class DriveStore implements ProjectStore {
     const parent = await this.folder();
     const q = `'${parent}' in parents and trashed=false and appProperties has { key='${ROOT_PROP}' and value='0' }`;
     const out: ProjectMeta[] = [];
+    const shared: string[] = [];
     let pageToken = '';
     do {
-      const params = new URLSearchParams({ q, fields: 'nextPageToken,files(id,name,modifiedTime,thumbnailLink,appProperties)', pageSize: '200', spaces: 'drive' });
+      const params = new URLSearchParams({ q, fields: 'nextPageToken,files(id,name,modifiedTime,thumbnailLink,appProperties,shared)', pageSize: '200', spaces: 'drive' });
       if (pageToken) params.set('pageToken', pageToken);
       const r = await this.json<{ files: DriveFile[]; nextPageToken?: string }>(`${API}/files?${params}`);
       for (const f of r.files) {
@@ -323,6 +325,7 @@ export class DriveStore implements ProjectStore {
         const id = p[DOC_PROP];
         if (!id) continue;
         this.ids.set(id, f.id);
+        if (f.shared) { this.sharedDocs.add(id); shared.push(f.id); }
         out.push({
           id,
           title: f.name.endsWith(EXTENSION) ? f.name.slice(0, -EXTENSION.length) : f.name,
@@ -334,8 +337,15 @@ export class DriveStore implements ProjectStore {
       }
       pageToken = r.nextPageToken ?? '';
     } while (pageToken);
+    this.listedShared = shared;
     return out.sort(byRecent);
   }
+
+  /** Drive file ids of your designs that are shared with someone (from the last list()). */
+  sharedFileIds(): string[] {
+    return [...this.listedShared];
+  }
+  private listedShared: string[] = [];
 
   private async fileIdOf(docId: string): Promise<string | undefined> {
     if (this.ids.has(docId)) return this.ids.get(docId);

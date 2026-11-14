@@ -1,4 +1,5 @@
 import type { Page, Route } from '@playwright/test';
+import { inboxFor, isDesign, type InboxEntry } from '../backend/functions/src/shares.ts';
 
 /**
  * A small in-memory Google Drive v3 behind page.route, enough for the app's
@@ -137,7 +138,7 @@ export class FakeDrive {
 
   private meta(f: FakeFile) {
     const { body, owned, trashed, grants, owner, revisions, perms, ...rest } = f;
-    return { ...rest, ...(body ? { size: String(body.length) } : {}) };
+    return { ...rest, ...(body ? { size: String(body.length) } : {}), ...(owner !== undefined ? { shared: (perms ?? []).some((p) => p.role !== 'owner') } : {}) };
   }
 
   private userName(email: string): string {
@@ -172,7 +173,47 @@ export class FakeDrive {
     };
   }
 
+  /** The backend's share inbox (functions syncShares / sharedWithMe): email → fileId → entry. */
+  inbox = new Map<string, Map<string, InboxEntry>>();
+  private shareTargets = new Map<string, string[]>();
+  /** syncShares calls: who called, for which files. */
+  syncCalls: { email: string; fileIds: string[] }[] = [];
+
+  /** Same rules as backend/functions/src/index.ts, over this fake Drive (callables answer `{ result }`). */
+  private shareCall(route: Route, name: 'syncShares' | 'sharedWithMe'): Promise<void> {
+    const req = route.request();
+    const headers = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' };
+    if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers });
+    const data = (req.postDataJSON() as { data: { accessToken: string; fileIds?: string[] } }).data;
+    const user = this.users.get(data.accessToken);
+    if (!user) return route.fulfill({ status: 401, headers, json: { error: { status: 'UNAUTHENTICATED', message: 'The Google token is not valid for Digital Canvas' } } });
+    if (name === 'sharedWithMe') {
+      const items = [...(this.inbox.get(user.email)?.values() ?? [])].map((e) => ({ ...e, sharedAt: new Date().toISOString() }));
+      return route.fulfill({ headers, json: { result: { items } } });
+    }
+    this.syncCalls.push({ email: user.email, fileIds: data.fileIds ?? [] });
+    let synced = 0, people = 0;
+    for (const id of data.fileIds ?? []) {
+      const f = this.files.get(id);
+      if (!f || !this.visible(f, user.email)) continue;
+      const role = this.roleOf(f, user.email);
+      if (role !== 'owner' && role !== 'writer') continue;
+      const perms = this.permsOf(f);
+      const owner = perms.find((p) => p.role === 'owner');
+      const info = { id: f.id, name: f.name, trashed: f.trashed, appProperties: f.appProperties, owners: owner ? [{ displayName: owner.displayName, emailAddress: owner.emailAddress }] : [], permissions: perms.map((p) => ({ type: p.type, role: p.role, emailAddress: p.emailAddress })) };
+      if (!isDesign(info)) continue;
+      const now = inboxFor(info);
+      for (const [email, e] of now) { if (!this.inbox.has(email)) this.inbox.set(email, new Map()); this.inbox.get(email)!.set(id, e); }
+      for (const email of this.shareTargets.get(id) ?? []) if (!now.has(email)) this.inbox.get(email)?.delete(id);
+      this.shareTargets.set(id, [...now.keys()]);
+      synced++; people += now.size;
+    }
+    return route.fulfill({ headers, json: { result: { synced, people } } });
+  }
+
   async install(page: Page): Promise<void> {
+    await page.route('**/syncShares', (r) => this.shareCall(r, 'syncShares'));
+    await page.route('**/sharedWithMe', (r) => this.shareCall(r, 'sharedWithMe'));
     await page.route('https://lh3.googleusercontent.com/**', (r) => r.fulfill({ body: this.thumb, contentType: 'image/png' }));
     await page.route('https://www.googleapis.com/**', (r) => this.handle(r));
   }

@@ -13,9 +13,10 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { HttpsError, onCall } from '@panth977/icebase-server/functions';
 import { getAdminAuth, getAdminFirestore, initializeAdminApp } from '@panth977/icebase-server/admin';
-import { collection, deleteDoc, deleteField, doc, getDoc, increment, serverTimestamp, setDoc } from '@panth977/icebase/firestore';
+import { collection, deleteDoc, deleteField, doc, getDoc, getDocs, increment, limit, query, serverTimestamp, setDoc } from '@panth977/icebase/firestore';
 import { effectiveMode, parseAllowlist } from '../../../packages/mcp/src/bridge/routing.ts';
-import { drive, users } from '../../icebase/schema.ts';
+import { drive, shareInbox, shareTargets, users } from '../../icebase/schema.ts';
+import { emailKey, inboxFor, isDesign, tokenEmail, type DriveFileInfo, type InboxEntry, type UserInfo } from './shares.ts';
 import config from '../../icebase.config.ts';
 import { api } from '../../icebase/api.ts';
 import { DRIVE_FILE_SCOPE, GOOGLE_CLIENT_ID, REGION } from '../../google.ts';
@@ -27,6 +28,8 @@ const auth = getAdminAuth(app);
 const SECRETS = ['GOOGLE_CLIENT_SECRET', 'TOKEN_KEY'];
 const DRIVE_SCOPE = DRIVE_FILE_SCOPE;
 const ORIGINS = ['http://localhost:5181', 'https://digital-canvas-p977.web.app', 'https://digital-canvas-p977.firebaseapp.com'];
+/** The desktop app serves the same web build here (apps/desktop); only the share endpoints are called from it. */
+const SHARE_ORIGINS = [...ORIGINS, 'http://digital-canvas.localhost:4977'];
 
 interface TokenResponse {
   access_token?: string;
@@ -148,4 +151,63 @@ export const aiSettings = onCall(api.aiSettings, { cors: ORIGINS, region: REGION
   const m = effectiveMode({ email, ...(processing ? { processing } : {}) }, CLOUD_ALLOWLIST);
   const active = req.data.activeDevice !== undefined ? req.data.activeDevice : data?.activeDevice;
   return { mode: m.mode, requested: m.requested, cloudAllowed: m.cloudAllowed, ...(active ? { activeDevice: active } : {}) };
+});
+
+// ---- Shared with you (functions/src/shares.ts) ----
+// syncShares: the sharer's app calls it after changing who has access (and once in a while for its
+//   shared designs). Each file's permissions are read from Drive with the caller's token, and the
+//   inbox of every person on it is updated; people taken off lose the entry.
+// sharedWithMe: the recipient's Home lists its inbox. Both take a Google access token instead of a
+//   Firebase session, so the desktop app (no Firebase sign-in) works the same.
+
+async function tokenOwner(accessToken: string): Promise<string> {
+  // who the token belongs to (OpenID userinfo: the openid + email scopes every sign-in has)
+  const r = await fetch('https://openidconnect.googleapis.com/v1/userinfo', { headers: { Authorization: `Bearer ${accessToken}` } });
+  const email = r.ok ? tokenEmail((await r.json()) as UserInfo) : null;
+  if (!email) throw new HttpsError('unauthenticated', 'The Google token is not valid for Digital Canvas');
+  return email;
+}
+
+const FILE_FIELDS = 'id,name,trashed,owners(displayName,emailAddress),appProperties,permissions(type,role,emailAddress,deleted)';
+
+export const syncShares = onCall(api.syncShares, { cors: SHARE_ORIGINS, region: REGION }, async (req) => {
+  await tokenOwner(req.data.accessToken);
+  let synced = 0, people = 0;
+  for (const fileId of [...new Set(req.data.fileIds)]) {
+    const r = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=${encodeURIComponent(FILE_FIELDS)}&supportsAllDrives=true`, { headers: { Authorization: `Bearer ${req.data.accessToken}` } });
+    const targetRef = doc(collection(db, shareTargets), fileId);
+    const before = ((await getDoc(targetRef)).data() as { emails?: string[] } | undefined)?.emails ?? [];
+    // Not visible to this token (deleted, or no access): leave the lists alone; recipients can remove a dead entry.
+    if (!r.ok) continue;
+    const f = (await r.json()) as DriveFileInfo;
+    if (!isDesign(f)) continue;
+    // Readers and commenters don't get the permission list: only people who can share it rewrite its lists.
+    if (!f.trashed && !(f.permissions ?? []).length) continue;
+    const now: Map<string, InboxEntry> = inboxFor(f);
+    for (const [email, e] of now) {
+      const ref = doc(collection(db, shareInbox, emailKey(email)), fileId);
+      const old = await getDoc(ref);
+      await setDoc(ref, { ...e, sharedAt: old.exists() ? (old.data() as { sharedAt: unknown }).sharedAt : serverTimestamp() } as never);
+    }
+    for (const email of before) if (!now.has(email)) await deleteDoc(doc(collection(db, shareInbox, emailKey(email)), fileId));
+    if (now.size) await setDoc(targetRef, { emails: [...now.keys()], updatedAt: serverTimestamp() } as never);
+    else if (before.length) await deleteDoc(targetRef);
+    synced++;
+    people += now.size;
+  }
+  return { synced, people };
+});
+
+export const sharedWithMe = onCall(api.sharedWithMe, { cors: SHARE_ORIGINS, region: REGION }, async (req) => {
+  const email = await tokenOwner(req.data.accessToken);
+  const snap = await getDocs(query(collection(db, shareInbox, emailKey(email)), limit(500)));
+  const items = snap.docs.map((d) => {
+    const v = d.data() as { fileId: string; docId?: string; title: string; role: string; ownerName?: string; ownerEmail?: string; sharedAt?: { toDate?: () => Date } };
+    const at = v.sharedAt?.toDate?.() ?? new Date(0);
+    return {
+      fileId: v.fileId, title: v.title, role: v.role, sharedAt: at.toISOString(),
+      ...(v.docId ? { docId: v.docId } : {}), ...(v.ownerName ? { ownerName: v.ownerName } : {}), ...(v.ownerEmail ? { ownerEmail: v.ownerEmail } : {}),
+    };
+  }).sort((a, b) => b.sharedAt.localeCompare(a.sharedAt));
+  return { items };
 });

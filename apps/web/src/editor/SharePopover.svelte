@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { shareInbox } from '../lib/shareinbox.svelte.ts';
   import type { PresentMode } from '../lib/present.ts';
   import { mobile } from '../lib/mobile.svelte.ts';
   import { onMount } from 'svelte';
@@ -74,6 +75,8 @@
    */
   async function afterChange(): Promise<void> {
     if (!drive) return;
+    // the people on it see it (or stop seeing it) in Home › Shared with you on every device
+    if (fileId) void shareInbox.sync([fileId], account.driveToken);
     const shared = isShared(people);
     drive.setShared(ed.doc.id, shared);
     if (!shared) return;

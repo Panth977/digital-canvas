@@ -183,7 +183,9 @@ test.describe('Recipient opens', () => {
       { id: 'p-owner', type: 'user', role: 'owner', emailAddress: OWNER.email, displayName: 'Panth' },
       { id: 'p-h', type: 'user', role: 'reader', emailAddress: RECIPIENT.email, displayName: 'Harshil' }] });
     const fresh = await as(browser, d, RECIPIENT);
-    await expect(fresh.getByTestId('shared-empty')).toBeVisible();
+    // a new browser: the backend's share inbox lists what Panth shared from the app; the other one is not there yet
+    await expect(fresh.getByTestId('shared-item')).toHaveCount(1);
+    await expect(fresh.getByTestId('shared-item')).toContainText('Launch poster');
     await fresh.getByTestId('open-shared').click();
     const st = await pickerState(fresh);
     expect(st.views[0]).toMatchObject({ label: 'Shared with me', ownedByMe: false });
@@ -194,6 +196,57 @@ test.describe('Recipient opens', () => {
     await o.page.context().close();
     await r.context().close();
     await fresh.context().close();
+  });
+
+  test('QA-22 recipient on a new device: Home lists designs shared with them before they were ever opened there; opening asks Drive once; removing access takes it off', async ({ browser }) => {
+    const d = world();
+    const o = await ownerDesign(browser, d);
+    await shareWith(o.page, RECIPIENT.email, 'commenter');
+    await expect.poll(() => d.syncCalls.some((c) => c.email === OWNER.email && c.fileIds.includes(o.file.id))).toBe(true);
+    expect(d.inbox.get(RECIPIENT.email)?.get(o.file.id)).toMatchObject({ title: 'Launch poster', role: 'commenter', ownerName: 'Panth', docId: o.docId });
+
+    // Harshil signs in on another PC: nothing in this browser's own list, still the design shows
+    const r = await as(browser, d, RECIPIENT);
+    const item = r.getByTestId('shared-item');
+    await expect(item).toHaveCount(1);
+    await expect(item).toContainText('Launch poster');
+    await expect(item).toContainText('from Panth · Can comment · shared');
+    await r.getByTestId('shared-section').screenshot({ path: `${SHOTS}/r22-shared-new-device.png` });
+    await item.getByTestId('shared-open-item').click();
+    await expect(r.getByTestId('shared-open')).toHaveAttribute('data-phase', 'grant');
+    await r.getByTestId('shared-grant').click();
+    await pick(r, d, RECIPIENT, o.file);
+    await expect(r.getByTestId('canvas')).toBeVisible();
+    await expect(r.getByTestId('view-only')).toBeVisible();
+
+    // Panth removes him: the entry leaves his inbox
+    if (!(await o.page.getByTestId('share-menu').isVisible())) await o.page.getByTestId('share').click();
+    await o.page.locator(`[data-testid="share-person"][data-email="${RECIPIENT.email}"]`).getByTestId('share-person-role').selectOption('remove');
+    await expect.poll(() => d.inbox.get(RECIPIENT.email)?.has(o.file.id) ?? false).toBe(false);
+    await o.page.context().close();
+    await r.context().close();
+  });
+
+  test('QA-23 designs shared before this existed (or from Drive itself) reach the inbox when the owner opens Home', async ({ browser }) => {
+    const d = world();
+    const o = await ownerDesign(browser, d);
+    // shared straight in Drive: no popover, no sync yet
+    o.file.perms = [...d.permsOf(o.file), { id: 'p-h', type: 'user', role: 'reader', emailAddress: RECIPIENT.email, displayName: 'Harshil' }];
+    expect(d.inbox.get(RECIPIENT.email)?.size ?? 0).toBe(0);
+    await o.page.goto('/');
+    await fakeSignIn(o.page, OWNER);
+    await expect.poll(() => d.inbox.get(RECIPIENT.email)?.has(o.file.id) ?? false).toBe(true);
+    const r = await as(browser, d, RECIPIENT);
+    await expect(r.getByTestId('shared-item')).toContainText('Launch poster');
+    await expect(r.getByTestId('shared-item')).toContainText('Can view');
+    // "Remove from this list" keeps it off on this browser
+    await r.getByTestId('shared-item').getByRole('button', { name: /Remove Launch poster/ }).click();
+    await expect(r.getByTestId('shared-item')).toHaveCount(0);
+    await r.reload();
+    await fakeSignIn(r, RECIPIENT);
+    await expect(r.getByTestId('shared-empty')).toBeVisible();
+    await o.page.context().close();
+    await r.context().close();
   });
 
   test('QA-07 recipient via Drive "Open with" (?state=…): opens the shared file; another account is told to switch', async ({ browser }) => {
@@ -494,5 +547,39 @@ test.describe('Drive "Open with" for existing users', () => {
     await expect(p2.getByTestId('drive-install')).toHaveCount(0);
     await ctx.close();
     await p2.context().close();
+  });
+});
+
+test.describe('From Home', () => {
+  test('QA-24 Share and Download from a design card on Home, without opening the design', async ({ browser }) => {
+    const d = world();
+    const o = await ownerDesign(browser, d);
+    const page = o.page;
+    await page.goto('/');
+    await fakeSignIn(page, OWNER);
+    const card = page.locator('[data-testid="project-card"]').filter({ hasText: 'Launch poster' }).first();
+    await card.getByTestId('card-menu').click();
+    await page.getByTestId('card-share').click();
+    await expect(page.getByTestId('home-quick')).toHaveAttribute('data-mode', 'share');
+    await expect(page.getByTestId('share-menu')).toBeVisible();
+    await page.getByTestId('share-email').fill(RECIPIENT.email);
+    await page.getByTestId('share-role').selectOption('reader');
+    await page.getByTestId('share-send').click();
+    await expect(page.getByTestId('share-sent')).toBeVisible();
+    expect(d.roleOf(o.file, RECIPIENT.email)).toBe('reader');
+    await expect.poll(() => d.isPublic(o.asset)).toBe(true);
+    await expect.poll(() => d.inbox.get(RECIPIENT.email)?.has(o.file.id) ?? false).toBe(true);
+    await page.getByTestId('home-quick').screenshot({ path: `${SHOTS}/r22-home-share.png` });
+    expect(new URL(page.url()).hash).not.toContain('/d/');
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('home-quick')).toHaveCount(0);
+
+    await card.getByTestId('card-menu').click();
+    await page.getByTestId('card-export').click();
+    await expect(page.getByTestId('download-menu')).toBeVisible();
+    const dl = page.waitForEvent('download');
+    await page.getByTestId('do-download').click();
+    expect((await dl).suggestedFilename()).toMatch(/Launch poster.*\.(png|zip)$/);
+    await page.context().close();
   });
 });

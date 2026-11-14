@@ -5,6 +5,9 @@
   import { importer, importFromDevice, importFromDrive } from '../lib/importdesign.svelte.ts';
   import { isPdfFile, pdfImport } from '../lib/pdfimport.svelte.ts';
   import { sharedList } from '../lib/sharedlist.svelte.ts';
+  import { shareInbox } from '../lib/shareinbox.svelte.ts';
+  import HomeQuick from './HomeQuick.svelte';
+  import type { DriveStore } from '@digital-canvas/storage';
   import { pickDesignFile } from '../lib/picker.ts';
   import Icon from '../lib/Icon.svelte';
   import { library } from '../lib/library.svelte.ts';
@@ -30,6 +33,8 @@
   let search = $state('');
   let custom = $state({ w: 1080, h: 1080, unit: 'px' as Unit });
   let menuFor = $state<string | null>(null);
+  /** Share / Download from the ⋯ menu, without opening the design. */
+  let quick = $state<{ id: string; title: string; mode: 'share' | 'download' } | null>(null);
   let renaming = $state<string | null>(null);
   let renameDraft = $state('');
   let view = $state<HomeView>(loadView());
@@ -64,7 +69,11 @@
     if (!quiet) loading = true;
     error = '';
     try {
-      projects = await library.store.list();
+      const store = library.store;
+      projects = await store.list();
+      // keep the "Shared with you" lists of the people you shared with up to date (throttled)
+      const u = account.user;
+      if (u && store.kind === 'drive') void shareInbox.syncOwn(u.uid, (store as DriveStore).sharedFileIds(), account.driveToken);
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
       projects = [];
@@ -80,6 +89,12 @@
 
   $effect(() => {
     if (library.revision) untrack(() => void refresh(true));
+  });
+
+  // "Shared with you" on any device: the backend's share inbox (drive.file can't list Shared with me)
+  $effect(() => {
+    const u = account.user;
+    if (u) untrack(() => void shareInbox.load(u.uid, account.driveToken));
   });
 
   async function create(opts: { width: number; height: number; unit: Unit; print?: boolean; title?: string; video?: boolean }) {
@@ -143,7 +158,19 @@
     void pdfImport.openFile(f);
   }
 
-  const shared = $derived(sharedList.of(account.user?.uid));
+  interface SharedRow { fileId: string; title: string; owner?: string; role: string; when: string; whenLabel: string; local: boolean }
+  /** Designs opened on this browser plus the ones the backend knows were shared with you (newest first). */
+  const shared = $derived.by((): SharedRow[] => {
+    const rows = new Map<string, SharedRow>();
+    for (const i of shareInbox.items) rows.set(i.fileId, { fileId: i.fileId, title: i.title, owner: i.ownerName ?? i.ownerEmail, role: i.role, when: i.sharedAt, whenLabel: 'shared', local: false });
+    for (const e of sharedList.of(account.user?.uid)) rows.set(e.fileId, { fileId: e.fileId, title: e.title, owner: e.owner ?? rows.get(e.fileId)?.owner, role: e.role ?? rows.get(e.fileId)?.role ?? '', when: e.openedAt, whenLabel: 'opened', local: true });
+    return [...rows.values()].sort((a, b) => b.when.localeCompare(a.when));
+  });
+  function forget(row: SharedRow): void {
+    const uid = account.user?.uid;
+    if (uid) sharedList.remove(uid, row.fileId);
+    shareInbox.hide(row.fileId);
+  }
   const ROLE: Record<string, string> = { writer: 'Can edit', commenter: 'Can comment', reader: 'Can view', owner: 'Yours' };
 
   /** "Open a shared design": Google Picker on Shared with me; picking grants the file, then it opens. */
@@ -226,6 +253,8 @@
   const sizeLabel = (p: Preset) => `${p.width} × ${p.height} ${p.unit}`;
 </script>
 
+{#if quick}<HomeQuick id={quick.id} title={quick.title} mode={quick.mode} store={library.store} onclose={() => { quick = null; void refresh(true); }} />{/if}
+
 <svelte:window ondragover={(e) => { if (e.dataTransfer?.types.includes('Files')) e.preventDefault(); }} ondrop={dropOnHome} onclick={() => { menuFor = null; showCreate = false; }} onkeydown={(e) => { if (e.key === 'Escape') { menuFor = null; showCreate = false; } }} />
 
 {#snippet card(p: ProjectMeta)}
@@ -261,7 +290,9 @@
             <a role="menuitem" href="#/d/{p.id}"><Icon name="expand" size={16} /> Open</a>
             <button role="menuitem" data-testid="card-rename" onclick={() => startRename(p)}><Icon name="pen" size={16} /> Rename</button>
             <button role="menuitem" data-testid="card-copy" onclick={() => copy(p)}><Icon name="copy" size={16} /> Make a copy</button>
-            <button role="menuitem" data-testid="card-download" onclick={() => downloadFile(p)}><Icon name="download" size={16} /> Download (.dcanvas)</button>
+            <button role="menuitem" data-testid="card-share" onclick={() => { menuFor = null; quick = { id: p.id, title: p.title, mode: 'share' }; }}><Icon name="share" size={16} /> Share</button>
+            <button role="menuitem" data-testid="card-export" onclick={() => { menuFor = null; quick = { id: p.id, title: p.title, mode: 'download' }; }}><Icon name="download" size={16} /> Download…</button>
+            <button role="menuitem" data-testid="card-download" onclick={() => downloadFile(p)}><Icon name="folder" size={16} /> Download (.dcanvas)</button>
             <hr />
             <button role="menuitem" class="danger" data-testid="card-trash" onclick={() => trash(p)}><Icon name="trash" size={16} /> Move to trash</button>
           </div>
@@ -451,14 +482,14 @@
             <div class="sh-item" data-testid="shared-item" data-file={e.fileId}>
               <a href="/d/{e.fileId}" onclick={(ev) => { ev.preventDefault(); router.go({ name: 'shared', fileId: e.fileId }); }} data-testid="shared-open-item">
                 <span class="sh-ic"><Icon name="user" size={18} /></span>
-                <span class="sh-t"><b title={e.title}>{e.title}</b><small>{e.owner ? `from ${e.owner} · ` : ''}{ROLE[e.role] ?? ''} · opened {timeAgo(e.openedAt)}</small></span>
+                <span class="sh-t"><b title={e.title}>{e.title}</b><small>{e.owner ? `from ${e.owner} · ` : ''}{ROLE[e.role] ?? ''} · {e.whenLabel} {timeAgo(e.when)}</small></span>
               </a>
-              <button class="kebab" aria-label="Remove {e.title} from this list" title="Remove from this list" onclick={() => sharedList.remove(e.uid, e.fileId)}><Icon name="close" size={14} /></button>
+              <button class="kebab" aria-label="Remove {e.title} from this list" title="Remove from this list" onclick={() => forget(e)}><Icon name="close" size={14} /></button>
             </div>
           {/each}
         </div>
       {:else}
-        <p class="muted" data-testid="shared-empty">Designs people share with you show up here once you open them: use the link in the email, or <b>Open a shared design</b> to pick one from Google Drive's “Shared with me”.</p>
+        <p class="muted" data-testid="shared-empty">{shareInbox.loading ? 'Looking for designs shared with you…' : 'Designs people share with you from Digital Canvas show up here. Shared one another way? Use the link in the email, or Open a shared design to pick it from Google Drive’s “Shared with me”.'}</p>
       {/if}
     </section>
   {/if}
